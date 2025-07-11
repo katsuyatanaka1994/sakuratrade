@@ -1,15 +1,20 @@
 from typing import Optional, List
+import uuid
 from datetime import datetime
-from enum import Enum
-from pydantic import BaseModel
+from fastapi import APIRouter, status
+from app.schemas import Alert, AlertType
 
-class AlertType(str, Enum):
-    TP = "TP"
-    SL = "SL"
+router = APIRouter(prefix="/alerts", tags=["alerts"])
 
-class Alert(BaseModel):
-    alert_id: Optional[int] = None
-    trade_id: int
-    type: AlertType
-    target_price: Optional[float] = None
-    triggered_at: Optional[datetime] = None
+@router.get("", response_model=List[Alert])
+async def list_alerts():
+    """ダミー: 空リストを返す"""
+    return []
+
+@router.post("", response_model=Alert, status_code=status.HTTP_201_CREATED)
+async def create_alert(payload: Alert):
+    """ダミー: 受信データを返しつつ ID と日時を補完"""
+    data = payload.model_dump()
+    data["alertId"] = str(data.get("alertId") or uuid.uuid4())
+    data["triggeredAt"] = data.get("triggeredAt") or datetime.utcnow().isoformat()
+    return Alert(**data)
