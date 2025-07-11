@@ -15,6 +15,6 @@ async def list_alerts():
 async def create_alert(payload: Alert):
     """ダミー: 受信データを返しつつ ID と日時を補完"""
     data = payload.model_dump()
-    data["alertId"] = str(data.get("alertId") or uuid.uuid4())
-    data["triggeredAt"] = data.get("triggeredAt") or datetime.utcnow().isoformat()
+    data["alert_id"] = data.get("alert_id") or 1
+    data["triggered_at"] = data.get("triggered_at") or datetime.utcnow()
     return Alert(**data)
