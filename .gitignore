@@ -1,0 +1,14 @@
+# ignore all build and environment files
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+*.pyo
+*.pyd
+
+# ignore patch and helper scripts
+backend.patch
+backend.sh
+
+# ignore editor and OS metadata
+.DS_Store
