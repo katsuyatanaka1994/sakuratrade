@@ -15,6 +15,6 @@ async def list_images():
 async def create_image(payload: Image):
     """ダミー: 受け取ったデータを返しつつIDと日時を補完"""
     data = payload.model_dump()
-    data["imageId"] = str(data.get("imageId") or uuid.uuid4())
+    data["imageId"]   = str(data.get("imageId")   or uuid.uuid4())
     data["uploadedAt"] = data.get("uploadedAt") or datetime.utcnow().isoformat()
     return Image(**data)
