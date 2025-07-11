@@ -1,79 +1,55 @@
 from __future__ import annotations
-
 from datetime import datetime
 from uuid import UUID
 from enum import Enum
+from typing import Optional, List
+from pydantic import BaseModel
 
-from pydantic import BaseModel, ConfigDict
-
-
-def to_camel(string: str) -> str:
-    parts = string.split('_')
-    return parts[0] + ''.join(word.capitalize() for word in parts[1:])
-
-
-class CamelModel(BaseModel):
-    model_config = ConfigDict(from_attributes=True, alias_generator=to_camel, populate_by_name=True)
-
+class User(BaseModel):
+    user_id: UUID
+    email: str
+    role: Optional[str] = None
+    plan: Optional[str] = None
 
 class Side(str, Enum):
     LONG = "LONG"
     SHORT = "SHORT"
 
-
-class AlertType(str, Enum):
-    TP = "TP"
-    SL = "SL"
-
-
-class RegisterRequest(CamelModel):
-    email: str
-    password: str
-
-
-class OAuthRequest(CamelModel):
-    provider_token: str
-
-
-class User(CamelModel):
-    user_id: UUID
-    email: str
-    role: str | None = None
-    plan: str | None = None
-
-
-class Trade(CamelModel):
+class Trade(BaseModel):
     trade_id: int
     user_id: UUID
     ticker: str
     side: Side
     price_in: float
-    price_out: float | None = None
+    price_out: Optional[float] = None
     size: float
     entered_at: datetime
-    exited_at: datetime | None = None
+    exited_at: Optional[datetime] = None
 
-
-class Image(CamelModel):
+class Image(BaseModel):
     image_id: int
     trade_id: int
     s3_url: str
-    thumbnail_url: str | None = None
+    thumbnail_url: Optional[str] = None
     uploaded_at: datetime
+    title: str
+    description: str
 
-
-class PatternResult(CamelModel):
+class PatternResult(BaseModel):
     pattern_id: int
     trade_id: int
     rule: str
     score: float
-    advice: str | None = None
+    advice: Optional[str] = None
     diagnosed_at: datetime
 
+class AlertType(str, Enum):
+    PRICE = "price"
+    VOLUME = "volume"
 
-class Alert(CamelModel):
+class Alert(BaseModel):
     alert_id: int
     trade_id: int
     type: AlertType
-    target_price: float
-    triggered_at: datetime | None = None
+    target_price: Optional[float] = None
+    triggered_at: Optional[datetime] = None
