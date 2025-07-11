@@ -1,6 +1,7 @@
+from __future__ import annotations
+from datetime import datetime
 from uuid import UUID
 from enum import Enum
-from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel
 
