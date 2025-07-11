@@ -53,13 +53,16 @@ class Trade(CamelModel):
     entered_at: datetime
     exited_at: datetime | None = None
 
-
+from typing import Optional
+from datetime import datetime
 class Image(CamelModel):
-    image_id: int
-    trade_id: int
-    s3_url: str
-    thumbnail_url: str | None = None
-    uploaded_at: datetime
+    image_id:      Optional[str]      = None
+    trade_id:      Optional[int]      = None
+    s3_url:        Optional[str]      = None
+    thumbnail_url: Optional[str]      = None
+    uploaded_at:   Optional[datetime] = None
+    title:         str                
+    description:   str                
 
 
 class PatternResult(CamelModel):
