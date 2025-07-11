@@ -1,14 +1,14 @@
-from enum import Enum
 from pydantic import BaseModel
 from datetime import datetime
+from enum import Enum
 
 class AlertType(str, Enum):
-    INFO = "INFO"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
+    PRICE = "price"
+    VOLUME = "volume"
 
 class Alert(BaseModel):
     alertId: str
     type: AlertType
     message: str
-    triggeredAt: datetime
+    target_price: float | None = None
+    triggered_at: datetime | None = None
