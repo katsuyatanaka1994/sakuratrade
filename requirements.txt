@@ -1,2 +1,9 @@
-streamlit==1.20.0
-openai
+fastapi
+uvicorn
+sqlalchemy>=2.0
+asyncpg
+alembic
+pydantic>=2
+httpx
+pytest
+trio
