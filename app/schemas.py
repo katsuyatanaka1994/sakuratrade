@@ -1,79 +1,35 @@
-from __future__ import annotations
-
+from fastapi import APIRouter, status
+from typing import List
+import uuid
 from datetime import datetime
-from uuid import UUID
+from app.schemas import Alert, AlertType
+
+router = APIRouter(prefix="/alerts", tags=["alerts"])
+
+@router.get("", response_model=List[Alert])
+async def list_alerts():
+    """ダミー: 空リストを返す"""
+    return []
+
+@router.post("", response_model=Alert, status_code=status.HTTP_201_CREATED)
+async def create_alert(payload: Alert):
+    """ダミー: 受信データを返しつつ ID と日時を補完"""
+    data = payload.model_dump()
+    data["alertId"] = str(data.get("alertId") or uuid.uuid4())
+    data["triggeredAt"] = data.get("triggeredAt") or datetime.utcnow().isoformat()
+    return Alert(**data)
+
 from enum import Enum
-
-from pydantic import BaseModel, ConfigDict
-
-
-def to_camel(string: str) -> str:
-    parts = string.split('_')
-    return parts[0] + ''.join(word.capitalize() for word in parts[1:])
-
-
-class CamelModel(BaseModel):
-    model_config = ConfigDict(from_attributes=True, alias_generator=to_camel, populate_by_name=True)
-
-
-class Side(str, Enum):
-    LONG = "LONG"
-    SHORT = "SHORT"
-
+from pydantic import BaseModel
+from datetime import datetime
 
 class AlertType(str, Enum):
-    TP = "TP"
-    SL = "SL"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
 
-
-class RegisterRequest(CamelModel):
-    email: str
-    password: str
-
-
-class OAuthRequest(CamelModel):
-    provider_token: str
-
-
-class User(CamelModel):
-    user_id: UUID
-    email: str
-    role: str | None = None
-    plan: str | None = None
-
-
-class Trade(CamelModel):
-    trade_id: int
-    user_id: UUID
-    ticker: str
-    side: Side
-    price_in: float
-    price_out: float | None = None
-    size: float
-    entered_at: datetime
-    exited_at: datetime | None = None
-
-
-class Image(CamelModel):
-    image_id: int
-    trade_id: int
-    s3_url: str
-    thumbnail_url: str | None = None
-    uploaded_at: datetime
-
-
-class PatternResult(CamelModel):
-    pattern_id: int
-    trade_id: int
-    rule: str
-    score: float
-    advice: str | None = None
-    diagnosed_at: datetime
-
-
-class Alert(CamelModel):
-    alert_id: int
-    trade_id: int
+class Alert(BaseModel):
+    alertId: str
     type: AlertType
-    target_price: float
-    triggered_at: datetime | None = None
+    message: str
+    triggeredAt: datetime
