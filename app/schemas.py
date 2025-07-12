@@ -1,7 +1,3 @@
-# Deleted file: app/.schemas.py.swp
-
-# Updated .gitignore (at repository root) to include:
-**/*.swp
 
 from __future__ import annotations
 from datetime import datetime
@@ -19,6 +15,8 @@ class User(BaseModel):
 class Side(str, Enum):
     BUY = "buy"
     SELL = "sell"
+    LONG = "LONG"
+    SHORT = "SHORT"
 
 class Trade(BaseModel):
     trade_id: int
