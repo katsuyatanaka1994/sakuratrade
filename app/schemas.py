@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
@@ -28,7 +27,20 @@ class Trade(BaseModel):
     exit_price: Optional[float] = None
     entry_at: datetime
     exit_at: Optional[datetime] = None
+    price_in: float
+    price_out: Optional[float] = None
+    size: float
+    entered_at: datetime
+    exited_at: Optional[datetime] = None
     description: str
+
+class Image(BaseModel):
+    image_id: int
+    trade_id: int
+    s3_url: str
+    thumbnail_url: Optional[str] = None
+    title: str
+    uploaded_at: datetime
 
 class PatternResult(BaseModel):
     pattern_id: int
