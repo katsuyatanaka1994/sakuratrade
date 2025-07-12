@@ -12,3 +12,4 @@ backend.sh
 
 # ignore editor and OS metadata
 .DS_Store
+*.swp
