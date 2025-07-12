@@ -41,6 +41,7 @@ class Image(BaseModel):
     thumbnail_url: Optional[str] = None
     title: str
     uploaded_at: datetime
+    description: str
 
 class PatternResult(BaseModel):
     pattern_id: int
