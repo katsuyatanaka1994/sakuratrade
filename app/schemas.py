@@ -12,27 +12,35 @@ class User(BaseModel):
     plan: Optional[str] = None
 
 class Side(str, Enum):
+    BUY = "buy"
+    SELL = "sell"
     LONG = "LONG"
     SHORT = "SHORT"
 
 class Trade(BaseModel):
     trade_id: int
     user_id: UUID
-    ticker: str
+    stock_code: str
     side: Side
+    quantity: int
+    entry_price: float
+    exit_price: Optional[float] = None
+    entry_at: datetime
+    exit_at: Optional[datetime] = None
     price_in: float
     price_out: Optional[float] = None
     size: float
     entered_at: datetime
     exited_at: Optional[datetime] = None
+    description: str
 
 class Image(BaseModel):
     image_id: int
     trade_id: int
     s3_url: str
     thumbnail_url: Optional[str] = None
-    uploaded_at: datetime
     title: str
+    uploaded_at: datetime
     description: str
 
 class PatternResult(BaseModel):
