@@ -29,18 +29,23 @@ class Trade(BaseModel):
     quantity: int
     entry_price: float
     exit_price: Optional[float] = None
+
+    entry_at: datetime
+    exit_at: Optional[datetime] = None
+    price_in: float
+    price_out: Optional[float] = None
+    size: float
     entered_at: datetime
     exited_at: Optional[datetime] = None
-    description: str
-
+    description: str 
 
 class Image(BaseModel):
     image_id: int
     trade_id: int
     s3_url: str
     thumbnail_url: Optional[str] = None
-    uploaded_at: datetime
     title: str
+    uploaded_at: datetime
     description: str
 
 
