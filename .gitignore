@@ -13,3 +13,6 @@ backend.sh
 # ignore editor and OS metadata
 .DS_Store
 *.swp
+
+# ignore node_modules
+node_modules/
