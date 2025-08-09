@@ -1,0 +1,12 @@
+{
+  "symbol": "DUMMY",
+  "entry_price": 1000,
+  "trend_check": "下降トレンド",
+  "rsi_overheat": "RSI高値圏",
+  "current_price": 995,
+  "recent_high": 1020,
+  "recent_low": 970,
+  "price_action": "陰線",
+  "volume_trend": "増加",
+  "sma_touch": true
+}

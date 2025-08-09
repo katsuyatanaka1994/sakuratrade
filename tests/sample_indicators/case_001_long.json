@@ -1,0 +1,20 @@
+{
+  "time": "10:15",
+  "trend_check": "✅ 上昇トレンド継続中（5MA > 20MA）",
+  "resistance_check": "高値圏で小休止後、直近高値を更新",
+  "ma_break_check": "ローソク足が5MAの上で推移中",
+  "rsi_check": "RSIが60〜70で推移中",
+  "volume_check": "出来高増加と共に陽線が出現",
+  "overall_assessment": "買い圧力が強く、押し目からの再上昇が見込まれる",
+  "scenario": "押し目買い → 高値更新狙い",
+  "entry_price": "7,620〜7,630円",
+  "stop_loss": "7,590円",
+  "target1": "7,670円（前日高値）",
+  "target2": "7,710円（ブレイク後の節目）",
+  "trailing_strategy": "高値更新後は5MAをトレール",
+  "caution1": "上ヒゲ＋陰線が出たら一旦撤退判断",
+  "caution2": "出来高が減少するようならエントリー見送り",
+  "long_judgement": "押し目買い型として有効",
+  "short_judgement": "条件未達",
+  "final_comment": "押し目からの再上昇局面。ルールに従えば勝負できる場面です。"
+}

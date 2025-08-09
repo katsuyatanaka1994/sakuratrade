@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Upload, 
   Send,
@@ -13,9 +13,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/U
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/UI/select';
 import Sidebar from './Sidebar';
 import ImageModal from './ImageModal';
-import RightPanePositions from '@/components/positions/RightPanePositions';
-import { entry as positionsEntry } from '@/store/positions';
-import { settle as positionsSettle } from '@/store/positions';
+import RightPanePositions from './positions/RightPanePositions';
+import AutocompleteSymbol from '@/components/AutocompleteSymbol';
+import { getLatestSymbolFromChat, ChatMsg } from '@/utils/symbols';
+import { entry as positionsEntry } from '../store/positions';
+import { settle as positionsSettle } from '../store/positions';
 
 // Helper function to get API URL - hardcoded for now to debug
 const getApiUrl = () => {
@@ -202,6 +204,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
   }, []);
   const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
+  const [autoFilled, setAutoFilled] = useState(false);
+  const [entryCode, setEntryCode] = useState('');
 
   // チャットデータの状態管理
   const [chats, setChats] = useState<Chat[]>([]);
@@ -228,7 +232,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   };
 
   // 新規チャット作成ハンドラー
-  const handleCreateNewChat = () => {
+  const handleCreateNewChat = useCallback(() => {
     const newChatId = `chat_${Date.now()}`;
     const defaultName = `新規チャット ${chats.length + 1}`;
     
@@ -247,7 +251,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // localStorageに保存
     localStorage.setItem("lastSelectedFile", defaultName);
     localStorage.setItem("currentChatId", newChatId);
-  };
+    
+    console.log('✨ New chat created with ID:', newChatId);
+  }, [chats.length]);
 
   // チャット選択ハンドラー
   const handleSelectChat = (chatId: string) => {
@@ -288,6 +294,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const [exitSide, setExitSide] = useState<'LONG'|'SHORT'|''>('');
   const [exitPrice, setExitPrice] = useState('');
   const [exitQuantity, setExitQuantity] = useState('');
+  const [exitChatId, setExitChatId] = useState<string>('');
   
   // 画像拡大モーダルの状態
   const [imageModalOpen, setImageModalOpen] = useState(false);
@@ -327,6 +334,35 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   // Chat messages state (initially empty)
   const [messages, setMessages] = useState<Message[]>([]);
 
+  // Modal open -> auto-fill latest symbol from chat context
+  useEffect(() => {
+    if (!isEntryModalOpen) return;
+    (async () => {
+      try {
+        const dict = await fetch('/data/symbols.json').then(r => r.json()).catch(() => []);
+        const msgs: ChatMsg[] = messages.map((m, idx) => ({
+          id: m.id,
+          chatId: currentChatId || 'default',
+          text: m.content.replace(/<[^>]*>/g, ''), // strip simple HTML tags
+          createdAt: idx,
+        }));
+        const code = getLatestSymbolFromChat(msgs, dict);
+        if (code) {
+          const it = (dict as any[]).find((d: any) => d.code === code);
+          if (it) {
+            setEntrySymbol(`${it.code} ${it.name}`);
+            setEntryCode(it.code);
+            setAutoFilled(true);
+          }
+        } else {
+          setAutoFilled(false);
+        }
+      } catch (_) {
+        // ignore
+      }
+    })();
+  }, [isEntryModalOpen]);
+
   // --- Load chats and current chat from localStorage on mount ---
   useEffect(() => {
     const savedChats = localStorage.getItem("allChats");
@@ -345,6 +381,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           setMessages(currentChat.messages || []);
         }
       }
+    } else {
+      // 初回起動時、チャットがない場合はデフォルトチャットを作成
+      handleCreateNewChat();
     }
   }, []);
 
@@ -362,6 +401,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       setExitSymbol(d.symbol || '');
       setExitSide(d.side || '');
       setExitQuantity(String(d.maxQty ?? ''));
+      setExitChatId(d.chatId || '');
       setIsExitModalOpen(true);
     };
     window.addEventListener('open-settle-from-card', h as EventListener);
@@ -660,7 +700,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     console.log('Entry:', { 
       price: price, 
       quantity: qty, 
-      positionType: entryPositionType 
+      positionType: entryPositionType,
+      currentChatId: currentChatId,
+      symbol: entrySymbol
     });
 
     // Retrieve user's configured TP/SL percentages from localStorage (default values if not set)
@@ -685,7 +727,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     ]);
 
     // 右カラムのストアを更新
-    positionsEntry(entrySymbol, entryPositionType === 'long' ? 'LONG' : 'SHORT', price, qty);
+    const chatIdForEntry = currentChatId || undefined;
+    console.log('🎯 Creating position with chatId:', chatIdForEntry);
+    positionsEntry(entryCode || entrySymbol, entryPositionType === 'long' ? 'LONG' : 'SHORT', price, qty, undefined, chatIdForEntry);
 
     // 利確・損切り目標価格計算とボットメッセージ
     const takeProfit = entryPositionType === 'long' 
@@ -725,6 +769,12 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       alert('決済はカードの「決済入力」から実行してください（銘柄・サイドが未選択）');
       return;
     }
+    
+    // チャットIDの検証
+    if (exitChatId && exitChatId !== currentChatId) {
+      alert('このポジションは他のチャットで建てられたため、決済できません');
+      return;
+    }
 
     const price = parseFloat(exitPrice);
     const qty = parseInt(exitQuantity, 10);
@@ -742,7 +792,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
     // 右カラムのストアに決済を通知
     try {
-      positionsSettle(exitSymbol, exitSide, price, qty);
+      positionsSettle(exitSymbol, exitSide, price, qty, exitChatId || currentChatId || undefined);
     } catch (e: any) {
       alert(e?.message || '決済に失敗しました');
       return;
@@ -820,6 +870,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     setIsExitModalOpen(false);
     setExitPrice('');
     setExitQuantity('');
+    setExitChatId('');
   };
 
 
@@ -938,8 +989,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         </div>
 
         {/* Right column for positions */}
-        <div className="w-[360px] shrink-0 border-l border-[#E5E7EB] bg-[#FAFAFA]">
-          <RightPanePositions />
+        <div className="w-[360px] shrink-0 border-l border-[#E5E7EB] bg-[#E9F7F6]">
+          <RightPanePositions chatId={currentChatId} />
         </div>
       </div>
 
@@ -952,11 +1003,12 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         <div className="mt-4 space-y-4">
           <div>
             <Label className="text-sm text-[#374151] mb-2 block">銘柄</Label>
-            <Input
-              placeholder="例: 5803.T"
+            <AutocompleteSymbol
               value={entrySymbol}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEntrySymbol(e.target.value)}
-              className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB] bg-[#F6F6F6]"
+              onChange={(v)=>{ setEntrySymbol(v); setAutoFilled(false);} }
+              onSelect={(item:any)=>{ setEntrySymbol(`${item.code} ${item.name}`); setEntryCode(item.code); setAutoFilled(false);} }
+              placeholder="銘柄コードまたは名称"
+              autoBadge={autoFilled}
             />
           </div>
           <div>
@@ -965,7 +1017,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
               <SelectTrigger className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB]">
                 <SelectValue placeholder="選択してください" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[10000] bg-white border border-gray-200 shadow-lg">
                 <SelectItem value="long">
                   <div className="flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-[#16A34A]" />
@@ -1021,7 +1073,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         title="決済入力"
       >
         <div className="mt-4 space-y-4">
-          <div className="text-xs text-zinc-500">{exitSymbol} / {exitSide || '未選択'}</div>
+          <div className="text-xs text-zinc-500">{exitSymbol} / {exitSide || '未選択'} {exitChatId && exitChatId !== currentChatId ? '⚠️ 他チャット' : ''}</div>
           <div>
             <Label className="text-sm text-[#374151] mb-2 block">価格</Label>
             <Input

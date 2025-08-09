@@ -31,8 +31,8 @@ describe('validateSettle', () => {
 });
 
 describe('formatLSHeader', () => {
-  it('both', () => expect(formatLSHeader(140, 100)).toBe('L:140 / S:100'));
-  it('long only', () => expect(formatLSHeader(200, 0)).toBe('L:200'));
-  it('short only', () => expect(formatLSHeader(0, 50)).toBe('S:50'));
-  it('zero guard', () => expect(formatLSHeader(0, 0)).toBe('L:0 / S:0'));
+  it('both', () => expect(formatLSHeader(140, 100)).toBe('L:ロング / S:ショート'));
+  it('long only', () => expect(formatLSHeader(200, 0)).toBe('L:ロング'));
+  it('short only', () => expect(formatLSHeader(0, 50)).toBe('S:ショート'));
+  it('zero guard', () => expect(formatLSHeader(0, 0)).toBe('L:ロング / S:ショート'));
 });

@@ -27,13 +27,18 @@ class Trade(Base):
 
     trade_id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.user_id"))
+    stock_code: Mapped[str]
     ticker: Mapped[str]
     side: Mapped[str]
+    quantity: Mapped[int]
     price_in: Mapped[float]
+    entry_price: Mapped[float]
     price_out: Mapped[float | None]
     size: Mapped[float]
+    # 入力時刻（entry_at ではなく entered_at が正しいフィールド名）
     entered_at: Mapped[datetime]
     exited_at: Mapped[datetime | None]
+    description: Mapped[str]
 
     user: Mapped[User] = relationship(back_populates="trades")
     images: Mapped[list[Image]] = relationship(back_populates="trade")
@@ -45,7 +50,7 @@ class Image(Base):
     __tablename__ = "images"
 
     image_id: Mapped[int] = mapped_column(primary_key=True)
-    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.trade_id"))
+    trade_id: Mapped[UUID] = mapped_column(ForeignKey("trades.trade_id"))
     s3_url: Mapped[str]
     thumbnail_url: Mapped[str | None]
     uploaded_at: Mapped[datetime]
@@ -57,7 +62,7 @@ class PatternResult(Base):
     __tablename__ = "pattern_results"
 
     pattern_id: Mapped[int] = mapped_column(primary_key=True)
-    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.trade_id"))
+    trade_id: Mapped[UUID] = mapped_column(ForeignKey("trades.trade_id"))
     rule: Mapped[str]
     score: Mapped[float]
     advice: Mapped[str | None]
@@ -70,7 +75,7 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     alert_id: Mapped[int] = mapped_column(primary_key=True)
-    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.trade_id"))
+    trade_id: Mapped[UUID] = mapped_column(ForeignKey("trades.trade_id"))
     type: Mapped[str]
     target_price: Mapped[float]
     triggered_at: Mapped[datetime | None]

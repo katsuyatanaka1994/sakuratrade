@@ -2,7 +2,7 @@ from fastapi import APIRouter, status
 from typing import List
 import uuid
 from datetime import datetime
-from app.schemas import PatternResult
+from schemas import PatternResult
 
 router = APIRouter(prefix="/patterns", tags=["patterns"])
 

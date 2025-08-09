@@ -1,8 +1,17 @@
-from fastapi import APIRouter, status
-from pydantic import BaseModel
-from typing import Optional
-import uuid
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
+from sqlalchemy.future import select
+from pydantic import BaseModel, Field
+from typing import Optional, List, Union
 from datetime import datetime
+import uuid
+from uuid import UUID
+
+from models import Trade
+from schemas import TradeCreate
+from database import get_db
+from deps import get_session
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 
@@ -15,13 +24,58 @@ class TradeIn(BaseModel):
     size: float
     enteredAt: datetime
 
-class TradeOut(TradeIn):
-    tradeId: str
+class TradeOut(BaseModel):
+    tradeId: Union[int, UUID] = Field(..., alias="trade_id")
+    ticker: str
+    userId: UUID = Field(..., alias="user_id")
+    side: str
+    priceIn: float = Field(..., alias="price_in")
+    size: float
+    enteredAt: datetime = Field(..., alias="entered_at")
+    stock_code: str
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
 
 @router.post("", response_model=TradeOut, status_code=status.HTTP_201_CREATED)
-async def create_trade(payload: TradeIn):
-    """MVP 用スタブ実装 — tradeId が重複しないよう上書き／生成して返す。"""
-    data = payload.model_dump()
-# ① tradeId が来ていれば str 型に変換、無ければ UUID を発行
-    data["tradeId"] = str(data.get("tradeId") or uuid.uuid4())
-    return TradeOut(**data)
+async def create_trade(payload: TradeIn, session: AsyncSession = Depends(get_session)):
+    new_trade = Trade(
+        trade_id=uuid.uuid4(),
+        user_id=payload.userId,
+        ticker=payload.ticker,
+        side=payload.side,
+        price_in=payload.priceIn,
+        size=payload.size,
+        entered_at=payload.enteredAt
+    )
+    session.add(new_trade)
+    await session.commit()
+    await session.refresh(new_trade)
+    return TradeOut.model_validate(new_trade)
+
+@router.get("", response_model=List[TradeOut])
+async def get_trades(session: AsyncSession = Depends(get_session)):
+    stmt = select(Trade)
+    result = await session.execute(stmt)
+    trades = result.scalars().all()
+    return trades
+
+@router.post("/save", response_model=TradeOut, status_code=status.HTTP_201_CREATED)
+def save_trade(trade: TradeCreate, db: Session = Depends(get_db)):
+    db_trade = Trade(
+        user_id=trade.user_id,
+        stock_code=trade.stock_code,
+        ticker=trade.ticker,
+        side=trade.side,
+        quantity=trade.quantity,
+        entry_price=trade.entry_price,
+        entered_at=trade.entered_at,
+        price_in=trade.price_in,
+        size=trade.size,
+        description=trade.description
+    )
+    db.add(db_trade)
+    db.commit()
+    db.refresh(db_trade)
+    return TradeOut.model_validate(db_trade)

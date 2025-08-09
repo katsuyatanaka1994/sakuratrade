@@ -1,0 +1,30 @@
+{
+  "indicators": {
+    "symbol": "TEST",
+    "current_price": 7450,
+    "recent_high": 7480,
+    "recent_low": 7370,
+    "rsi_overheat": "RSI高値圏",
+    "price_action": "陰線",
+    "volume_trend": "増加",
+    "sma_touch": true,
+    "time": "9:55",
+    "trend_check": "下降トレンド",
+    "resistance_check": "戻り高値に届かず陰線で反落",
+    "ma_break_check": "陰線が5MAを下抜け",
+    "rsi_check": "RSIが55から40割れに向かって下落中",
+    "volume_check": "売り圧力と一致する出来高の増加",
+    "overall_assessment": "戻り売りとしてリスク限定のショートが可能",
+    "scenario": "戻り売り → 再下落狙い",
+    "entry_price": 7450,
+    "stop_loss": 7480,
+    "target1": 7410,
+    "target2": 7370,
+    "trailing_strategy": "5MAに沿って利を伸ばす",
+    "caution1": "高値をブレイクしたら即撤退",
+    "caution2": "陽線が連続したらトレンド転換を疑う",
+    "long_judgement": "条件未達・下降トレンド中",
+    "short_judgement": "戻り売りの典型形",
+    "final_comment": "戻り売りのショートエントリーに適した形です。ルール通りのエントリーが有効です。"
+  }
+}

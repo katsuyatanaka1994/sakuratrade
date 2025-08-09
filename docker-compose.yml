@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: gptset_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app
+    environment:
+      DATABASE_URL_SYNC: postgresql://postgres:password@db:5432/gptset_dev
+      DATABASE_URL: postgresql+asyncpg://postgres:password@db:5432/gptset_dev
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules  # node_modules をコンテナ内に保持
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true  # ホットリロード有効化
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

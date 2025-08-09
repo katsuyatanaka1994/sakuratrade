@@ -1,18 +1,7 @@
-
-from __future__ import annotations
-from datetime import datetime
-from uuid import UUID
-from enum import Enum
-from typing import Optional, List
 from pydantic import BaseModel
-
-
-class User(BaseModel):
-    user_id: UUID
-    email: str
-    role: Optional[str] = None
-    plan: Optional[str] = None
-
+from enum import Enum
+from uuid import UUID
+from datetime import datetime
 
 class Side(str, Enum):
     BUY = "buy"
@@ -20,75 +9,90 @@ class Side(str, Enum):
     LONG = "LONG"
     SHORT = "SHORT"
 
-
-class Trade(BaseModel):
-    trade_id: int
+class TradeCreate(BaseModel):
     user_id: UUID
     stock_code: str
+    ticker: str
     side: Side
     quantity: int
     entry_price: float
-    exit_price: Optional[float] = None
-
-    entry_at: datetime
-    exit_at: Optional[datetime] = None
     price_in: float
-    price_out: Optional[float] = None
     size: float
     entered_at: datetime
-    exited_at: Optional[datetime] = None
-    description: str 
+    description: str
+
+class TradeResponse(BaseModel):
+    trade_id: int
+    user_id: UUID
+    stock_code: str
+    ticker: str
+    side: Side
+    quantity: int
+    price_in: float
+    entry_price: float
+    size: float
+    entered_at: datetime
+    description: str
+
+    class Config:
+        orm_mode = True
+
+class User(BaseModel):
+    user_id: UUID
+    email: str
+    role: str | None = None
+    plan: str | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class LoginResponse(BaseModel):
+    token: str
+    user: User
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+class OAuthRequest(BaseModel):
+    provider: str
+    token: str
 
 class Image(BaseModel):
     image_id: int
     trade_id: int
     s3_url: str
-    thumbnail_url: Optional[str] = None
-    title: str
+    thumbnail_url: str | None = None
     uploaded_at: datetime
+    title: str
     description: str
 
+    class Config:
+        orm_mode = True
 
 class PatternResult(BaseModel):
     pattern_id: int
     trade_id: int
     rule: str
     score: float
-    advice: Optional[str] = None
+    advice: str | None = None
     diagnosed_at: datetime
 
+    class Config:
+        orm_mode = True
 
 class AlertType(str, Enum):
     PRICE = "price"
     VOLUME = "volume"
 
-
 class Alert(BaseModel):
     alert_id: int
     trade_id: int
     type: AlertType
-    target_price: Optional[float] = None
-    triggered_at: Optional[datetime] = None
+    target_price: float
+    triggered_at: datetime | None = None
 
-
-# Login schemas for authentication
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class LoginResponse(BaseModel):
-    token: str
-    user: User
-
-
-# Registration schema
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
-
-
-# OAuth request schema
-class OAuthRequest(BaseModel):
-    provider: str
-    token: str
+    class Config:
+        orm_mode = True

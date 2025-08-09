@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Advice Result</title>
+</head>
+<body>
+    <h1>エントリーアドバイス</h1>
+    <p>銘柄: {{ data.symbol }}</p>
+    <p>エントリー価格: {{ data.entry_price }}</p>
+
+    <div class="advice-box">
+        {% if data.pattern_name %}
+          <h3>📌 パターン名：{{ data.pattern_name }}</h3>
+        {% endif %}
+
+        {% if data.pattern_score is not none %}
+          <p>スコア：{{ data.pattern_score }}</p>
+        {% endif %}
+        <div>
+            {{ data.advice_html | safe }}
+        </div>
+    </div>
+    <style>
+    .advice-box {
+        border: 1px solid #ccc;
+        padding: 1em;
+        margin-top: 1em;
+        background: #f9f9f9;
+    }
+    </style>
+</body>
+</html>

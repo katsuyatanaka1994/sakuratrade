@@ -32,5 +32,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: [],
+  },
+  esbuild: {
+    target: 'es2020',
   }
 })

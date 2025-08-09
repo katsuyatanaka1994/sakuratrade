@@ -1,0 +1,98 @@
+import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Button } from './ui/button';
+import { Settings, Grid3X3, Copy } from 'lucide-react';
+
+interface HeaderProps {
+  onToggleFileList?: () => void;
+  onNewChat?: () => void;
+  isFileListVisible?: boolean;
+}
+
+export default function Header({ onToggleFileList, onNewChat, isFileListVisible }: HeaderProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const isActive = (path: string) => {
+    return location.pathname === path;
+  };
+
+  const handleNavigation = (path: string) => {
+    navigate(path);
+  };
+
+  return (
+    <header className="bg-white border-b border-gray-200 h-16">
+      <div className="h-full flex items-center justify-between px-6">
+        {/* Left side - Logo and Navigation */}
+        <div className="flex items-center gap-8">
+          {/* Logo */}
+          <div className="flex items-center gap-4">
+            <span className="text-xl font-bold text-gray-900">SakuraTrade</span>
+            
+            {/* Trade Chat Icons - Only show on trade page */}
+            {location.pathname === '/trade' && (
+              <div className="flex items-center gap-2 ml-4">
+                <button
+                  onClick={onToggleFileList}
+                  className="p-1.5 hover:bg-gray-100 rounded transition-colors"
+                  title={isFileListVisible ? "ファイルリストを非表示" : "ファイルリストを表示"}
+                >
+                  <Grid3X3 className="w-4 h-4 text-gray-600" />
+                </button>
+                <button
+                  onClick={onNewChat}
+                  className="p-1.5 hover:bg-gray-100 rounded transition-colors"
+                  title="新規チャット作成"
+                >
+                  <Copy className="w-4 h-4 text-gray-600" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Navigation Tabs */}
+          <nav className="flex items-center gap-2">
+            <Button
+              variant={isActive('/dashboard') ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => handleNavigation('/dashboard')}
+              className={`h-8 px-4 rounded-full ${
+                isActive('/dashboard') 
+                  ? 'bg-[#5ED0E8] text-white hover:bg-[#5ED0E8]/90' 
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              ダッシュボード
+            </Button>
+            
+            <Button
+              variant={isActive('/trade') ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => handleNavigation('/trade')}
+              className={`h-8 px-4 rounded-full ${
+                isActive('/trade') 
+                  ? 'bg-[#5ED0E8] text-white hover:bg-[#5ED0E8]/90' 
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              トレードチャット
+            </Button>
+          </nav>
+        </div>
+
+        {/* Right side - Settings */}
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleNavigation('/settings')}
+            className="w-8 h-8 p-0 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+          >
+            <Settings className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    </header>
+  );
+}

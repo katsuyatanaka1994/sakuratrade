@@ -8,8 +8,8 @@ export function validateSettle(priceInput: string, qtyInput: string, maxQty: num
 }
 
 export function formatLSHeader(long: number, short: number) {
-  if (long > 0 && short > 0) return `L:${long} / S:${short}`;
-  if (long > 0) return `L:${long}`;
-  if (short > 0) return `S:${short}`;
-  return 'L:0 / S:0';
+  if (long > 0 && short > 0) return `L:ロング / S:ショート`;
+  if (long > 0) return `L:ロング`;
+  if (short > 0) return `S:ショート`;
+  return 'L:ロング / S:ショート';
 }

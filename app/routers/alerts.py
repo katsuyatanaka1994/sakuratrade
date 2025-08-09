@@ -2,7 +2,7 @@ from typing import Optional, List
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, status
-from app.schemas import Alert, AlertType
+from schemas import Alert, AlertType
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
