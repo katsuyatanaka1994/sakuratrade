@@ -33,12 +33,18 @@ services:
       - "3001:3000"
     volumes:
       - ./frontend:/app
-      - /app/node_modules  # node_modules をコンテナ内に保持
+      - node_modules_frontend:/app/node_modules  # node_modules をコンテナ内に保持
     environment:
       - NODE_ENV=development
-      - CHOKIDAR_USEPOLLING=true  # ホットリロード有効化
+      - CHOKIDAR_USEPOLLING=true
+      - WDS_SOCKET_PORT=0
+      - REACT_APP_WDS_SOCKET_PORT=0
+      - FAST_REFRESH=false
+      - GENERATE_SOURCEMAP=false
+      - WATCHPACK_POLLING=true
     depends_on:
       - backend
 
 volumes:
   postgres_data:
+  node_modules_frontend:
