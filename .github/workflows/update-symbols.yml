@@ -1,0 +1,155 @@
+name: Update JPX Symbols Data
+
+on:
+  # 毎月1日の午前3時（JST）に実行
+  schedule:
+    - cron: '0 18 1 * *'  # UTC 18:00 = JST 03:00 (next day)
+  
+  # 手動実行も可能
+  workflow_dispatch:
+
+jobs:
+  update-symbols:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Python dependencies
+        run: |
+          pip install pandas openpyxl jaconv requests beautifulsoup4
+      
+      - name: Download JPX Excel file
+        run: |
+          # JPXのWebサイトから最新のExcelファイルをダウンロード
+          # 注意: JPXのサイトのURLが変わる可能性があるため、定期的にチェックが必要
+          mkdir -p data
+          
+          # JPXの「データ活用」→「基本情報」→「上場銘柄一覧」のURLを使用
+          # 直接リンクが変わった場合は手動でURLを更新する必要があります
+          JPX_URL="https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
+          
+          # curlでExcelファイルをダウンロード
+          curl -L -o data/jpx_data.xls "$JPX_URL" || {
+            echo "Error: Failed to download JPX data. URL may have changed."
+            echo "Please check JPX website: https://www.jpx.co.jp/markets/statistics-equities/misc/01.html"
+            exit 1
+          }
+          
+          # ファイルサイズをチェック（空ファイルでないことを確認）
+          if [ ! -s data/jpx_data.xls ]; then
+            echo "Error: Downloaded file is empty"
+            exit 1
+          fi
+          
+          echo "Successfully downloaded JPX data file"
+          ls -la data/jpx_data.xls
+      
+      - name: Generate symbols.json
+        run: |
+          python scripts/generate_symbols.py data/jpx_data.xls -o frontend/public/data/symbols.json
+          
+          # 生成されたファイルの確認
+          if [ ! -f frontend/public/data/symbols.json ]; then
+            echo "Error: symbols.json was not generated"
+            exit 1
+          fi
+          
+          # ファイルサイズとエントリ数をチェック
+          file_size=$(stat -c%s frontend/public/data/symbols.json)
+          entry_count=$(jq length frontend/public/data/symbols.json)
+          
+          echo "Generated symbols.json:"
+          echo "  File size: $file_size bytes"
+          echo "  Number of entries: $entry_count"
+          
+          # 最低限のエントリ数をチェック（3000銘柄以上を期待）
+          if [ "$entry_count" -lt 3000 ]; then
+            echo "Warning: Entry count is lower than expected ($entry_count < 3000)"
+            echo "This may indicate an issue with the data source"
+          fi
+      
+      - name: Check for changes
+        id: check-changes
+        run: |
+          # Gitの変更をチェック
+          git diff --quiet frontend/public/data/symbols.json || echo "changed=true" >> $GITHUB_OUTPUT
+          
+          # 変更があった場合の詳細情報
+          if ! git diff --quiet frontend/public/data/symbols.json; then
+            echo "Changes detected in symbols.json:"
+            git diff --stat frontend/public/data/symbols.json
+            
+            # 新旧のエントリ数を比較
+            if [ -f frontend/public/data/symbols.json ]; then
+              old_count=$(git show HEAD:frontend/public/data/symbols.json | jq length)
+              new_count=$(jq length frontend/public/data/symbols.json)
+              echo "Entry count change: $old_count → $new_count"
+            fi
+          else
+            echo "No changes detected in symbols.json"
+          fi
+      
+      - name: Commit and push changes
+        if: steps.check-changes.outputs.changed == 'true'
+        run: |
+          # Gitの設定
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # 変更をコミット
+          git add frontend/public/data/symbols.json
+          
+          # コミットメッセージに日付と統計情報を含める
+          entry_count=$(jq length frontend/public/data/symbols.json)
+          current_date=$(date '+%Y-%m-%d')
+          
+          git commit -m "feat: update JPX symbols data ($current_date)
+
+Automated update of symbols.json from JPX data
+- Total symbols: $entry_count
+- Updated: $current_date
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+          
+          # プッシュ
+          git push
+      
+      - name: Create summary
+        run: |
+          echo "## Symbols Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.check-changes.outputs.changed }}" == "true" ]; then
+            entry_count=$(jq length frontend/public/data/symbols.json)
+            echo "✅ **Status:** Updated successfully" >> $GITHUB_STEP_SUMMARY
+            echo "📊 **Total symbols:** $entry_count" >> $GITHUB_STEP_SUMMARY
+            echo "🔄 **Changes:** Committed and pushed to repository" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ **Status:** No changes detected" >> $GITHUB_STEP_SUMMARY
+            echo "📊 **Current symbols:** $(jq length frontend/public/data/symbols.json)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Sample data:**" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          jq '.[0:3]' frontend/public/data/symbols.json >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          # 一時ファイルのクリーンアップ
+          rm -rf data/
