@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/UI/button';
-import { Input } from '@/components/UI/input';
-import { Label } from '@/components/UI/label';
-import { Checkbox } from '@/components/UI/checkbox';
-import { Separator } from '@/components/UI/separator';
+import { Button } from './UI/button';
+import { Input } from './UI/input';
+import { Label } from './UI/label';
+import { Checkbox } from './UI/checkbox';
+import { Separator } from './UI/separator';
 
 export default function Login() {
   const navigate = useNavigate();

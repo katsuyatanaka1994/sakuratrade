@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Button } from '@/components/UI/button';
+import { Button } from './UI/button';
 import { Settings } from 'lucide-react';
 
 export default function Header() {

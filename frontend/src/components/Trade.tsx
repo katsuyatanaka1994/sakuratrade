@@ -6,16 +6,19 @@ import {
   TrendingDown
 } from 'lucide-react';
 import { marked } from "marked";
-import { Button } from '@/components/UI/button';
-import { Input } from '@/components/UI/input';
-import { Label } from '@/components/UI/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/UI/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/UI/select';
+import { Button } from './UI/button';
+import { Input } from './UI/input';
+import { Label } from './UI/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './UI/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './UI/select';
 import Sidebar from './Sidebar';
 import ImageModal from './ImageModal';
 import RightPanePositions from './positions/RightPanePositions';
-import AutocompleteSymbol from '@/components/AutocompleteSymbol';
-import { getLatestSymbolFromChat, ChatMsg } from '@/utils/symbols';
+import AutocompleteSymbol from './AutocompleteSymbol';
+import { getLatestSymbolFromChat, loadSymbols } from '../utils/symbols';
+import type { ChatMsg } from '../utils/symbols';
+import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
+import { useToast } from './ToastContainer';
 import { entry as positionsEntry } from '../store/positions';
 import { settle as positionsSettle } from '../store/positions';
 
@@ -23,6 +26,25 @@ import { settle as positionsSettle } from '../store/positions';
 const getApiUrl = () => {
   console.log('🔧 getApiUrl called');
   return "http://localhost:8000";
+};
+
+// Helper function to extract stock name from user message
+const extractStockName = (message: string): string | null => {
+  // Simple regex to extract 4-digit codes or company names
+  const codeMatch = message.match(/(\d{4})/);
+  if (codeMatch) {
+    return `Stock ${codeMatch[1]}`;
+  }
+  
+  // Extract Japanese company names (katakana/hiragana/kanji)
+  const nameMatch = message.match(/([ぁ-ゟァ-ヿ一-龯]+)/g);
+  if (nameMatch && nameMatch.length > 0) {
+    // Return the first meaningful word that's longer than 1 character
+    const meaningfulName = nameMatch.find(name => name.length > 1 && !['について', 'です', 'ます', 'した'].includes(name));
+    return meaningfulName || null;
+  }
+  
+  return null;
 };
 
 // Message interface for chat
@@ -196,64 +218,248 @@ interface TradeProps {
 }
 
 const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelectedFile }) => {
+  // Hooks first
+  const { showToast } = useToast();
+  
+  // State declarations first
+  const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
+  const [autoFilled, setAutoFilled] = useState(false);
+  const [entryCode, setEntryCode] = useState('');
+  
+  // 銘柄自動入力関連の状態
+  const [symbolInputMode, setSymbolInputMode] = useState<'auto' | 'manual'>('auto');
+  const [autoSymbolBadge, setAutoSymbolBadge] = useState(false);
+  const [symbolInput, setSymbolInput] = useState('');
+
+  // チャットデータの状態管理
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isCreatingChat, setIsCreatingChat] = useState(false); // チャット作成中フラグ
+
   // Restore last selected file on mount
   useEffect(() => {
     const lastFile = localStorage.getItem("lastSelectedFile");
     if (lastFile) {
       setSelectedFile(lastFile);
     }
-  }, []);
-  const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
-  const [autoFilled, setAutoFilled] = useState(false);
-  const [entryCode, setEntryCode] = useState('');
+  }, [setSelectedFile]);
 
-  // チャットデータの状態管理
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
-
-  // 銘柄名を抽出する関数
-  const extractStockName = (message: string): string | null => {
-    // 日本の一般的な銘柄名パターン（優先順位順）
-    const stockPatterns = [
-      /\b(\d{4})\b/g, // 証券コード（4桁数字）
-      /([ァ-ヶー]{2,10})/g, // カタカナ企業名（2-10文字）
-      /([一-龯]{2,6}(?:銀行|電力|製作所|自動車|グループ|工業|商事|物産|建設|不動産|証券|保険|鉄道|航空|化学|製薬|食品|小売|通信))/g, // 漢字+業界名
-      /([A-Z][a-zA-Z]{2,15})/g, // アルファベット企業名
-      /(トヨタ|ソニー|パナソニック|任天堂|ソフトバンク|NTT|KDDI|三菱|三井|住友|みずほ|りそな|野村|大和|日本郵政|楽天|ファーストリテイリング|ユニクロ|セブンイレブン|イオン|武田薬品|花王|資生堂|キヤノン|富士通|日立|東芝|マツダ|ホンダ|日産|スズキ|ダイハツ)/g // 有名企業名
-    ];
+  // 銘柄自動入力のhookとロジック
+  const { ready: symbolsReady, findByCode } = useSymbolSuggest();
+  
+  // チャット文脈から銘柄を自動検出・入力する関数
+  const updateSymbolFromChat = useCallback(async () => {
+    if (symbolInputMode !== 'auto' || !currentChatId || !symbolsReady || !messages || messages.length === 0) return;
     
-    for (const pattern of stockPatterns) {
-      const matches = message.match(pattern);
-      if (matches && matches.length > 0) {
-        return matches[0];
+    try {
+      console.log('🔍 銘柄自動検出開始:', { currentChatId, messageCount: messages.length });
+      
+      // 銘柄辞書をロード
+      const symbolDict = await loadSymbols();
+      if (symbolDict.length === 0) {
+        console.log('❌ 銘柄辞書が空です');
+        return;
+      }
+      
+      // 現在のチャットのメッセージをChatMsg形式に変換（HTMLタグを除去）
+      const chatMessages: ChatMsg[] = messages.map((msg, index) => ({
+        id: msg.id,
+        chatId: currentChatId,
+        text: msg.content.replace(/<[^>]*>/g, ''), // HTMLタグを除去
+        createdAt: Date.now() - (messages.length - index - 1) * 1000 // 新しいメッセージほど大きな値
+      }));
+      
+      // 最新の銘柄を検出
+      const detectedCode = getLatestSymbolFromChat(chatMessages, symbolDict);
+      console.log('🎯 検出された銘柄コード:', detectedCode);
+      
+      if (detectedCode) {
+        const symbolInfo = findByCode(detectedCode);
+        if (symbolInfo) {
+          const displayText = `${symbolInfo.name}（${symbolInfo.code}）`;
+          console.log('✅ 銘柄自動入力:', displayText);
+          
+          setSymbolInput(displayText);
+          setAutoSymbolBadge(true);
+          
+          // setSelectedFileも更新（既存の動作を維持）
+          setSelectedFile(displayText);
+        } else {
+          console.log('❌ 銘柄情報が見つかりません:', detectedCode);
+        }
+      } else {
+        console.log('❌ 銘柄コードが検出されませんでした');
+        // 自動入力状態をクリア
+        setSymbolInput('');
+        setAutoSymbolBadge(false);
+      }
+    } catch (error) {
+      console.error('❌ 銘柄自動検出エラー:', error);
+    }
+  }, [symbolInputMode, currentChatId, symbolsReady, messages, findByCode, setSelectedFile]);
+  
+  // メッセージが追加された時に銘柄を自動検出（少し遅延させてDOM更新後に実行）
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      updateSymbolFromChat();
+    }, 200);
+    
+    return () => clearTimeout(timer);
+  }, [updateSymbolFromChat]);
+  
+  // 自動検出された銘柄をentrySymbolに反映
+  useEffect(() => {
+    if (symbolInputMode === 'auto' && symbolInput && autoSymbolBadge) {
+      setEntrySymbol(symbolInput);
+      // コードも抽出してセット
+      const codeMatch = symbolInput.match(/（(\d{4})）/);
+      if (codeMatch) {
+        setEntryCode(codeMatch[1]);
       }
     }
-    return null;
-  };
+  }, [symbolInput, autoSymbolBadge, symbolInputMode]);
+
+  // 既存のローカルチャットをバックエンドに同期する関数
+  const syncLocalChatsToBackend = useCallback(async () => {
+    const localChats = chats.filter(chat => chat.id.startsWith('chat_'));
+    if (localChats.length === 0) return;
+
+    console.log(`🔄 ${localChats.length}個のローカルチャットをバックエンドに同期中...`);
+
+    for (const localChat of localChats) {
+      try {
+        const response = await fetch(`${getApiUrl()}/chats/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: localChat.name,
+            messages_json: JSON.stringify(localChat.messages || [])
+          }),
+        });
+
+        if (response.ok) {
+          const createdChat = await response.json();
+          
+          // ローカルチャットを新しいUUIDで置き換え
+          setChats(prevChats => prevChats.map(chat => 
+            chat.id === localChat.id 
+              ? { ...chat, id: createdChat.id }
+              : chat
+          ));
+
+          // 現在選択中のチャットなら更新
+          if (currentChatId === localChat.id) {
+            setCurrentChatId(createdChat.id);
+            localStorage.setItem("currentChatId", createdChat.id);
+          }
+
+          console.log(`✅ ローカルチャット ${localChat.name} を ${createdChat.id} に同期`);
+        }
+      } catch (error) {
+        console.error(`❌ チャット ${localChat.name} の同期エラー:`, error);
+      }
+    }
+  }, [chats, currentChatId]);
+
+  // ローカルチャット同期は手動で必要に応じて実行
+  // （無限ループを防ぐため自動実行は削除）
+
+  // ユニークなチャット名を生成する関数
+  const generateUniqueChatName = useCallback((existingChats: Chat[]) => {
+    // 既存のチャット名から「新規チャット X」の番号を抽出
+    const existingNumbers = existingChats
+      .map(chat => {
+        const match = chat.name.match(/^新規チャット (\d+)$/);
+        return match ? parseInt(match[1], 10) : 0;
+      })
+      .filter(num => num > 0);
+    
+    // 最大番号 + 1 を使用、なければ1
+    const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+    return `新規チャット ${nextNumber}`;
+  }, []);
 
   // 新規チャット作成ハンドラー
-  const handleCreateNewChat = useCallback(() => {
-    const newChatId = `chat_${Date.now()}`;
-    const defaultName = `新規チャット ${chats.length + 1}`;
+  const handleCreateNewChat = useCallback(async () => {
+    // 既に作成中の場合は無視
+    if (isCreatingChat) {
+      console.log('⚠️ チャット作成中のため、新規作成をスキップ');
+      return;
+    }
     
-    const newChat: Chat = {
-      id: newChatId,
-      name: defaultName,
-      messages: [],
-      updatedAt: new Date().toISOString()
-    };
+    setIsCreatingChat(true);
     
-    setChats(prevChats => [newChat, ...prevChats]);
-    setCurrentChatId(newChatId);
-    setSelectedFile(defaultName);
-    setMessages([]);
-    
-    // localStorageに保存
-    localStorage.setItem("lastSelectedFile", defaultName);
-    localStorage.setItem("currentChatId", newChatId);
-    
-    console.log('✨ New chat created with ID:', newChatId);
-  }, [chats.length]);
+    try {
+      // 最新のchats状態を使ってユニークな名前を生成
+      const currentChats = chats;
+      const defaultName = generateUniqueChatName(currentChats);
+      console.log('🆕 新規チャット作成開始:', defaultName);
+      // バックエンドAPIでチャット作成
+      const response = await fetch(`${getApiUrl()}/chats/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: defaultName,
+          messages_json: JSON.stringify([])
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`チャット作成に失敗しました: ${response.status}`);
+      }
+
+      const createdChat = await response.json();
+      console.log('✅ バックエンドでチャット作成成功:', createdChat);
+
+      const newChat: Chat = {
+        id: createdChat.id, // バックエンドから返されたUUID
+        name: createdChat.name,
+        messages: [],
+        updatedAt: createdChat.updated_at
+      };
+      
+      setChats(prevChats => [newChat, ...prevChats]);
+      setCurrentChatId(createdChat.id);
+      setSelectedFile(createdChat.name);
+      setMessages([]);
+      
+      // localStorageに保存
+      localStorage.setItem("lastSelectedFile", createdChat.name);
+      localStorage.setItem("currentChatId", createdChat.id);
+      
+      console.log('✨ New chat created with Backend ID:', createdChat.id);
+      
+    } catch (error) {
+      console.error('❌ チャット作成エラー:', error);
+      showToast('error', 'チャット作成に失敗しました', 'サーバーへの接続に問題があります');
+      
+      // エラー時はローカルのみでチャット作成（フォールバック）
+      const fallbackId = `chat_${Date.now()}`;
+      const newChat: Chat = {
+        id: fallbackId,
+        name: defaultName,
+        messages: [],
+        updatedAt: new Date().toISOString()
+      };
+      
+      setChats(prevChats => [newChat, ...prevChats]);
+      setCurrentChatId(fallbackId);
+      setSelectedFile(defaultName);
+      setMessages([]);
+      
+      localStorage.setItem("lastSelectedFile", defaultName);
+      localStorage.setItem("currentChatId", fallbackId);
+      
+      console.log('⚠️ Fallback to local chat creation:', fallbackId);
+    } finally {
+      setIsCreatingChat(false);
+    }
+  }, [generateUniqueChatName, chats, showToast, isCreatingChat]);
 
   // チャット選択ハンドラー
   const handleSelectChat = (chatId: string) => {
@@ -262,6 +468,12 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       setCurrentChatId(chatId);
       setSelectedFile(selectedChat.name);
       setMessages(selectedChat.messages || []);
+      
+      // チャット切り替え時に銘柄入力状態をリセット
+      if (symbolInputMode === 'auto') {
+        setSymbolInput('');
+        setAutoSymbolBadge(false);
+      }
       
       localStorage.setItem("lastSelectedFile", selectedChat.name);
       localStorage.setItem("currentChatId", chatId);
@@ -282,6 +494,73 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     if (currentChatId === chatId) {
       setSelectedFile(newName);
       localStorage.setItem("lastSelectedFile", newName);
+    }
+  };
+
+  // チャット削除ハンドラー（楽観的更新）
+  const handleDeleteChat = async (chatIdToDelete: string): Promise<void> => {
+    // 楽観的更新: まずUIから即座に除去
+    const chatToDelete = chats.find(chat => chat.id === chatIdToDelete);
+    if (!chatToDelete) return;
+
+    // 削除前の状態を保存（エラー時のロールバック用）
+    const originalChats = [...chats];
+    const wasCurrentChat = currentChatId === chatIdToDelete;
+
+    // UIから即座に削除
+    const remainingChats = chats.filter(chat => chat.id !== chatIdToDelete);
+    setChats(remainingChats);
+
+    // 削除対象が現在表示中なら、別のチャットに遷移
+    if (wasCurrentChat && remainingChats.length > 0) {
+      // 直近の別チャット（リストの先頭）に遷移
+      const nextChat = remainingChats[0];
+      setCurrentChatId(nextChat.id);
+      setSelectedFile(nextChat.name);
+      setMessages(nextChat.messages || []);
+      localStorage.setItem("lastSelectedFile", nextChat.name);
+      localStorage.setItem("currentChatId", nextChat.id);
+    } else if (wasCurrentChat) {
+      // 削除するチャットが最後のチャットだった場合
+      setCurrentChatId(null);
+      setSelectedFile('');
+      setMessages([]);
+      localStorage.removeItem("lastSelectedFile");
+      localStorage.removeItem("currentChatId");
+    }
+
+    try {
+      // サーバーに削除リクエスト（ソフトデリート）
+      const response = await fetch(`${getApiUrl()}/chats/${chatIdToDelete}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`削除リクエストが失敗しました: ${response.status}`);
+      }
+
+      // 成功時はlocalStorageも更新
+      localStorage.setItem("allChats", JSON.stringify(remainingChats));
+      
+    } catch (error) {
+      console.error('チャット削除API呼び出しエラー:', error);
+      
+      // エラー時: ロールバック
+      setChats(originalChats);
+      
+      if (wasCurrentChat) {
+        // 元のチャットに戻す
+        setCurrentChatId(chatIdToDelete);
+        setSelectedFile(chatToDelete.name);
+        setMessages(chatToDelete.messages || []);
+        localStorage.setItem("lastSelectedFile", chatToDelete.name);
+        localStorage.setItem("currentChatId", chatIdToDelete);
+      }
+      
+      throw error; // 呼び出し元でエラーハンドリング
     }
   };
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
@@ -331,34 +610,71 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   // 現在の建値を記録する状態（決済時に参照用）
   const [currentEntryPrice, setCurrentEntryPrice] = useState<number>(0);
 
-  // Chat messages state (initially empty)
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Chat messages state moved to top of component
 
   // Modal open -> auto-fill latest symbol from chat context
   useEffect(() => {
     if (!isEntryModalOpen) return;
+    
+    // まずフィールドをクリア
+    setEntrySymbol('');
+    setEntryCode('');
+    setAutoFilled(false);
+    console.log('🔍 建値入力モーダルが開かれました - 自動入力を開始');
     (async () => {
       try {
+        console.log('📊 現在のチャット状況:', {
+          currentChatId,
+          messageCount: messages.length,
+          messages: messages.map(m => ({ 
+            id: m.id, 
+            type: m.type,
+            content: m.content,
+            timestamp: m.timestamp
+          }))
+        });
+
+        // メッセージがない場合は早期リターン
+        if (messages.length === 0) {
+          console.log('💬 チャットにメッセージがありません。銘柄を含むメッセージを送信してから建値入力を試してください。');
+          setAutoFilled(false);
+          return;
+        }
+
         const dict = await fetch('/data/symbols.json').then(r => r.json()).catch(() => []);
+        console.log('📚 銘柄辞書を読み込み:', dict.length, '件');
+        console.log('📚 辞書サンプル:', dict.slice(0, 3));
+
         const msgs: ChatMsg[] = messages.map((m, idx) => ({
           id: m.id,
           chatId: currentChatId || 'default',
           text: m.content.replace(/<[^>]*>/g, ''), // strip simple HTML tags
-          createdAt: idx,
+          createdAt: Date.now() - (messages.length - idx - 1) * 1000, // 新しいメッセージほど大きな値
         }));
+
+        console.log('🔎 変換されたメッセージ:', msgs.map(m => ({ 
+          text: m.text.substring(0, 50) + '...', 
+          createdAt: m.createdAt 
+        })));
+
         const code = getLatestSymbolFromChat(msgs, dict);
+        console.log('🎯 検出された銘柄コード:', code);
+        
         if (code) {
           const it = (dict as any[]).find((d: any) => d.code === code);
+          console.log('📈 見つかった銘柄情報:', it);
           if (it) {
             setEntrySymbol(`${it.code} ${it.name}`);
             setEntryCode(it.code);
             setAutoFilled(true);
+            console.log('✅ 自動入力完了:', `${it.code} ${it.name}`);
           }
         } else {
+          console.log('❌ 銘柄が検出されませんでした');
           setAutoFilled(false);
         }
-      } catch (_) {
-        // ignore
+      } catch (error) {
+        console.error('❌ 自動入力中にエラー:', error);
       }
     })();
   }, [isEntryModalOpen]);
@@ -383,9 +699,62 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       }
     } else {
       // 初回起動時、チャットがない場合はデフォルトチャットを作成
-      handleCreateNewChat();
+      // 依存関係を回避するため、ここで直接実行
+      (async () => {
+        const defaultName = `新規チャット 1`;
+        
+        try {
+          const response = await fetch(`${getApiUrl()}/chats/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: defaultName,
+              messages_json: JSON.stringify([])
+            }),
+          });
+
+          if (response.ok) {
+            const createdChat = await response.json();
+            const newChat: Chat = {
+              id: createdChat.id,
+              name: createdChat.name,
+              messages: [],
+              updatedAt: createdChat.updated_at
+            };
+            
+            setChats([newChat]);
+            setCurrentChatId(createdChat.id);
+            setSelectedFile(createdChat.name);
+            setMessages([]);
+            
+            localStorage.setItem("lastSelectedFile", createdChat.name);
+            localStorage.setItem("currentChatId", createdChat.id);
+          } else {
+            throw new Error('Backend unavailable');
+          }
+        } catch (error) {
+          // フォールバック
+          const fallbackId = `chat_${Date.now()}`;
+          const newChat: Chat = {
+            id: fallbackId,
+            name: defaultName,
+            messages: [],
+            updatedAt: new Date().toISOString()
+          };
+          
+          setChats([newChat]);
+          setCurrentChatId(fallbackId);
+          setSelectedFile(defaultName);
+          setMessages([]);
+          
+          localStorage.setItem("lastSelectedFile", defaultName);
+          localStorage.setItem("currentChatId", fallbackId);
+        }
+      })();
     }
-  }, []);
+  }, []); // 空の依存配列
 
   // --- Save all chats to localStorage whenever chats change ---
   useEffect(() => {
@@ -876,8 +1245,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
 
   return (
-    <div className="h-screen bg-white font-inter flex flex-col"
-         style={{ height: 'calc(100vh - 64px)' }}>
+      <div className="h-screen bg-white font-inter flex flex-col"
+           style={{ height: 'calc(100vh - 64px)' }}>
       {/* Main container with sidebar and chat area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar */}
@@ -888,6 +1257,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           onCreateNewChat={handleCreateNewChat}
           onSelectChat={handleSelectChat}
           onEditChatName={handleEditChatName}
+          onDeleteChat={handleDeleteChat}
+          isCreatingChat={isCreatingChat}
         />
 
         {/* Chat Area - Full width with scrollbar on right edge */}
@@ -1002,13 +1373,50 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       >
         <div className="mt-4 space-y-4">
           <div>
-            <Label className="text-sm text-[#374151] mb-2 block">銘柄</Label>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-sm text-[#374151]">銘柄</Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSymbolInputMode('auto');
+                    updateSymbolFromChat();
+                  }}
+                  className={`text-xs px-2 py-1 rounded ${symbolInputMode === 'auto' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}
+                >
+                  自動
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSymbolInputMode('manual');
+                    setAutoSymbolBadge(false);
+                  }}
+                  className={`text-xs px-2 py-1 rounded ${symbolInputMode === 'manual' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}
+                >
+                  手動
+                </button>
+              </div>
+            </div>
             <AutocompleteSymbol
               value={entrySymbol}
-              onChange={(v)=>{ setEntrySymbol(v); setAutoFilled(false);} }
-              onSelect={(item:any)=>{ setEntrySymbol(`${item.code} ${item.name}`); setEntryCode(item.code); setAutoFilled(false);} }
+              onChange={(v)=>{ 
+                setEntrySymbol(v);
+                setAutoFilled(false);
+                // 手動入力時は自動モードを無効化
+                if (symbolInputMode === 'auto' && v !== symbolInput) {
+                  setSymbolInputMode('manual');
+                }
+              }}
+              onSelect={(item:any)=>{ 
+                setEntrySymbol(`${item.code} ${item.name}`);
+                setEntryCode(item.code);
+                setAutoFilled(false);
+                // 選択時は手動モードに切り替え
+                setSymbolInputMode('manual');
+              }}
               placeholder="銘柄コードまたは名称"
-              autoBadge={autoFilled}
+              autoBadge={autoFilled || (symbolInputMode === 'auto' && autoSymbolBadge)}
             />
           </div>
           <div>
@@ -1114,7 +1522,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         imageUrl={selectedImageUrl}
         altText="拡大画像"
       />
-    </div>
+      </div>
   );
 }
 

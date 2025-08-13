@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/UI/button';
-import { Input } from '@/components/UI/input';
-import { Label } from '@/components/UI/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/UI/tabs';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/UI/card';
-import { Switch } from '@/components/UI/switch';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/UI/alert-dialog';
+import { Button } from './UI/button';
+import { Input } from './UI/input';
+import { Label } from './UI/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './UI/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from './UI/card';
+import { Switch } from './UI/switch';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './UI/alert-dialog';
 import { ArrowLeft, Crown, LogOut } from 'lucide-react';
 
 export default function Settings() {

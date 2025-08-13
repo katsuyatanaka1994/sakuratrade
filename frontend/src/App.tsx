@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import Header from '@components/Header';
-import Login from '@components/Login';
-import Onboarding from '@components/Onboarding';
-import Dashboard from '@components/Dashboard';
-import Trade from '@components/Trade';
-import Settings from '@components/Settings';
-import Support from '@components/Support';
+import Header from './components/Header';
+import Login from './components/Login';
+import Onboarding from './components/Onboarding';
+import Dashboard from './components/Dashboard';
+import Trade from './components/Trade';
+import Settings from './components/Settings';
+import Support from './components/Support';
+import { ToastProvider } from './components/ToastContainer';
 
 function AppContent() {
   const location = useLocation();
@@ -63,8 +64,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <Router>
-      <AppContent />
-    </Router>
+    <ToastProvider>
+      <Router>
+        <AppContent />
+      </Router>
+    </ToastProvider>
   );
 }

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/UI/button';
-import { Input } from '@/components/UI/input';
-import { Label } from '@/components/UI/label';
-import { Textarea } from '@/components/UI/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/UI/card';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/UI/accordion';
+import { Button } from './UI/button';
+import { Input } from './UI/input';
+import { Label } from './UI/label';
+import { Textarea } from './UI/textarea';
+import { Card, CardContent, CardHeader, CardTitle } from './UI/card';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './UI/accordion';
 import { ArrowLeft, Search } from 'lucide-react';
 
 export default function Support() {

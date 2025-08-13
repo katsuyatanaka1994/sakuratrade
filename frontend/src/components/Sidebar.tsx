@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import DeleteConfirmDialog from './DeleteConfirmDialog';
+import { useToast } from './ToastContainer';
 
 interface Chat {
   id: string;
@@ -14,6 +16,8 @@ interface SidebarProps {
   onCreateNewChat: () => void;
   onSelectChat: (chatId: string) => void;
   onEditChatName: (chatId: string, newName: string) => void;
+  onDeleteChat: (chatId: string) => Promise<void>;
+  isCreatingChat?: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -23,6 +27,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onCreateNewChat,
   onSelectChat,
   onEditChatName,
+  onDeleteChat,
+  isCreatingChat = false,
 }) => {
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -33,8 +39,27 @@ const Sidebar: React.FC<SidebarProps> = ({
     chatId: string;
     chatName: string;
   } | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    chatId: string;
+    chatName: string;
+  }>({ isOpen: false, chatId: '', chatName: '' });
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  const { showToast } = useToast();
 
   if (!isVisible) return null;
+
+  // 新規チャット作成ハンドラー（デバウンス処理付き）
+  const handleCreateNewChat = async () => {
+    if (isCreatingChat) return; // 既に作成中の場合は無視
+    
+    try {
+      await onCreateNewChat();
+    } catch (error) {
+      console.error('新規チャット作成エラー:', error);
+    }
+  };
 
   const handleStartEditing = (chatId: string, currentName: string) => {
     setEditingChatId(chatId);
@@ -86,6 +111,37 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const handleDeleteClick = () => {
+    if (contextMenu) {
+      setDeleteDialog({
+        isOpen: true,
+        chatId: contextMenu.chatId,
+        chatName: contextMenu.chatName
+      });
+      setContextMenu(null);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteDialog.chatId) return;
+
+    setIsDeleting(true);
+    try {
+      await onDeleteChat(deleteDialog.chatId);
+      showToast('success', 'チャットを削除しました', `「${deleteDialog.chatName}」が削除されました`);
+    } catch (error) {
+      console.error('チャット削除エラー:', error);
+      showToast('error', '削除に失敗しました', 'チャットの削除中にエラーが発生しました。再度お試しください。');
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialog({ isOpen: false, chatId: '', chatName: '' });
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialog({ isOpen: false, chatId: '', chatName: '' });
+  };
+
   // 外部クリックでコンテキストメニューを閉じる
   React.useEffect(() => {
     const handleClickOutside = () => {
@@ -103,14 +159,19 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* 新規チャットボタン */}
       <div className="p-3">
         <button
-          onClick={onCreateNewChat}
-          className="w-full flex items-center justify-between px-2 py-2 text-sm font-bold text-gray-700 bg-[#F1F2F5] rounded hover:bg-[#E8E9ED] transition-colors duration-200"
+          onClick={handleCreateNewChat}
+          disabled={isCreatingChat}
+          className={`w-full flex items-center justify-between px-2 py-2 text-sm font-bold text-gray-700 bg-[#F1F2F5] rounded transition-colors duration-200 ${
+            isCreatingChat 
+              ? 'opacity-50 cursor-not-allowed' 
+              : 'hover:bg-[#E8E9ED]'
+          }`}
         >
-          <span>新規チャット</span>
+          <span>{isCreatingChat ? '作成中...' : '新規チャット'}</span>
           <img
             src="/assets/note_stack_add_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.svg"
             alt="新規チャット"
-            className="w-5 h-5 flex-shrink-0"
+            className={`w-5 h-5 flex-shrink-0 ${isCreatingChat ? 'animate-pulse' : ''}`}
           />
         </button>
       </div>
@@ -132,17 +193,21 @@ const Sidebar: React.FC<SidebarProps> = ({
             チャットがありません
           </div>
         ) : (
-          chats.map((chat) => (
+          chats.map((chat, index) => (
             <div
               key={chat.id}
               className={`
-                px-3 py-2 mx-1 my-1 rounded text-sm cursor-pointer transition-colors duration-200
+                px-3 py-2 mx-1 my-1 rounded text-sm cursor-pointer 
+                transition-all duration-300 ease-in-out transform
                 ${
                   selectedChatId === chat.id
                     ? 'bg-[#E3F2FD] text-[#1976D2] border-l-2 border-[#1976D2]'
                     : 'text-gray-700 hover:bg-gray-100'
                 }
               `}
+              style={{
+                animationDelay: `${index * 50}ms` // ステージングアニメーション
+              }}
               onClick={() => onSelectChat(chat.id)}
               onContextMenu={(e) => handleContextMenu(e, chat.id, chat.name)}
             >
@@ -183,8 +248,24 @@ const Sidebar: React.FC<SidebarProps> = ({
           >
             名前を変更する
           </button>
+          <div className="border-t border-gray-100 my-1" />
+          <button
+            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors duration-150"
+            onClick={handleDeleteClick}
+          >
+            削除
+          </button>
         </div>
       )}
+
+      {/* 削除確認ダイアログ */}
+      <DeleteConfirmDialog
+        isOpen={deleteDialog.isOpen}
+        onClose={handleDeleteCancel}
+        onConfirm={handleDeleteConfirm}
+        chatName={deleteDialog.chatName}
+        isDeleting={isDeleting}
+      />
     </aside>
   );
 };

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/UI/button';
-import { Input } from '@/components/UI/input';
-import { Label } from '@/components/UI/label';
-import { RadioGroup, RadioGroupItem } from '@/components/UI/radio-group';
-import { Slider } from '@/components/UI/slider';
-import { Progress } from '@/components/UI/progress';
+import { Button } from './UI/button';
+import { Input } from './UI/input';
+import { Label } from './UI/label';
+import { RadioGroup, RadioGroupItem } from './UI/radio-group';
+import { Slider } from './UI/slider';
+import { Progress } from './UI/progress';
 
 export default function Onboarding() {
   const navigate = useNavigate();

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, TrendingDown, X, Settings, BarChart } from 'lucide-react';
-import { Button } from '@/components/UI/button';
-import { Card } from '@/components/UI/card';
-import { Input } from '@/components/UI/input';
-import { Label } from '@/components/UI/label';
-import { RadioGroup, RadioGroupItem } from '@/components/UI/radio-group';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/UI/dialog';
+import { Button } from './UI/button';
+import { Card } from './UI/card';
+import { Input } from './UI/input';
+import { Label } from './UI/label';
+import { RadioGroup, RadioGroupItem } from './UI/radio-group';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './UI/dialog';
 
 // Market data interface
 interface MarketMetric {

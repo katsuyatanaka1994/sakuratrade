@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
-import { SymbolItem } from '../utils/symbols';
+import type { SymbolItem } from '../utils/symbols';
 import './autocomplete.css';
 
 type Props = {
@@ -80,4 +80,3 @@ export default function AutocompleteSymbol({ value, onChange, onSelect, placehol
     </div>
   );
 }
-
