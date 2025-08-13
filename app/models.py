@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import String, Integer, Float, DateTime, ForeignKey
+from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -81,3 +81,18 @@ class Alert(Base):
     triggered_at: Mapped[datetime | None]
 
     trade: Mapped[Trade] = relationship(back_populates="alerts")
+
+
+class Chat(Base):
+    __tablename__ = "chats"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.user_id"), nullable=True)
+    messages_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON形式でメッセージを格納
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # ソフトデリート用
+
+    # リレーション（必要に応じて）
+    user: Mapped[User | None] = relationship("User", foreign_keys=[user_id])

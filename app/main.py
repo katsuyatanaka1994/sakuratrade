@@ -6,6 +6,7 @@ from routers import register_routers
 from routers import images
 from routers import analyze
 from routers import advice
+from routers import chats
 from sqlalchemy.ext.asyncio import create_async_engine
 from models import Base
 import asyncio
@@ -34,10 +35,13 @@ app.include_router(images.router)
 app.include_router(analyze.router)
 # Add advice router
 app.include_router(advice.router)
+# Add chats router
+app.include_router(chats.router)
 # 画像アップロードAPIルーターを含む全ルーターを登録
 
 # Mount static files directory
-app.mount("/static", StaticFiles(directory=Path("routers/static")), name="static")
+# Serve static files (including uploaded images) from app/static
+app.mount("/static", StaticFiles(directory=Path("app/static")), name="static")
 
 
 @app.get("/health")
