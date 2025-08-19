@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from routers import auth, trades, images, patterns, alerts
+from routers import auth, trades, images, patterns, alerts, journal
 
 routers = [
     auth.router,
@@ -8,6 +8,7 @@ routers = [
     images.router,
     patterns.router,
     alerts.router,
+    journal.router,
 ]
 
 

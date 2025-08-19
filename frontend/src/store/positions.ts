@@ -1,4 +1,41 @@
+// Using crypto.randomUUID() for cross-browser compatibility
+// import * as ULID from 'ulid';
+
 export type Side = 'LONG' | 'SHORT';
+
+// Trade snapshot for journal
+export interface TradeSnapshot {
+  tradeId: string;
+  chatId: string;
+  symbol: string;
+  side: Side;
+  avgEntry: number;
+  avgExit: number;
+  qty: number;
+  pnlAbs: number;
+  pnlPct: number;
+  holdMinutes: number;
+  closedAt: string;
+  feedback?: {
+    text: string;
+    tone: 'praise' | 'advice';
+    nextActions: string[];
+    messageId?: string;
+  };
+  analysis?: {
+    score: number;
+    labels: string[];
+  };
+}
+
+// Failed journal entries queue for retry
+interface FailedJournalEntry {
+  tradeSnapshot: TradeSnapshot;
+  timestamp: string;
+  retryCount: number;
+}
+
+const FAILED_JOURNAL_QUEUE_KEY = 'failed_journal_queue';
 
 export interface Lot { price: number; qtyRemaining: number; time: string }
 export interface Position {
@@ -11,6 +48,7 @@ export interface Position {
   updatedAt: string;
   name?: string;
   chatId?: string;
+  currentTradeId?: string; // ULID for trade journal tracking
 }
 export interface SymbolGroup { symbol: string; name?: string; positions: Position[] }
 
@@ -28,6 +66,7 @@ const key = (symbol: string, side: Side, chatId?: string) => `${symbol}:${side}:
 // localStorage keys for persistence
 const POSITIONS_STORAGE_KEY = 'positions_data';
 const CLOSED_POSITIONS_STORAGE_KEY = 'closed_positions_data';
+const TRADE_ENTRIES_KEY = 'trade_entries'; // Track entry timestamps per tradeId
 
 // Helper functions for localStorage serialization
 function serializePositions(positions: Map<string, Position>): string {
@@ -48,6 +87,8 @@ function savePositionsToStorage() {
   try {
     localStorage.setItem(POSITIONS_STORAGE_KEY, serializePositions(state.positions));
     localStorage.setItem(CLOSED_POSITIONS_STORAGE_KEY, JSON.stringify(state.closed));
+    saveTradeEntries();
+    saveFailedJournalQueue();
   } catch (error) {
     console.warn('Failed to save positions to localStorage:', error);
   }
@@ -71,12 +112,59 @@ function loadPositionsFromStorage() {
   }
 }
 
+function loadFailedJournalQueue(): FailedJournalEntry[] {
+  try {
+    const queueData = localStorage.getItem(FAILED_JOURNAL_QUEUE_KEY);
+    return queueData ? JSON.parse(queueData) : [];
+  } catch (error) {
+    console.warn('Failed to load failed journal queue:', error);
+    return [];
+  }
+}
+
+function saveFailedJournalQueue() {
+  try {
+    localStorage.setItem(FAILED_JOURNAL_QUEUE_KEY, JSON.stringify(state.failedJournalQueue));
+  } catch (error) {
+    console.warn('Failed to save failed journal queue:', error);
+  }
+}
+
+function loadTradeEntries(): Map<string, string> {
+  try {
+    const entriesData = localStorage.getItem(TRADE_ENTRIES_KEY);
+    if (entriesData) {
+      const entries = JSON.parse(entriesData);
+      return new Map(entries);
+    }
+  } catch (error) {
+    console.warn('Failed to load trade entries:', error);
+  }
+  return new Map();
+}
+
+function saveTradeEntries() {
+  try {
+    const entries = Array.from(state.tradeEntries.entries());
+    localStorage.setItem(TRADE_ENTRIES_KEY, JSON.stringify(entries));
+  } catch (error) {
+    console.warn('Failed to save trade entries:', error);
+  }
+}
+
 // Initialize state from localStorage
 const initialData = loadPositionsFromStorage();
 
-const state: { positions: Map<string, Position>; closed: Position[] } = {
+const state: { 
+  positions: Map<string, Position>; 
+  closed: Position[];
+  tradeEntries: Map<string, string>; // tradeId -> entry timestamp
+  failedJournalQueue: FailedJournalEntry[];
+} = {
   positions: initialData.positions,
   closed: initialData.closed,
+  tradeEntries: loadTradeEntries(),
+  failedJournalQueue: loadFailedJournalQueue(),
 };
 
 export function getState() { return state; }
@@ -93,10 +181,23 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   console.log('💾 Position entry - key:', k, 'chatId:', chatId);
   let p = state.positions.get(k);
   const now = new Date().toISOString();
+  
+  // Check if this is initial entry (0 -> >0 transition)
+  const isInitialEntry = !p || p.qtyTotal === 0;
+  
   if (!p) {
     p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId };
     state.positions.set(k, p);
   }
+  
+  // Assign new tradeId for initial entry
+  if (isInitialEntry) {
+    const tradeId = crypto.randomUUID();
+    p.currentTradeId = tradeId;
+    state.tradeEntries.set(tradeId, now);
+    console.log('🆕 New trade started:', tradeId, 'for', symbol, side);
+  }
+  
   const newQty = p.qtyTotal + qty;
   p.avgPrice = p.qtyTotal === 0 ? price : (p.avgPrice * p.qtyTotal + price * qty) / newQty;
   p.qtyTotal = newQty;
@@ -128,6 +229,7 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
     matchedLots.push({ lotPrice: lot.price, qty: use, pnl });
   }
 
+  const wasQtyTotal = p.qtyTotal;
   p.qtyTotal -= qty;
   p.lots = p.lots.filter(l => l.qtyRemaining > 0);
   p.avgPrice = p.qtyTotal > 0 ? p.lots.reduce((acc, l) => acc + l.price * l.qtyRemaining, 0) / p.qtyTotal : 0;
@@ -135,15 +237,47 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
   p.updatedAt = new Date().toISOString();
 
   let positionResult: Position | null = p;
-  if (p.qtyTotal === 0) {
+  let tradeSnapshot: TradeSnapshot | null = null;
+  
+  // Check for complete close (qtyTotal becomes 0)
+  if (p.qtyTotal === 0 && p.currentTradeId && state.tradeEntries.has(p.currentTradeId)) {
+    const entryTime = state.tradeEntries.get(p.currentTradeId)!;
+    const closeTime = new Date().toISOString();
+    const holdMinutes = Math.floor((new Date(closeTime).getTime() - new Date(entryTime).getTime()) / 60000);
+    
+    // Calculate average entry price from all lots in this trade
+    const avgEntry = p.lots.length > 0 ? 
+      p.lots.reduce((sum, lot) => sum + lot.price, 0) / p.lots.length :
+      p.avgPrice;
+    
+    tradeSnapshot = {
+      tradeId: p.currentTradeId,
+      chatId: chatId || 'default',
+      symbol,
+      side,
+      avgEntry,
+      avgExit: price,
+      qty: wasQtyTotal,
+      pnlAbs: realized,
+      pnlPct: ((price - avgEntry) / avgEntry) * 100 * (side === 'LONG' ? 1 : -1),
+      holdMinutes,
+      closedAt: closeTime
+    };
+    
+    // Clear trade tracking
+    state.tradeEntries.delete(p.currentTradeId);
+    delete p.currentTradeId;
+    
     state.positions.delete(k);
     state.closed.push(p);
     positionResult = null;
+    
+    console.log('🏁 Trade completed:', tradeSnapshot.tradeId);
   }
 
   notify();
   console.log('💾 Position settlement saved to localStorage');
-  return { position: positionResult, realizedPnl: realized, details: { matchedLots } };
+  return { position: positionResult, realizedPnl: realized, details: { matchedLots }, tradeSnapshot };
 }
 
 export function getGroups(chatId?: string): SymbolGroup[] {
@@ -187,6 +321,101 @@ export function debugPositions() {
   console.log('- closed:', localStorage.getItem(CLOSED_POSITIONS_STORAGE_KEY));
 }
 
+// Journal API functions
+const getApiUrl = () => {
+  return process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '';
+};
+
+export async function submitJournalEntry(tradeSnapshot: TradeSnapshot): Promise<boolean> {
+  try {
+    // Convert camelCase to snake_case for API
+    const payload = {
+      trade_id: tradeSnapshot.tradeId,
+      chat_id: tradeSnapshot.chatId,
+      symbol: tradeSnapshot.symbol,
+      side: tradeSnapshot.side,
+      avg_entry: tradeSnapshot.avgEntry,
+      avg_exit: tradeSnapshot.avgExit,
+      qty: tradeSnapshot.qty,
+      pnl_abs: tradeSnapshot.pnlAbs,
+      pnl_pct: tradeSnapshot.pnlPct,
+      hold_minutes: tradeSnapshot.holdMinutes,
+      closed_at: tradeSnapshot.closedAt,
+      feedback: tradeSnapshot.feedback ? {
+        text: tradeSnapshot.feedback.text,
+        tone: tradeSnapshot.feedback.tone,
+        next_actions: tradeSnapshot.feedback.nextActions,
+        message_id: tradeSnapshot.feedback.messageId
+      } : undefined,
+      analysis: tradeSnapshot.analysis ? {
+        score: tradeSnapshot.analysis.score,
+        labels: tradeSnapshot.analysis.labels
+      } : undefined
+    };
+    
+    console.log('📋 Sending payload to journal API:', payload);
+    
+    const response = await fetch(`${getApiUrl()}/journal/close`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Journal API error: ${response.status}`);
+    }
+    
+    console.log('📋 Journal entry submitted:', tradeSnapshot.tradeId);
+    return true;
+  } catch (error) {
+    console.error('❌ Journal submission failed:', error);
+    
+    // Add to failed queue for retry
+    const failedEntry: FailedJournalEntry = {
+      tradeSnapshot,
+      timestamp: new Date().toISOString(),
+      retryCount: 0
+    };
+    
+    state.failedJournalQueue.push(failedEntry);
+    saveFailedJournalQueue();
+    
+    return false;
+  }
+}
+
+export async function retryFailedJournalEntries(): Promise<void> {
+  if (state.failedJournalQueue.length === 0) return;
+  
+  console.log(`🔄 Retrying ${state.failedJournalQueue.length} failed journal entries`);
+  
+  const entriesToRetry = [...state.failedJournalQueue];
+  state.failedJournalQueue = [];
+  
+  for (const entry of entriesToRetry) {
+    entry.retryCount++;
+    
+    const success = await submitJournalEntry(entry.tradeSnapshot);
+    
+    if (!success && entry.retryCount < 3) {
+      // Re-add to queue if retry count < 3
+      state.failedJournalQueue.push(entry);
+    }
+  }
+  
+  saveFailedJournalQueue();
+}
+
+// Auto-retry failed entries on store initialization
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    retryFailedJournalEntries();
+  }, 5000); // Retry after 5 seconds
+}
+
 // Initialize debug logging
 console.log('🚀 Positions store initialized from localStorage');
 console.log(`📁 Loaded ${state.positions.size} positions, ${state.closed.length} closed positions`);
+console.log(`🔄 Loaded ${state.failedJournalQueue.length} failed journal entries for retry`);

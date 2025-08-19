@@ -96,3 +96,36 @@ class Chat(Base):
 
     # リレーション（必要に応じて）
     user: Mapped[User | None] = relationship("User", foreign_keys=[user_id])
+
+
+class TradeJournal(Base):
+    __tablename__ = "trade_journal"
+
+    trade_id: Mapped[str] = mapped_column(String, primary_key=True, unique=True)
+    user_id: Mapped[str | None] = mapped_column(String, nullable=True)  # For future user system
+    chat_id: Mapped[str] = mapped_column(String, nullable=False)
+    symbol: Mapped[str] = mapped_column(String, nullable=False)
+    side: Mapped[str] = mapped_column(String, nullable=False)  # LONG or SHORT
+    
+    # Trade metrics
+    avg_entry: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_exit: Mapped[float] = mapped_column(Float, nullable=False)
+    qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    pnl_abs: Mapped[float] = mapped_column(Float, nullable=False)
+    pnl_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    hold_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    closed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    
+    # Feedback from chat
+    feedback_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    feedback_tone: Mapped[str | None] = mapped_column(String, nullable=True)  # praise or advice
+    feedback_next_actions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string array
+    feedback_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    
+    # Analysis data (optional)
+    analysis_score: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0-100
+    analysis_labels: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string array
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

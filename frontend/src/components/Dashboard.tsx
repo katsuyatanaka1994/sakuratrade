@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, TrendingDown, X, Settings, BarChart } from 'lucide-react';
 import { Button } from './UI/button';
@@ -7,6 +7,9 @@ import { Input } from './UI/input';
 import { Label } from './UI/label';
 import { RadioGroup, RadioGroupItem } from './UI/radio-group';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './UI/dialog';
+import { JournalCard } from './journal/JournalCard';
+import { JournalModal } from './journal/JournalModal';
+import { journalApi, JournalEntry, JournalFilters } from '../services/journal';
 
 // Market data interface
 interface MarketMetric {
@@ -16,7 +19,7 @@ interface MarketMetric {
   changePercent: number;
 }
 
-// Trade card interface
+// Legacy trade card interface (kept for compatibility)
 interface TradeCard {
   id: string;
   symbol: string;
@@ -270,6 +273,12 @@ export default function Dashboard() {
   const [selectedTrade, setSelectedTrade] = useState<TradeCard | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  
+  // Journal state
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+  const [selectedJournalEntry, setSelectedJournalEntry] = useState<JournalEntry | null>(null);
+  const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+  const [journalLoading, setJournalLoading] = useState(false);
 
   // Mock market data
   const marketData = {
@@ -350,6 +359,49 @@ export default function Dashboard() {
       ]
     }
   ];
+  
+  // Load journal entries on mount
+  useEffect(() => {
+    loadJournalEntries();
+  }, []);
+  
+  // Load journal entries from API
+  const loadJournalEntries = async (filters: JournalFilters = {}) => {
+    setJournalLoading(true);
+    try {
+      const entries = await journalApi.getEntries(filters);
+      setJournalEntries(entries);
+    } catch (error) {
+      console.error('Failed to load journal entries:', error);
+    } finally {
+      setJournalLoading(false);
+    }
+  };
+  
+  // Handle journal card click
+  const handleJournalCardClick = (entry: JournalEntry) => {
+    setSelectedJournalEntry(entry);
+    setIsJournalModalOpen(true);
+  };
+  
+  // Handle journal modal close
+  const handleJournalModalClose = () => {
+    setIsJournalModalOpen(false);
+    setSelectedJournalEntry(null);
+  };
+  
+  // Apply filters to journal entries
+  const applyJournalFilters = () => {
+    const filters: JournalFilters = {};
+    
+    if (startDate) filters.fromDate = startDate;
+    if (endDate) filters.toDate = endDate;
+    if (symbolSearch) filters.symbol = symbolSearch;
+    if (filterType === 'win') filters.pnl = 'win';
+    if (filterType === 'lose') filters.pnl = 'lose';
+    
+    loadJournalEntries(filters);
+  };
 
   // Mock trade data
   const tradeData: TradeCard[] = [
@@ -400,12 +452,10 @@ export default function Dashboard() {
     setIsModalOpen(true);
   };
 
-  const filteredTrades = tradeData.filter(trade => {
-    if (filterType === 'profit' && trade.type !== 'profit') return false;
-    if (filterType === 'loss' && trade.type !== 'loss') return false;
-    if (symbolSearch && !trade.symbol.includes(symbolSearch)) return false;
-    return true;
-  });
+  // Apply filters automatically when filter state changes
+  useEffect(() => {
+    applyJournalFilters();
+  }, [filterType]);
 
   return (
     <div className="min-h-screen bg-white font-inter">
@@ -500,30 +550,57 @@ export default function Dashboard() {
                   <Label htmlFor="all" className="text-sm">全て</Label>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="profit" id="profit" className="data-[state=checked]:bg-[var(--accent-blue)] data-[state=checked]:border-[var(--accent-blue)]" />
-                  <Label htmlFor="profit" className="text-sm">利確</Label>
+                  <RadioGroupItem value="win" id="win" className="data-[state=checked]:bg-[var(--accent-blue)] data-[state=checked]:border-[var(--accent-blue)]" />
+                  <Label htmlFor="win" className="text-sm">利確</Label>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="loss" id="loss" className="data-[state=checked]:bg-[var(--accent-blue)] data-[state=checked]:border-[var(--accent-blue)]" />
-                  <Label htmlFor="loss" className="text-sm">損切り</Label>
+                  <RadioGroupItem value="lose" id="lose" className="data-[state=checked]:bg-[var(--accent-blue)] data-[state=checked]:border-[var(--accent-blue)]" />
+                  <Label htmlFor="lose" className="text-sm">損切り</Label>
                 </div>
               </RadioGroup>
+            </div>
+            
+            {/* Search Button */}
+            <div className="flex flex-col justify-end">
+              <Button
+                onClick={applyJournalFilters}
+                className="h-10 bg-[var(--accent-blue)] hover:bg-[var(--blue-700)] text-white px-6"
+              >
+                検索
+              </Button>
             </div>
           </div>
         </div>
 
         {/* Trade Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {filteredTrades.map((trade) => (
-            <TradeCardComponent
-              key={trade.id}
-              trade={trade}
-              onClick={() => handleCardClick(trade)}
-            />
-          ))}
+          {journalLoading ? (
+            <div className="col-span-full text-center py-8 text-[var(--grey-500)]">
+              読み込み中...
+            </div>
+          ) : journalEntries.length > 0 ? (
+            journalEntries.map((entry) => (
+              <JournalCard
+                key={entry.trade_id}
+                entry={entry}
+                onClick={() => handleJournalCardClick(entry)}
+              />
+            ))
+          ) : (
+            <div className="col-span-full text-center py-8 text-[var(--grey-500)]">
+              トレードジャーナルデータがありません
+            </div>
+          )}
         </div>
 
-        {/* Modal */}
+        {/* Journal Modal */}
+        <JournalModal
+          entry={selectedJournalEntry}
+          isOpen={isJournalModalOpen}
+          onClose={handleJournalModalClose}
+        />
+
+        {/* Legacy Modal (kept for compatibility) */}
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogContent className="max-w-[80%] rounded-2xl p-6">
             <DialogHeader>

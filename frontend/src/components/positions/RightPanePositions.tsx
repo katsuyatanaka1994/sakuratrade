@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getGroups, subscribe } from '../../store/positions';
 import type { Position } from '../../store/positions';
 import { formatLSHeader } from '../../lib/validation';
+import { useSymbolSuggest } from '../../hooks/useSymbolSuggest';
 
 const Badge: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div className="flex items-center gap-1 rounded-full border border-zinc-300 px-2 py-1 text-xs text-zinc-700">
@@ -10,12 +11,16 @@ const Badge: React.FC<{ label: string; value: React.ReactNode }> = ({ label, val
   </div>
 );
 
-const PositionCard: React.FC<{ p: Position; chatId?: string | null }> = ({ p, chatId }) => {
+const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: (code: string) => any }> = ({ p, chatId, findByCode }) => {
   const sideColor = p.side === 'LONG' ? 'bg-emerald-500/10 text-emerald-700 border-emerald-300' : 'bg-rose-500/10 text-rose-700 border-rose-300';
   const sideChip = p.side;
   const handleSettleClick = () => {
     window.dispatchEvent(new CustomEvent('open-settle-from-card', { detail: { symbol: p.symbol, side: p.side, maxQty: p.qtyTotal, chatId: chatId } }));
   };
+  
+  // 銘柄コードから銘柄情報を取得
+  const symbolInfo = findByCode(p.symbol);
+  const displayName = symbolInfo ? `${p.symbol} ${symbolInfo.name}` : p.name ?? p.symbol;
   return (
     <div className={`rounded-2xl border ${p.side === 'LONG' ? 'border-emerald-200' : 'border-rose-200'} bg-white shadow-sm`}>
       <div className="flex items-center justify-between px-4 pt-3">
@@ -26,7 +31,7 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null }> = ({ p, ch
         <div className="text-[11px] text-zinc-400">更新 {new Date(p.updatedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</div>
       </div>
       <div className="px-4 pb-3 pt-2">
-        <div className="mb-2 text-base font-medium">{p.name ?? p.symbol}</div>
+        <div className="mb-2 text-base font-medium">{displayName}</div>
         <div className="flex flex-wrap gap-2">
           <Badge label="保有" value={`${p.qtyTotal}株`} />
           <Badge label="平均建値" value={`¥${new Intl.NumberFormat('ja-JP').format(p.avgPrice)}`} />
@@ -45,6 +50,9 @@ interface RightPanePositionsProps {
 
 const RightPanePositions: React.FC<RightPanePositionsProps> = ({ chatId }) => {
   console.log('🏠 RightPanePositions rendered with chatId:', chatId);
+  
+  // 銘柄情報取得のためのhook
+  const { findByCode } = useSymbolSuggest();
   
   // chatIdがnullまたはundefinedの場合は空のポジションを表示
   const [groups, setGroups] = useState(() => {
@@ -91,20 +99,24 @@ const RightPanePositions: React.FC<RightPanePositionsProps> = ({ chatId }) => {
         const long = g.positions.find(p => p.side === 'LONG')?.qtyTotal ?? 0;
         const short = g.positions.find(p => p.side === 'SHORT')?.qtyTotal ?? 0;
         const header = formatLSHeader(long, short);
+        // グループ表示用の銘柄情報を取得
+        const groupSymbolInfo = findByCode(g.symbol);
+        const groupDisplayName = groupSymbolInfo ? `${g.symbol} ${groupSymbolInfo.name}` : g.symbol;
+        
         return (
           <div key={g.symbol} className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
             <div className="mb-2 flex items-baseline justify-between">
               <div>
                 <div className="text-sm text-zinc-500">{g.symbol}</div>
-                <div className="text-lg font-semibold">{g.symbol}</div>
+                <div className="text-lg font-semibold">{groupDisplayName}</div>
               </div>
               <div className="text-right">
                 <div className="text-sm font-semibold text-zinc-700">{header}</div>
               </div>
             </div>
             <div className="grid gap-3">
-              {g.positions.filter(p => p.side === 'LONG').map(p => <PositionCard key={`${p.symbol}:LONG:${p.chatId}`} p={p} chatId={chatId} />)}
-              {g.positions.filter(p => p.side === 'SHORT').map(p => <PositionCard key={`${p.symbol}:SHORT:${p.chatId}`} p={p} chatId={chatId} />)}
+              {g.positions.filter(p => p.side === 'LONG').map(p => <PositionCard key={`${p.symbol}:LONG:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} />)}
+              {g.positions.filter(p => p.side === 'SHORT').map(p => <PositionCard key={`${p.symbol}:SHORT:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} />)}
             </div>
           </div>
         );
