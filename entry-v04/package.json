@@ -1,0 +1,41 @@
+{
+  "name": "entry-v04",
+  "version": "0.4.0",
+  "description": "Entry足判定 v0.4 - 押し目ロングエントリー判定システム",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:ui": "vitest --ui",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "trading",
+    "technical-analysis",
+    "entry-signals",
+    "typescript"
+  ],
+  "author": "Trading System",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0",
+    "zod": "^3.22.0"
+  },
+  "dependencies": {
+    "zod": "^3.22.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
