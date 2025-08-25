@@ -1,0 +1,114 @@
+
+📊 **テクニカル指標分析**<br/>
+<table class="indicator-table">
+  <thead>
+    <tr>
+      <th>項目</th>
+      <th>状況/数値</th>
+      <th>評価</th>
+    </tr>
+  </thead>
+  <tbody>
+{% for indicator in analysis.indicators %}
+{% if indicator.source == "rule_based" %}
+    <tr>
+      <td>{{ indicator.name }}</td>
+      <td>{{ indicator.value }}</td>
+      <td>
+        {% if indicator.evaluation == "強気" %}◎ 強気
+        {% elif indicator.evaluation == "やや強気" %}◯ やや強気
+        {% elif indicator.evaluation == "中立" %}△ 中立
+        {% elif indicator.evaluation == "やや弱気" %}▲ やや弱気
+        {% else %}✕ 弱気
+        {% endif %}
+        <br/><small>{{ indicator.comment }}</small>
+      </td>
+    </tr>
+{% endif %}
+{% endfor %}
+{% for indicator in analysis.indicators %}
+{% if indicator.source == "gpt_analysis" %}
+    <tr>
+      <td>{{ indicator.name }}</td>
+      <td>{{ indicator.value }}</td>
+      <td>
+        {% if indicator.evaluation == "強気" %}◎ 強気
+        {% elif indicator.evaluation == "やや強気" %}◯ やや強気
+        {% elif indicator.evaluation == "中立" %}△ 中立
+        {% elif indicator.evaluation == "やや弱気" %}▲ やや弱気
+        {% else %}✕ 弱気
+        {% endif %}
+        <br/><small>{{ indicator.comment }}</small>
+      </td>
+    </tr>
+{% endif %}
+{% endfor %}
+  </tbody>
+</table>
+
+<div class="feedback-section">
+  <h3>🗣️ フィードバック</h3>
+  
+  <div class="trend-evaluation">
+    <h4>📌 トレンド評価</h4>
+    <p>
+      エントリー適正：{{ "ポジティブ寄り" if analysis.overall_evaluation == "推奨" else "要検討" if analysis.overall_evaluation == "保留" else "慎重判断" }}（スコア {{ analysis.pivot_score|round(1) if analysis.pivot_score else 0 }}/10）
+<br/>
+      今回のエントリーポイント（{{ analysis.entry_price|round|int }}円付近）は、
+      {% if analysis.overall_evaluation == "推奨" %}
+      上昇トレンド中でMAの並び良好、出来高増加中という条件が揃っており、テクニカル的には良い位置でのエントリーと評価できます。
+      {% elif analysis.overall_evaluation == "保留" %}
+      部分的に良い条件はあるものの、慎重さが必要な状況と判断されます。
+      {% else %}
+      リスクが高い状況での判断となる可能性があります。
+      {% endif %}
+    </p>
+  </div>
+  <div class="technical-evaluation">
+    <h4>📈 テクニカル評価</h4>
+    <p>
+      {% for ind in analysis.indicators if "RSI" in ind.name %}
+      RSI（相対力指数）は{{ ind.value }}付近で、{% if ind.evaluation == "強気" %}良好な水準を維持しています。{% elif ind.evaluation == "中立" %}中立的な水準にあります。{% else %}やや注意が必要な水準です。{% endif %}
+      {% endfor %}
+    </p>
+    <p>
+      {% for ind in analysis.indicators if "移動平均" in ind.name or "MA" in ind.name %}
+      移動平均線については{{ ind.comment }}という状況です。
+      {% endfor %}
+    </p>
+    <p>
+      {% for ind in analysis.indicators if "出来高" in ind.name or "Volume" in ind.name %}
+      出来高面では{{ ind.comment }}となっており、価格変動の信頼性を示しています。
+      {% endfor %}
+    </p>
+  </div>
+
+  <div class="comprehensive-comment">
+    <h4>⚠️ 総合コメント</h4>
+    <p>
+      {% if analysis.overall_evaluation == "推奨" %}
+      高値ブレイク狙い（ブレイク後エントリー）のタイミングとして、リスクリワード比の評価で利益になる可能性があります。
+      {% else %}
+      基調線近辺のもうちょっと押し目でのエントリーの方が、リスクリワード比の評価で利益になるターンもあります。
+      {% endif %}
+    </p>
+    
+    {% if analysis.opportunity_points %}
+    <div class="opportunity-points">
+      <strong>ポジティブ要素：</strong><br/>
+      {% for point in analysis.opportunity_points %}
+      ✅ {{ point }}<br/>
+      {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% if analysis.risk_points %}
+    <div class="risk-points">
+      <strong>リスク要素：</strong><br/>
+      {% for point in analysis.risk_points %}
+      ⚠️ {{ point }}<br/>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>

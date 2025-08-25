@@ -91,6 +91,20 @@ function savePositionsToStorage() {
     saveFailedJournalQueue();
   } catch (error) {
     console.warn('Failed to save positions to localStorage:', error);
+    if (error.name === 'QuotaExceededError') {
+      console.log('🧹 LocalStorage quota exceeded, clearing old data...');
+      // Clear old data and retry
+      clearOldData();
+      try {
+        localStorage.setItem(POSITIONS_STORAGE_KEY, serializePositions(state.positions));
+        localStorage.setItem(CLOSED_POSITIONS_STORAGE_KEY, JSON.stringify(state.closed));
+        saveTradeEntries();
+        saveFailedJournalQueue();
+        console.log('🧹 Successfully saved after cleanup');
+      } catch (retryError) {
+        console.error('🧹 Failed to save even after cleanup:', retryError);
+      }
+    }
   }
 }
 
@@ -127,6 +141,42 @@ function saveFailedJournalQueue() {
     localStorage.setItem(FAILED_JOURNAL_QUEUE_KEY, JSON.stringify(state.failedJournalQueue));
   } catch (error) {
     console.warn('Failed to save failed journal queue:', error);
+  }
+}
+
+function clearOldData() {
+  try {
+    // Keep only the last 50 closed positions (most recent)
+    if (state.closed.length > 50) {
+      state.closed = state.closed.slice(-50);
+      console.log('🧹 Trimmed closed positions to last 50');
+    }
+
+    // Clear old trade entries (keep only current active trades)
+    const activeTradeIds = new Set();
+    for (const position of state.positions.values()) {
+      if (position.currentTradeId) {
+        activeTradeIds.add(position.currentTradeId);
+      }
+    }
+    
+    for (const tradeId of state.tradeEntries.keys()) {
+      if (!activeTradeIds.has(tradeId)) {
+        state.tradeEntries.delete(tradeId);
+      }
+    }
+    console.log('🧹 Cleared old trade entries, kept', activeTradeIds.size, 'active trades');
+
+    // Clear failed journal queue older than 24 hours
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    state.failedJournalQueue = state.failedJournalQueue.filter(entry => {
+      const entryTime = new Date(entry.timestamp);
+      return entryTime > oneDayAgo;
+    });
+    console.log('🧹 Cleared old failed journal entries');
+
+  } catch (error) {
+    console.error('🧹 Error during cleanup:', error);
   }
 }
 
@@ -178,7 +228,6 @@ if (typeof window !== 'undefined') {
 export function entry(symbol: string, side: Side, price: number, qty: number, name?: string, chatId?: string): Position {
   if (price <= 0 || qty <= 0 || !Number.isInteger(qty)) throw new Error('invalid entry');
   const k = key(symbol, side, chatId);
-  console.log('💾 Position entry - key:', k, 'chatId:', chatId);
   let p = state.positions.get(k);
   const now = new Date().toISOString();
   
@@ -195,7 +244,6 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
     const tradeId = crypto.randomUUID();
     p.currentTradeId = tradeId;
     state.tradeEntries.set(tradeId, now);
-    console.log('🆕 New trade started:', tradeId, 'for', symbol, side);
   }
   
   const newQty = p.qtyTotal + qty;
@@ -204,7 +252,6 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   p.lots.push({ price, qtyRemaining: qty, time: now });
   p.updatedAt = now;
   notify();
-  console.log('💾 Position saved to localStorage');
   return p;
 }
 
@@ -245,23 +292,46 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
     const closeTime = new Date().toISOString();
     const holdMinutes = Math.floor((new Date(closeTime).getTime() - new Date(entryTime).getTime()) / 60000);
     
-    // Calculate average entry price from all lots in this trade
-    const avgEntry = p.lots.length > 0 ? 
-      p.lots.reduce((sum, lot) => sum + lot.price, 0) / p.lots.length :
-      p.avgPrice;
+    // Use position's average price (calculated correctly during entry)
+    let avgEntry = p.avgPrice;
     
+    // Ensure avgEntry is valid
+    if (!isFinite(avgEntry) || avgEntry <= 0) {
+      // Fallback: calculate from remaining lots
+      if (p.lots.length > 0) {
+        const totalValue = p.lots.reduce((sum, lot) => sum + (lot.price * lot.qtyRemaining), 0);
+        const totalQty = p.lots.reduce((sum, lot) => sum + lot.qtyRemaining, 0);
+        avgEntry = totalQty > 0 ? totalValue / totalQty : price;
+      } else {
+        avgEntry = price; // Use exit price as last resort
+      }
+    }
+    
+    // Calculate pnl_pct safely to avoid NaN/Infinity
+    let pnlPct = 0;
+    if (avgEntry > 0) {
+      pnlPct = side === 'LONG' 
+        ? ((price - avgEntry) / avgEntry) * 100 
+        : ((avgEntry - price) / avgEntry) * 100;
+      
+      // Ensure pnlPct is a valid finite number
+      if (!isFinite(pnlPct)) {
+        pnlPct = 0;
+      }
+    }
+
     tradeSnapshot = {
       tradeId: p.currentTradeId,
       chatId: chatId || 'default',
       symbol,
       side,
-      avgEntry,
+      avgEntry: isFinite(avgEntry) ? avgEntry : 0,
       avgExit: price,
       qty: wasQtyTotal,
-      pnlAbs: realized,
-      pnlPct: ((price - avgEntry) / avgEntry) * 100 * (side === 'LONG' ? 1 : -1),
+      pnlAbs: isFinite(realized) ? realized : 0,
+      pnlPct,
       holdMinutes,
-      closedAt: closeTime
+      closedAt: closeTime.replace(/\.\d{3}Z$/, 'Z') // Remove milliseconds from ISO string
     };
     
     // Clear trade tracking
@@ -271,29 +341,22 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
     state.positions.delete(k);
     state.closed.push(p);
     positionResult = null;
-    
-    console.log('🏁 Trade completed:', tradeSnapshot.tradeId);
   }
 
   notify();
-  console.log('💾 Position settlement saved to localStorage');
   return { position: positionResult, realizedPnl: realized, details: { matchedLots }, tradeSnapshot };
 }
 
 export function getGroups(chatId?: string): SymbolGroup[] {
-  console.log('🔍 getGroups called with chatId:', chatId);
   const bySymbol = new Map<string, { name?: string; positions: Position[] }>();
   for (const p of state.positions.values()) {
-    console.log('🔍 Checking position:', p.symbol, p.side, 'chatId:', p.chatId, 'filter chatId:', chatId);
     if (chatId && p.chatId !== chatId) {
-      console.log('⚠️ Skipping position due to chatId mismatch');
       continue;
     }
     const entry = bySymbol.get(p.symbol) ?? { positions: [] as Position[] };
     entry.positions.push(p);
     bySymbol.set(p.symbol, entry);
   }
-  console.log('🔍 getGroups result for chatId', chatId, ':', Array.from(bySymbol.keys()));
   return Array.from(bySymbol.entries()).map(([symbol, v]) => ({ symbol, positions: v.positions }));
 }
 
@@ -307,9 +370,22 @@ export function getLongShortQty(symbol: string, chatId?: string) {
 export function clearAllPositions() {
   state.positions.clear();
   state.closed.length = 0;
+  state.tradeEntries.clear();
+  state.failedJournalQueue.length = 0;
+  
+  // Also clear localStorage directly
+  try {
+    localStorage.removeItem(POSITIONS_STORAGE_KEY);
+    localStorage.removeItem(CLOSED_POSITIONS_STORAGE_KEY);
+    localStorage.removeItem(TRADE_ENTRIES_KEY);
+    localStorage.removeItem(FAILED_JOURNAL_QUEUE_KEY);
+  } catch (error) {
+    console.warn('Error clearing localStorage:', error);
+  }
+  
   savePositionsToStorage();
   notify();
-  console.log('🧙 All positions cleared from storage');
+  console.log('🧙 All positions and storage cleared');
 }
 
 export function debugPositions() {
@@ -331,6 +407,7 @@ export async function submitJournalEntry(tradeSnapshot: TradeSnapshot): Promise<
     // Convert camelCase to snake_case for API
     const payload = {
       trade_id: tradeSnapshot.tradeId,
+      user_id: null, // Add user_id field as required by schema
       chat_id: tradeSnapshot.chatId,
       symbol: tradeSnapshot.symbol,
       side: tradeSnapshot.side,
@@ -340,7 +417,7 @@ export async function submitJournalEntry(tradeSnapshot: TradeSnapshot): Promise<
       pnl_abs: tradeSnapshot.pnlAbs,
       pnl_pct: tradeSnapshot.pnlPct,
       hold_minutes: tradeSnapshot.holdMinutes,
-      closed_at: tradeSnapshot.closedAt,
+      closed_at: tradeSnapshot.closedAt.replace(/\.\d{3}Z$/, 'Z'), // Ensure proper ISO format
       feedback: tradeSnapshot.feedback ? {
         text: tradeSnapshot.feedback.text,
         tone: tradeSnapshot.feedback.tone,
@@ -353,8 +430,6 @@ export async function submitJournalEntry(tradeSnapshot: TradeSnapshot): Promise<
       } : undefined
     };
     
-    console.log('📋 Sending payload to journal API:', payload);
-    
     const response = await fetch(`${getApiUrl()}/journal/close`, {
       method: 'POST',
       headers: {
@@ -364,23 +439,52 @@ export async function submitJournalEntry(tradeSnapshot: TradeSnapshot): Promise<
     });
     
     if (!response.ok) {
-      throw new Error(`Journal API error: ${response.status}`);
+      // Get detailed error message
+      let errorDetail = `HTTP ${response.status}`;
+      try {
+        const errorData = await response.json();
+        console.error('📋 Full Journal API error response:', JSON.stringify(errorData, null, 2));
+        
+        // Extract error details properly
+        if (errorData.detail) {
+          if (typeof errorData.detail === 'string') {
+            errorDetail = errorData.detail;
+          } else if (Array.isArray(errorData.detail)) {
+            // Pydantic validation errors
+            errorDetail = errorData.detail.map((err: any) => {
+              const location = err.loc ? err.loc.join('.') : 'unknown_field';
+              return `${location}: ${err.msg} (type: ${err.type || 'unknown'})`;
+            }).join(', ');
+            console.error('📋 Pydantic validation errors:', errorData.detail);
+          } else {
+            errorDetail = JSON.stringify(errorData.detail);
+          }
+        } else if (errorData.message) {
+          errorDetail = errorData.message;
+        } else {
+          errorDetail = JSON.stringify(errorData);
+        }
+      } catch (e) {
+        // If we can't parse JSON, use status text
+        errorDetail = response.statusText || errorDetail;
+      }
+      console.error('📋 Journal API processed error:', errorDetail);
+      throw new Error(`Journal API error: ${response.status} - ${errorDetail}`);
     }
     
-    console.log('📋 Journal entry submitted:', tradeSnapshot.tradeId);
     return true;
   } catch (error) {
     console.error('❌ Journal submission failed:', error);
     
-    // Add to failed queue for retry
-    const failedEntry: FailedJournalEntry = {
-      tradeSnapshot,
-      timestamp: new Date().toISOString(),
-      retryCount: 0
-    };
-    
-    state.failedJournalQueue.push(failedEntry);
-    saveFailedJournalQueue();
+    // DISABLED: Add to failed queue for retry to prevent spam
+    // const failedEntry: FailedJournalEntry = {
+    //   tradeSnapshot,
+    //   timestamp: new Date().toISOString(),
+    //   retryCount: 0
+    // };
+    // 
+    // state.failedJournalQueue.push(failedEntry);
+    // saveFailedJournalQueue();
     
     return false;
   }
@@ -408,14 +512,11 @@ export async function retryFailedJournalEntries(): Promise<void> {
   saveFailedJournalQueue();
 }
 
-// Auto-retry failed entries on store initialization
-if (typeof window !== 'undefined') {
-  setTimeout(() => {
-    retryFailedJournalEntries();
-  }, 5000); // Retry after 5 seconds
-}
+// Auto-retry failed entries on store initialization - DISABLED to prevent spam
+// if (typeof window !== 'undefined') {
+//   setTimeout(() => {
+//     retryFailedJournalEntries();
+//   }, 5000); // Retry after 5 seconds
+// }
 
-// Initialize debug logging
-console.log('🚀 Positions store initialized from localStorage');
-console.log(`📁 Loaded ${state.positions.size} positions, ${state.closed.length} closed positions`);
-console.log(`🔄 Loaded ${state.failedJournalQueue.length} failed journal entries for retry`);
+// Initialize store from localStorage

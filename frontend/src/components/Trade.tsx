@@ -7,10 +7,11 @@ import {
 } from 'lucide-react';
 import { marked } from "marked";
 import { useSearchParams } from 'react-router-dom';
+import './integrated-analysis-report.css';
 import { Button } from './UI/button';
 import { Input } from './UI/input';
 import { Label } from './UI/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './UI/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './UI/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './UI/select';
 import Sidebar from './Sidebar';
 import ImageModal from './ImageModal';
@@ -234,20 +235,15 @@ const ModalBase: React.FC<{
   title: string;
   children: React.ReactNode;
 }> = ({ isOpen, onClose, title, children }) => (
-  <Dialog
-    open={isOpen}
-    onOpenChange={onClose}
-    aria-labelledby="dialog-title"
-    aria-describedby="dialog-description"
-  >
-    <DialogContent
-      id="dialog-description"
-      className="w-[400px] rounded-[24px] p-6 bg-white shadow-[0_8px_24px_0_rgba(0,0,0,0.1)] z-[9999] relative top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 fixed"
-    >
+  <Dialog open={isOpen} onOpenChange={onClose}>
+    <DialogContent className="w-[400px] rounded-[24px] p-6 bg-white shadow-[0_8px_24px_0_rgba(0,0,0,0.1)] z-[9999]">
       <DialogHeader>
-        <DialogTitle id="dialog-title" className="text-base font-semibold text-[#374151]">
+        <DialogTitle className="text-base font-semibold text-[#374151]">
           {title}
         </DialogTitle>
+        <DialogDescription className="sr-only">
+          {title}に関するモーダルダイアログです。
+        </DialogDescription>
       </DialogHeader>
       {children}
     </DialogContent>
@@ -281,6 +277,10 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isCreatingChat, setIsCreatingChat] = useState(false); // チャット作成中フラグ
+  
+  // 統合分析の状態
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
 
   // Restore last selected file on mount
   useEffect(() => {
@@ -662,7 +662,6 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const [exitImageFile, setExitImageFile] = useState<File | null>(null);
   const [exitImagePreview, setExitImagePreview] = useState<string>('');
   const [imageError, setImageError] = useState<string>('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   
 
   // 画像クリック時の処理
@@ -1232,7 +1231,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
   };
 
-  const handleEntrySubmit = () => {
+
+  const handleEntrySubmit = async () => {
     // 画像バリデーションエラーがある場合は送信を阫止
     if (imageError) {
       alert('画像アップロードにエラーがあります。修正してから送信してください。');
@@ -1287,9 +1287,50 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       }
     ]);
     
-    // 画像が添付されている場合のみ、非同期で解析し結果を投稿
+    // 画像が添付されている場合、統合分析を実行
     if (entryImageFile) {
-      analyzeAndPostImage(entryImageFile, 'ENTRY', entrySymbol);
+      // 統合分析を実行
+      try {
+        setIsAnalyzing(true);
+        
+        // 統合分析APIに送信
+        const formData = new FormData();
+        formData.append('file', entryImageFile);
+        formData.append('symbol', entrySymbol || '');
+        formData.append('entry_price', price.toString());
+        formData.append('position_type', entryPositionType === 'LONG' ? 'long' : 'short');
+        formData.append('analysis_context', `建値入力: ${entrySymbol} ${positionText} ${price}円 ${qty}株`);
+
+        const apiUrl = getApiUrl();
+        const response = await fetch(`${apiUrl}/api/v1/integrated-analysis`, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (response.ok) {
+          const analysisData = await response.json();
+          if (analysisData.success && analysisData.natural_feedback) {
+            // 統合分析結果をチャットに追加
+            setTimeout(() => {
+              setMessages(prev => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  type: 'bot' as const,
+                  content: analysisData.natural_feedback,
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                }
+              ]);
+            }, 1000); // 建値入力メッセージの後に表示
+          }
+        } else {
+          console.warn('統合分析APIエラー:', response.status);
+        }
+      } catch (error) {
+        console.error('統合分析実行エラー:', error);
+      } finally {
+        setIsAnalyzing(false);
+      }
     }
 
     // 右カラムのストアを更新
@@ -1422,7 +1463,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // 2. システム側メッセージを少し遅延して表示
     setTimeout(() => {
       // 損益計算
-      const priceDiff = price - entryVal;
+      const priceDiff = exitSide === 'LONG' ? (price - entryVal) : (entryVal - price);
       const pnl = priceDiff * qty;
       const priceDiffStr = `${priceDiff >= 0 ? '+' : ''}${priceDiff.toLocaleString()}円`;
       const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString()}円`;
@@ -1453,7 +1494,6 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       ]);
       
       // Submit to journal if trade was completed (qtyTotal became 0)
-      console.log('🔍 Journal check:', { settleResult, hasTradeSnapshot: !!settleResult?.tradeSnapshot });
       if (settleResult?.tradeSnapshot) {
         // Extract feedback from chat history for this trade
         const chatFeedback = extractChatFeedbackForTrade(messages, exitSymbol, symbolName);
@@ -1470,19 +1510,19 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         };
         
         // Submit to journal API (async, won't block UI)
-        console.log('📋 Submitting to journal:', tradeSnapshot);
-        submitJournalEntry(tradeSnapshot).then(success => {
-          console.log('📋 Journal submission result:', success);
-        }).catch(error => {
-          console.error('📋 Journal submission error:', error);
-        });
+        submitJournalEntry(tradeSnapshot);
+        
+        // 決済フィードバック生成（画像がある場合のみ）
+        if (exitImageFile) {
+          generateExitFeedback(exitSymbol, entryVal, price, exitSide, qty, exitImageFile, currentChatId);
+        }
       }
     }, 1000); // 1秒遅延でシステムメッセージを表示
     
-    // 画像が添付されている場合のみ、非同期で解析し結果を投稿
-    if (exitImageFile) {
-      analyzeAndPostImage(exitImageFile, 'EXIT', exitSymbol);
-    }
+    // 決済時は既存の画像解析は実行しない（決済フィードバックのみ表示）
+    // if (exitImageFile) {
+    //   analyzeAndPostImage(exitImageFile, 'EXIT', exitSymbol);
+    // }
 
     // モーダルを閉じて入力をクリア
     setIsExitModalOpen(false);
@@ -1497,6 +1537,87 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     setExitImageFile(null);
     setExitImagePreview('');
     setImageError('');
+  };
+
+  // 特定のチャットにメッセージを追加する関数
+  const addMessageToSpecificChat = (chatId: string | null, message: any) => {
+    if (!chatId) {
+      // チャットIDがない場合は現在のチャットに追加（従来通り）
+      setMessages(prev => [...prev, message]);
+      return;
+    }
+    
+    // 現在アクティブなチャットの場合は即座に表示
+    if (chatId === currentChatId) {
+      setMessages(prev => [...prev, message]);
+    }
+    
+    // 既存のチャットデータに直接メッセージを追加
+    setChats(prevChats => {
+      return prevChats.map(chat => {
+        if (chat.id === chatId) {
+          const updatedMessages = [...(chat.messages || []), message];
+          return {
+            ...chat,
+            messages: updatedMessages
+          };
+        }
+        return chat;
+      });
+    });
+    
+    console.log(`決済フィードバックをチャット ${chatId} に追加しました`);
+  };
+
+  // 決済フィードバック生成関数
+  const generateExitFeedback = async (
+    symbol: string, 
+    entryPrice: number, 
+    exitPrice: number, 
+    positionSide: string, 
+    quantity: number, 
+    imageFile: File,
+    targetChatId: string | null
+  ) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', imageFile);
+      formData.append('symbol', symbol);
+      formData.append('entry_price', entryPrice.toString());
+      formData.append('exit_price', exitPrice.toString());
+      formData.append('position_type', positionSide === 'LONG' ? 'long' : 'short');
+      formData.append('quantity', quantity.toString());
+      formData.append('exit_date', new Date().toISOString());
+
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/v1/feedback/exit`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (response.ok) {
+        const feedbackData = await response.json();
+        if (feedbackData.success && feedbackData.feedback_html) {
+          // 決済フィードバック結果を決済したチャットに追加
+          setTimeout(() => {
+            const feedbackMessage = {
+              id: crypto.randomUUID(),
+              type: 'bot' as const,
+              content: feedbackData.feedback_html,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            };
+            
+            // 決済したチャットに確実にメッセージを追加
+            addMessageToSpecificChat(targetChatId, feedbackMessage);
+            
+          }, 2000); // 既存メッセージの後に表示
+        }
+      } else {
+        console.warn('決済フィードバックAPIエラー:', response.status);
+      }
+    } catch (error) {
+      console.error('決済フィードバック生成エラー:', error);
+    }
   };
 
 
@@ -1799,21 +1920,24 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
               </div>
             </div>
           </div>
-          <div className="flex justify-end gap-3 mt-6">
-            <Button
-              variant="ghost"
-              onClick={() => setIsEntryModalOpen(false)}
-              className="text-[#6B7280] hover:text-[#374151]"
-            >
-              キャンセル
-            </Button>
-            <PrimaryButton 
-              onClick={handleEntrySubmit} 
-              variant="primary"
-              className={imageError ? 'opacity-50 cursor-not-allowed' : ''}
-            >
-              送信
-            </PrimaryButton>
+          <div className="flex justify-end items-center mt-6">
+            <div className="flex gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => setIsEntryModalOpen(false)}
+                className="text-[#6B7280] hover:text-[#374151]"
+              >
+                キャンセル
+              </Button>
+              <PrimaryButton 
+                onClick={handleEntrySubmit} 
+                variant="primary"
+                disabled={isAnalyzing || !!imageError}
+                className={isAnalyzing || imageError ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                {isAnalyzing ? '🔄 分析中...' : '送信'}
+              </PrimaryButton>
+            </div>
           </div>
         </div>
       </ModalBase>

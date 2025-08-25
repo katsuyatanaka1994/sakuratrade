@@ -49,27 +49,21 @@ interface RightPanePositionsProps {
 }
 
 const RightPanePositions: React.FC<RightPanePositionsProps> = ({ chatId }) => {
-  console.log('🏠 RightPanePositions rendered with chatId:', chatId);
-  
   // 銘柄情報取得のためのhook
   const { findByCode } = useSymbolSuggest();
   
   // chatIdがnullまたはundefinedの場合は空のポジションを表示
   const [groups, setGroups] = useState(() => {
-    const result = chatId ? getGroups(chatId) : [];
-    console.log('📈 Initial groups for chatId', chatId, ':', result);
-    return result;
+    return chatId ? getGroups(chatId) : [];
   });
 
   useEffect(() => {
     // chatIdが変更されたらポジションを更新
     const result = chatId ? getGroups(chatId) : [];
-    console.log('🔄 Groups updated for chatId', chatId, ':', result);
     setGroups(result);
     
     const unsub = subscribe(() => {
       const updated = chatId ? getGroups(chatId) : [];
-      console.log('🔄 Groups subscription updated for chatId', chatId, ':', updated);
       setGroups(updated);
     });
     return () => unsub();

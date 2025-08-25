@@ -22,13 +22,11 @@ const CODE_RE = /(^|\s)(\d{4})(?:\.T)?(?=\b|[^\d])/g;
 export async function loadSymbols(): Promise<SymbolItem[]> {
   if (_symbolsCache) return _symbolsCache;
   try {
-    console.log('📡 Fetching /data/symbols.json...');
     const res = await fetch('/data/symbols.json', { cache: 'force-cache' });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     }
     _symbolsCache = await res.json();
-    console.log(`✅ Successfully loaded ${_symbolsCache.length} symbols`);
   } catch (error) {
     console.error('❌ Failed to load symbols:', error);
     _symbolsCache = [];
@@ -42,21 +40,14 @@ export function normalizeCode(maybe: string): string | null {
 }
 
 export function extractCodesFromText(text: string): string[] {
-  console.log('🔍 コード抽出開始:', text);
-  console.log('🔍 使用する正規表現:', CODE_RE);
-  
   const out = new Set<string>();
   const matches = Array.from(text.matchAll(CODE_RE));
-  console.log('🔍 正規表現マッチ結果:', matches);
   
   for (const m of matches) {
-    console.log('🔍 マッチ詳細:', m);
     out.add((m as any)[2]);
   }
   
-  const result = Array.from(out);
-  console.log('🔢 抽出されたコード:', result);
-  return result;
+  return Array.from(out);
 }
 
 export function hiraToKata(s: string): string {
@@ -64,33 +55,15 @@ export function hiraToKata(s: string): string {
 }
 
 export function extractSymbolsFromText(text: string, dict: SymbolItem[]): string[] {
-  console.log('📝 テキスト解析開始:', text);
-  console.log('⚠️ 仕様変更: 4桁コードは無視し、銘柄名ベースのみで検出');
-  
-  // テスト用: 仕様変更の動作確認ログ
-  const testCases = [
-    '5803が上がっている',  // コードのみ→検出されない
-    'フジクラが上がっている',  // 名前→検出される
-    'フジクラ（5803）について',  // 名前+コード→名前で検出
-    '建値3000円で利確5000円',  // 数値のみ→検出されない
-    'フジクラを1000株買った'  // 名前+数値→名前で検出
-  ];
-  
-  if (testCases.includes(text)) {
-    console.log('🧪 テストケース検出:', text);
-  }
-  
   const codes = new Set<string>();
   
   // 名称・エイリアス（kana/romaji）部分一致。日本語はひら→カナ正規化もかける
   const tLower = text.toLowerCase();
   const tKana = hiraToKata(text);
-  console.log('🔤 正規化テキスト:', { original: text, lower: tLower, kana: tKana });
   
   // 数値キーワードが含まれる場合の誤認防止チェック
   const numericKeywords = ['株', '円', '価格', '建値', '決済', '利確', '損切', '数量', '買い', '売り'];
   const hasNumericContext = numericKeywords.some(keyword => text.includes(keyword));
-  console.log('🔢 数値文脈チェック:', { hasNumericContext, text });
   
   for (const s of dict) {
     if (!s.name) continue;
@@ -111,7 +84,7 @@ export function extractSymbolsFromText(text: string, dict: SymbolItem[]): string
       // 数値文脈+短い銘柄名の場合は、単語境界での完全一致のみ
       const wordBoundaryPattern = new RegExp(`(^|[\\s、。！？])${s.name}([\\s、。！？]|$)`);
       finalMatch = wordBoundaryPattern.test(text);
-      console.log(`🔍 厳密チェック "${s.name}":`, { finalMatch, pattern: wordBoundaryPattern.source });
+      // console.log(`🔍 厳密チェック "${s.name}":`, { finalMatch, pattern: wordBoundaryPattern.source });
     } else if (isShortName) {
       finalMatch = strictNameMatch;
     } else {
@@ -119,46 +92,21 @@ export function extractSymbolsFromText(text: string, dict: SymbolItem[]): string
     }
     
     if (finalMatch) {
-      console.log('🎯 名称一致:', { 
-        code: s.code, 
-        name: s.name, 
-        nameHit: finalMatch,
-        kanaHit, 
-        romajiHit,
-        isShortName,
-        hasNumericContext
-      });
       codes.add(s.code);
     }
   }
   
-  const result = Array.from(codes);
-  console.log('✅ 最終検出結果（銘柄名ベースのみ、誤認防止強化）:', result);
-  
-  return result;
+  return Array.from(codes);
 }
 
 export function getLatestSymbolFromChat(messages: ChatMsg[], dict: SymbolItem[]): string | null {
-  console.log('🔍 getLatestSymbolFromChat 開始:', {
-    messageCount: messages.length,
-    dictCount: dict.length
-  });
-  
   const sorted = [...messages].sort((a,b) => b.createdAt - a.createdAt);
-  console.log('📅 時系列ソート後のメッセージ:', sorted.map(m => ({
-    text: m.text.substring(0, 30) + '...',
-    createdAt: m.createdAt
-  })));
   
   for (const msg of sorted) {
-    console.log('🔎 メッセージを検査:', msg.text.substring(0, 50) + '...');
     const cands = extractSymbolsFromText(msg.text, dict);
-    console.log('🎯 検出された候補:', cands);
     if (cands.length) {
-      console.log('✅ 見つかった銘柄:', cands[0]);
       return cands[0]; // 先頭出現を採用
     }
   }
-  console.log('❌ 銘柄が見つかりませんでした');
   return null;
 }

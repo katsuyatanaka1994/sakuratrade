@@ -9,7 +9,11 @@ import { RadioGroup, RadioGroupItem } from './UI/radio-group';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './UI/dialog';
 import { JournalCard } from './journal/JournalCard';
 import { JournalModal } from './journal/JournalModal';
+import { FilterButton } from './FilterButton';
+import { FilterDialog } from './FilterDialog';
 import { journalApi, JournalEntry, JournalFilters } from '../services/journal';
+import { TradeFilterRuntime } from '../types/trades';
+import { formatDateToISO } from '../lib/api/trades';
 
 // Market data interface
 interface MarketMetric {
@@ -266,10 +270,6 @@ const TradeCardComponent: React.FC<{ trade: TradeCard; onClick: () => void }> = 
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [symbolSearch, setSymbolSearch] = useState('');
-  const [filterType, setFilterType] = useState('all');
   const [selectedTrade, setSelectedTrade] = useState<TradeCard | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -279,6 +279,17 @@ export default function Dashboard() {
   const [selectedJournalEntry, setSelectedJournalEntry] = useState<JournalEntry | null>(null);
   const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
   const [journalLoading, setJournalLoading] = useState(false);
+
+  // New filter state
+  const [showFilterDialog, setShowFilterDialog] = useState(false);
+  const [filters, setFilters] = useState<TradeFilterRuntime>({
+    type: 'all',
+  });
+
+  // Debug logging for filter dialog state
+  useEffect(() => {
+    console.log('Dashboard: showFilterDialog changed to:', showFilterDialog);
+  }, [showFilterDialog]);
 
   // Mock market data
   const marketData = {
@@ -360,10 +371,6 @@ export default function Dashboard() {
     }
   ];
   
-  // Load journal entries on mount
-  useEffect(() => {
-    loadJournalEntries();
-  }, []);
   
   // Load journal entries from API
   const loadJournalEntries = async (filters: JournalFilters = {}) => {
@@ -390,17 +397,56 @@ export default function Dashboard() {
     setSelectedJournalEntry(null);
   };
   
+  // Convert TradeFilterRuntime to JournalFilters
+  const convertToJournalFilters = (tradeFilters: TradeFilterRuntime): JournalFilters => {
+    const journalFilters: JournalFilters = {};
+    
+    if (tradeFilters.from) journalFilters.fromDate = formatDateToISO(tradeFilters.from);
+    if (tradeFilters.to) journalFilters.toDate = formatDateToISO(tradeFilters.to);
+    if (tradeFilters.q) journalFilters.symbol = tradeFilters.q;
+    if (tradeFilters.type === 'profit') journalFilters.pnl = 'win';
+    if (tradeFilters.type === 'loss') journalFilters.pnl = 'lose';
+    
+    return journalFilters;
+  };
+
   // Apply filters to journal entries
-  const applyJournalFilters = () => {
-    const filters: JournalFilters = {};
+  const applyJournalFilters = (tradeFilters: TradeFilterRuntime = filters) => {
+    const journalFilters = convertToJournalFilters(tradeFilters);
+    loadJournalEntries(journalFilters);
+  };
+
+  // Handle filter submission
+  const handleFilterSubmit = (newFilters: TradeFilterRuntime) => {
+    setFilters(newFilters);
+    applyJournalFilters(newFilters);
+  };
+
+  // Check if filters are active
+  const hasActiveFilters = (filters: TradeFilterRuntime): boolean => {
+    return !!(
+      filters.from ||
+      filters.to ||
+      filters.q ||
+      (filters.type && filters.type !== 'all')
+    );
+  };
+
+  // Remove individual filter
+  const removeFilter = (filterType: 'type' | 'q' | 'date') => {
+    const newFilters = { ...filters };
     
-    if (startDate) filters.fromDate = startDate;
-    if (endDate) filters.toDate = endDate;
-    if (symbolSearch) filters.symbol = symbolSearch;
-    if (filterType === 'win') filters.pnl = 'win';
-    if (filterType === 'lose') filters.pnl = 'lose';
+    if (filterType === 'type') {
+      newFilters.type = 'all';
+    } else if (filterType === 'q') {
+      delete newFilters.q;
+    } else if (filterType === 'date') {
+      delete newFilters.from;
+      delete newFilters.to;
+    }
     
-    loadJournalEntries(filters);
+    setFilters(newFilters);
+    applyJournalFilters(newFilters);
   };
 
   // Mock trade data
@@ -452,10 +498,10 @@ export default function Dashboard() {
     setIsModalOpen(true);
   };
 
-  // Apply filters automatically when filter state changes
+  // Load initial data
   useEffect(() => {
     applyJournalFilters();
-  }, [filterType]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-white font-inter">
@@ -498,79 +544,75 @@ export default function Dashboard() {
         {/* Insights Card */}
         <InsightsCard onClick={() => setIsReportModalOpen(true)} />
 
-        {/* Heading */}
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">トレードジャーナル</h2>
+        {/* Heading with Filter Button */}
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">トレードジャーナル</h2>
+            {journalEntries.length > 0 && (
+              <p className="text-sm text-[var(--grey-500)] mt-1">
+                {journalEntries.length}件のトレード記録
+              </p>
+            )}
+          </div>
+          
+          <FilterButton
+            hasActive={hasActiveFilters(filters)}
+            onOpen={() => setShowFilterDialog(true)}
+          />
         </div>
 
-        {/* Search Section */}
-        <div className="bg-white border border-[var(--grey-200)] rounded-xl p-6 mb-6">
-          <div className="flex flex-wrap gap-8">
-            {/* Start Date */}
-            <div className="flex flex-col gap-2">
-              <Label className="text-sm text-[var(--grey-500)]">日付 開始</Label>
-              <Input
-                placeholder="年/月/日"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-[120px] h-10 border-[var(--grey-200)] focus:border-[var(--accent-blue)] text-sm"
-              />
+        {/* Active Filters Display */}
+        {hasActiveFilters(filters) && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-blue-700 font-medium">適用中のフィルター:</span>
             </div>
-            
-            {/* End Date */}
-            <div className="flex flex-col gap-2">
-              <Label className="text-sm text-[var(--grey-500)]">日付 終了</Label>
-              <Input
-                placeholder="年/月/日"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-[120px] h-10 border-[var(--grey-200)] focus:border-[var(--accent-blue)] text-sm"
-              />
-            </div>
-            
-            {/* Symbol Search */}
-            <div className="flex flex-col gap-2">
-              <Label className="text-sm text-[var(--grey-500)]">銘柄検索</Label>
-              <Input
-                placeholder="コード"
-                value={symbolSearch}
-                onChange={(e) => setSymbolSearch(e.target.value)}
-                className="w-[120px] h-10 border-[var(--grey-200)] focus:border-[var(--accent-blue)] text-sm"
-              />
-            </div>
-            
-            {/* Radio Group */}
-            <div className="flex flex-col gap-2">
-              <Label className="text-sm text-[var(--grey-500)]">利確 / 損切り</Label>
-              <RadioGroup value={filterType} onValueChange={setFilterType} className="flex gap-6 mt-2">
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="all" id="all" className="data-[state=checked]:bg-[var(--accent-blue)] data-[state=checked]:border-[var(--accent-blue)]" />
-                  <Label htmlFor="all" className="text-sm">全て</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="win" id="win" className="data-[state=checked]:bg-[var(--accent-blue)] data-[state=checked]:border-[var(--accent-blue)]" />
-                  <Label htmlFor="win" className="text-sm">利確</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="lose" id="lose" className="data-[state=checked]:bg-[var(--accent-blue)] data-[state=checked]:border-[var(--accent-blue)]" />
-                  <Label htmlFor="lose" className="text-sm">損切り</Label>
-                </div>
-              </RadioGroup>
-            </div>
-            
-            {/* Search Button */}
-            <div className="flex flex-col justify-end">
-              <Button
-                onClick={applyJournalFilters}
-                className="h-10 bg-[var(--accent-blue)] hover:bg-[var(--blue-700)] text-white px-6"
-              >
-                検索
-              </Button>
+            <div className="flex flex-wrap gap-2">
+              {filters.type && filters.type !== 'all' && (
+                <span className="bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded flex items-center gap-1">
+                  結果: {filters.type === 'profit' ? '利確' : '損切り'}
+                  <button
+                    onClick={() => removeFilter('type')}
+                    className="ml-1 text-blue-600 hover:text-blue-800 hover:bg-blue-200 rounded-full p-0.5"
+                    aria-label="結果フィルターを削除"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </span>
+              )}
+              {filters.q && (
+                <span className="bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded flex items-center gap-1">
+                  検索: {filters.q}
+                  <button
+                    onClick={() => removeFilter('q')}
+                    className="ml-1 text-blue-600 hover:text-blue-800 hover:bg-blue-200 rounded-full p-0.5"
+                    aria-label="検索フィルターを削除"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </span>
+              )}
+              {(filters.from || filters.to) && (
+                <span className="bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded flex items-center gap-1">
+                  期間: {filters.from ? formatDateToISO(filters.from) : '開始日不明'} 〜 {filters.to ? formatDateToISO(filters.to) : '終了日不明'}
+                  <button
+                    onClick={() => removeFilter('date')}
+                    className="ml-1 text-blue-600 hover:text-blue-800 hover:bg-blue-200 rounded-full p-0.5"
+                    aria-label="期間フィルターを削除"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </span>
+              )}
             </div>
           </div>
-        </div>
+        )}
 
         {/* Trade Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -624,6 +666,14 @@ export default function Dashboard() {
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Filter Dialog */}
+        <FilterDialog
+          open={showFilterDialog}
+          onOpenChange={setShowFilterDialog}
+          value={filters}
+          onSubmit={handleFilterSubmit}
+        />
 
         {/* Report Modal */}
         <ReportModal

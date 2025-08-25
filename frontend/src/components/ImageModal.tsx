@@ -14,11 +14,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
   imageUrl, 
   altText = "拡大画像" 
 }) => {
-  // デバッグログ
-  useEffect(() => {
-    console.log('🖼️ ImageModal props:', { isOpen, imageUrl, altText });
-  }, [isOpen, imageUrl, altText]);
-
   // ESCキーでモーダルを閉じる
   useEffect(() => {
     const handleEscapeKey = (event: KeyboardEvent) => {
@@ -28,7 +23,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
     };
 
     if (isOpen) {
-      console.log('🖼️ ImageModal opening with imageUrl:', imageUrl);
       document.addEventListener('keydown', handleEscapeKey);
       document.body.style.overflow = 'hidden'; // スクロールを無効化
     }
@@ -40,11 +34,8 @@ const ImageModal: React.FC<ImageModalProps> = ({
   }, [isOpen, onClose, imageUrl]);
 
   if (!isOpen) {
-    console.log('🖼️ ImageModal not open, returning null');
     return null;
   }
-
-  console.log('🖼️ ImageModal rendering with imageUrl:', imageUrl);
 
   return (
     <div 

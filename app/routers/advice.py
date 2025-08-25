@@ -1,10 +1,19 @@
 import markdown2
 from jinja2 import Template
-from fastapi import APIRouter, Request, UploadFile, File, Body
+from fastapi import APIRouter, Request, UploadFile, File, Body, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from services.strategy_estimator import estimate_strategy
 from schemas.indicator_facts import IndicatorFacts
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update
+from database import get_async_db
+from models import Chat
+from datetime import datetime
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -78,13 +87,75 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
+async def update_chat_messages(db: AsyncSession, chat_id: str, user_message: str, bot_response: str):
+    """チャットのメッセージを更新する"""
+    if not chat_id:
+        return
+        
+    try:
+        # チャットを取得
+        stmt = select(Chat).where(Chat.id == chat_id, Chat.deleted_at.is_(None))
+        result = await db.execute(stmt)
+        chat = result.scalar_one_or_none()
+        
+        if not chat:
+            logger.warning(f"Chat {chat_id} not found")
+            return
+        
+        # 既存のメッセージを取得
+        existing_messages = []
+        if chat.messages_json:
+            try:
+                existing_messages = json.loads(chat.messages_json)
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON in chat {chat_id} messages")
+        
+        # 新しいメッセージを追加
+        import uuid
+        from datetime import datetime
+        
+        user_msg = {
+            "id": str(uuid.uuid4()),
+            "type": "user",
+            "content": user_message,
+            "timestamp": datetime.now().strftime("%H:%M")
+        }
+        
+        bot_msg = {
+            "id": str(uuid.uuid4()),
+            "type": "bot",
+            "content": bot_response,
+            "timestamp": datetime.now().strftime("%H:%M")
+        }
+        
+        existing_messages.extend([user_msg, bot_msg])
+        
+        # チャットを更新
+        stmt = update(Chat).where(Chat.id == chat_id).values(
+            messages_json=json.dumps(existing_messages, ensure_ascii=False),
+            updated_at=datetime.utcnow()
+        )
+        
+        await db.execute(stmt)
+        await db.commit()
+        
+        logger.info(f"Updated chat {chat_id} with new messages")
+        
+    except Exception as e:
+        logger.error(f"Error updating chat messages: {str(e)}")
+        await db.rollback()
+
 @router.post("/advice")
 async def advice(
     request: Request,
     file: UploadFile = File(None),
     message: str = Body(None),
+    chat_id: str = Body(None),
     entry_price: float = Body(None),
-    exit_price: float = Body(None)
+    exit_price: float = Body(None),
+    symbol_context: str = Body(None),
+    analysis_context: str = Body(None),
+    db: AsyncSession = Depends(get_async_db)
 ):
     # Attempt to extract message if not provided by FastAPI Body parsing
     data = {}
@@ -95,6 +166,8 @@ async def advice(
         pass
     if not message and isinstance(data, dict):
         message = data.get("message")
+    if not chat_id and isinstance(data, dict):
+        chat_id = data.get("chat_id")
 
     # print("=== /advice endpoint reached ===")
     # print("Message extracted from request:", message)
@@ -171,7 +244,10 @@ async def advice(
                     advice_text = choices[0]["text"].strip()
 
             if not advice_text:
-                return {"message": "⚠️ AIから有効な回答が返りませんでした。質問をより具体的にして再度お試しください。"}
+                advice_text = "⚠️ AIから有効な回答が返りませんでした。質問をより具体的にして再度お試しください。"
+
+            # チャットメッセージを更新
+            await update_chat_messages(db, chat_id, message, advice_text)
 
             return {"message": advice_text}
         else:
@@ -181,6 +257,15 @@ async def advice(
         if file:
             content = await file.read()
             encoded_image = base64.b64encode(content).decode("utf-8")
+            
+            # FormDataから追加パラメータを取得
+            form_data = await request.form()
+            if not chat_id:
+                chat_id = form_data.get("chat_id")
+            if not symbol_context:
+                symbol_context = form_data.get("symbol_context")
+            if not analysis_context:
+                analysis_context = form_data.get("analysis_context")
 
             headers = {
                 "Authorization": f"Bearer {OPENAI_API_KEY}",
@@ -222,7 +307,7 @@ async def advice(
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "この株価チャート画像を解析し、現在のトレンド、エントリーポイント、損切り・利確目安を教えてください。"},
+                            {"type": "text", "text": f"この{symbol_context or '株価'}のチャート画像を解析し、{analysis_context or 'トレーディング'}のタイミングとしての適切さ、トレンド、エントリーポイント、損切り・利確目安を教えてください。"},
                             {
                                 "type": "image_url",
                                 "image_url": {
@@ -242,9 +327,9 @@ async def advice(
             result = response.json()
             advice_text = result["choices"][0]["message"]["content"]
             
-            # Extract stock name from AI response
-            extracted_stock_name = None
-            if "STOCK_NAME_EXTRACTED:" in advice_text:
+            # Extract stock name from AI response or use provided symbol context
+            extracted_stock_name = symbol_context  # 提供された銘柄情報を優先使用
+            if not extracted_stock_name and "STOCK_NAME_EXTRACTED:" in advice_text:
                 lines = advice_text.split('\n')
                 for line in lines:
                     if line.strip().startswith("STOCK_NAME_EXTRACTED:"):
@@ -252,6 +337,13 @@ async def advice(
                         break
                 # Remove the extraction line from the display text
                 advice_text = '\n'.join([line for line in lines if not line.strip().startswith("STOCK_NAME_EXTRACTED:")])
+            elif extracted_stock_name:
+                # 銘柄情報が提供されている場合は、メッセージに銘柄名を明記
+                advice_text = f"📄 **{extracted_stock_name}** {analysis_context or 'チャート分析'}\n\n{advice_text}"
+
+            # チャットメッセージを更新（画像アップロードの場合）
+            user_message_content = f"画像をアップロードしました: {file.filename}"
+            await update_chat_messages(db, chat_id, user_message_content, advice_text)
 
             return {
                 "filename": file.filename,

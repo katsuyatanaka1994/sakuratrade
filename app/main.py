@@ -8,6 +8,8 @@ from routers import analyze
 from routers import advice
 from routers import chats
 from routers import journal
+from routers import integrated_advice
+from routers import exit_feedback
 from sqlalchemy.ext.asyncio import create_async_engine
 from models import Base
 import asyncio
@@ -40,6 +42,10 @@ app.include_router(advice.router)
 app.include_router(chats.router)
 # Add journal router
 app.include_router(journal.router)
+# Add integrated analysis router
+app.include_router(integrated_advice.router, prefix="/api/v1", tags=["integrated-analysis"])
+# Add exit feedback router
+app.include_router(exit_feedback.router, prefix="/api/v1", tags=["exit-feedback"])
 # 画像アップロードAPIルーターを含む全ルーターを登録
 
 # Mount static files directory
