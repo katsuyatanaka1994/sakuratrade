@@ -1,6 +1,10 @@
 .ac-root{position:relative}
 .ac-input-wrap{position:relative;display:flex;align-items:center}
-.ac-input{width:100%;padding:.5rem .75rem;border:1px solid #ddd;border-radius:.5rem}
+.ac-input{width:100%;padding:.5rem 2.5rem .5rem .75rem;border:1px solid #ddd;border-radius:.5rem}
+.ac-input.with-badge{padding-right:6rem}
+.ac-clear-btn{position:absolute;right:.5rem;top:50%;transform:translateY(-50%);background:none;border:none;font-size:1.2rem;color:#9ca3af;cursor:pointer;display:flex;align-items:center;justify-content:center;width:1.5rem;height:1.5rem;border-radius:50%;transition:all 0.2s}
+.ac-clear-btn:hover{background:#f3f4f6;color:#6b7280}
+.ac-clear-btn.with-badge{right:4.5rem}
 .ac-badge{position:absolute;right:.5rem;top:50%;transform:translateY(-50%);font-size:.75rem;background:#eef6ff;border:1px solid #cde0ff;padding:.1rem .35rem;border-radius:.35rem;color:#2563eb}
 .ac-pop{position:absolute;left:0;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #eee;border-radius:.5rem;box-shadow:0 6px 18px rgba(0,0,0,.08);z-index:40;max-height:240px;overflow:auto}
 .ac-item{padding:.5rem .75rem;cursor:pointer;display:flex;justify-content:space-between;gap:.5rem}

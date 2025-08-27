@@ -12,33 +12,42 @@ const Badge: React.FC<{ label: string; value: React.ReactNode }> = ({ label, val
 );
 
 const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: (code: string) => any }> = ({ p, chatId, findByCode }) => {
-  const sideColor = p.side === 'LONG' ? 'bg-emerald-500/10 text-emerald-700 border-emerald-300' : 'bg-rose-500/10 text-rose-700 border-rose-300';
-  const sideChip = p.side;
   const handleSettleClick = () => {
     window.dispatchEvent(new CustomEvent('open-settle-from-card', { detail: { symbol: p.symbol, side: p.side, maxQty: p.qtyTotal, chatId: chatId } }));
   };
   
-  // 銘柄コードから銘柄情報を取得
-  const symbolInfo = findByCode(p.symbol);
-  const displayName = symbolInfo ? `${p.symbol} ${symbolInfo.name}` : p.name ?? p.symbol;
+  // 色とボーダーをサイドに応じて設定
+  const borderColor = p.side === 'LONG' ? 'border-emerald-200' : 'border-red-200';
+  const labelBgColor = p.side === 'LONG' ? 'bg-emerald-100' : 'bg-red-100';
+  const labelTextColor = p.side === 'LONG' ? 'text-emerald-600' : 'text-red-600';
+  
   return (
-    <div className={`rounded-2xl border ${p.side === 'LONG' ? 'border-emerald-200' : 'border-rose-200'} bg-white shadow-sm`}>
-      <div className="flex items-center justify-between px-4 pt-3">
-        <div className="flex items-center gap-2">
-          <div className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${sideColor} border`}>{sideChip}</div>
-          <div className="text-sm text-zinc-500">{p.symbol}</div>
+    <div className={`rounded-xl border-2 ${borderColor} bg-white p-4`} style={{boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.09)'}}>
+      <div className="flex items-center justify-between mb-4">
+        <div className={`px-4 py-1 rounded-full text-sm font-medium ${labelBgColor} ${labelTextColor} min-w-[80px] text-center`}>
+          {p.side}
         </div>
-        <div className="text-[11px] text-zinc-400">更新 {new Date(p.updatedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="text-sm text-gray-500">
+          更新 {new Date(p.updatedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+        </div>
       </div>
-      <div className="px-4 pb-3 pt-2">
-        <div className="mb-2 text-base font-medium">{displayName}</div>
-        <div className="flex flex-wrap gap-2">
-          <Badge label="保有" value={`${p.qtyTotal}株`} />
-          <Badge label="平均建値" value={`¥${new Intl.NumberFormat('ja-JP').format(p.avgPrice)}`} />
+      
+      <div className="flex gap-3 mb-4">
+        <div className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300">
+          保有 {p.qtyTotal}株
         </div>
-        <div className="mt-3">
-          <button onClick={handleSettleClick} className="w-full rounded-full bg-red-600 px-6 py-2 text-xs text-white hover:bg-red-700">決済入力</button>
+        <div className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300">
+          平均建値 ¥{new Intl.NumberFormat('ja-JP').format(p.avgPrice)}
         </div>
+      </div>
+      
+      <div className="mt-5">
+        <button 
+          onClick={handleSettleClick} 
+          className="w-full bg-red-600 text-white text-base font-medium py-2 rounded-full hover:bg-red-700 transition-colors"
+        >
+          決済入力
+        </button>
       </div>
     </div>
   );
@@ -98,19 +107,21 @@ const RightPanePositions: React.FC<RightPanePositionsProps> = ({ chatId }) => {
         const groupDisplayName = groupSymbolInfo ? `${g.symbol} ${groupSymbolInfo.name}` : g.symbol;
         
         return (
-          <div key={g.symbol} className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
-            <div className="mb-2 flex items-baseline justify-between">
-              <div>
-                <div className="text-sm text-zinc-500">{g.symbol}</div>
-                <div className="text-lg font-semibold">{groupDisplayName}</div>
+          <div key={g.symbol} className="rounded-xl bg-white shadow-sm p-4">
+            {/* 上部の銘柄情報 */}
+            <div className="space-y-4">
+              <div className="text-sm text-gray-600 font-medium">
+                {header}
               </div>
-              <div className="text-right">
-                <div className="text-sm font-semibold text-zinc-700">{header}</div>
+              <div className="text-xl font-bold text-gray-900">
+                {g.symbol} {groupSymbolInfo?.name || ''}
               </div>
             </div>
-            <div className="grid gap-3">
-              {g.positions.filter(p => p.side === 'LONG').map(p => <PositionCard key={`${p.symbol}:LONG:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} />)}
+            
+            {/* ポジション部分 */}
+            <div className="space-y-4 mt-2">
               {g.positions.filter(p => p.side === 'SHORT').map(p => <PositionCard key={`${p.symbol}:SHORT:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} />)}
+              {g.positions.filter(p => p.side === 'LONG').map(p => <PositionCard key={`${p.symbol}:LONG:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} />)}
             </div>
           </div>
         );

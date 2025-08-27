@@ -94,6 +94,7 @@ interface Message {
   type: 'user' | 'bot';
   content: string;
   timestamp: string;
+  isTradeAction?: boolean; // 取引アクション（建値入力・決済）メッセージかどうか
 }
 
 // Chat interface for chat management
@@ -340,12 +341,15 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       }
       
       // 現在のチャットのメッセージをChatMsg形式に変換（HTMLタグを除去）
-      const chatMessages: ChatMsg[] = messages.map((msg, index) => ({
-        id: msg.id,
-        chatId: currentChatId,
-        text: msg.content.replace(/<[^>]*>/g, ''), // HTMLタグを除去
-        createdAt: Date.now() - (messages.length - index - 1) * 1000 // 新しいメッセージほど大きな値
-      }));
+      // ユーザー送信メッセージ（通常のチャット + 取引アクション）から銘柄を検出
+      const chatMessages: ChatMsg[] = messages
+        .filter(msg => msg.type === 'user') // ユーザー送信のメッセージのみ（AIメッセージは除外）
+        .map((msg, index) => ({
+          id: msg.id,
+          chatId: currentChatId,
+          text: msg.content.replace(/<[^>]*>/g, ''), // HTMLタグを除去
+          createdAt: Date.now() - (messages.length - index - 1) * 1000 // 新しいメッセージほど大きな値
+        }));
       
       // 最新の銘柄を検出
       const detectedCode = getLatestSymbolFromChat(chatMessages, symbolDict);
@@ -817,12 +821,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         console.log('📚 銘柄辞書を読み込み:', dict.length, '件');
         console.log('📚 辞書サンプル:', dict.slice(0, 3));
 
-        const msgs: ChatMsg[] = messages.map((m, idx) => ({
-          id: m.id,
-          chatId: currentChatId || 'default',
-          text: m.content.replace(/<[^>]*>/g, ''), // strip simple HTML tags
-          createdAt: Date.now() - (messages.length - idx - 1) * 1000, // 新しいメッセージほど大きな値
-        }));
+        const msgs: ChatMsg[] = messages
+          .filter(m => m.type === 'user') // ユーザー送信のメッセージのみ（AIメッセージは除外）
+          .map((m, idx) => ({
+            id: m.id,
+            chatId: currentChatId || 'default',
+            text: m.content.replace(/<[^>]*>/g, ''), // strip simple HTML tags
+            createdAt: Date.now() - (messages.length - idx - 1) * 1000, // 新しいメッセージほど大きな値
+          }));
 
         console.log('🔎 変換されたメッセージ:', msgs.map(m => ({ 
           text: m.text.substring(0, 50) + '...', 
@@ -1282,6 +1288,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       {
         id: crypto.randomUUID(),
         type: 'user' as const,
+        isTradeAction: true, // 取引アクションメッセージとしてマーク
         content: `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }
@@ -1455,6 +1462,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       {
         id: crypto.randomUUID(),
         type: 'user' as const,
+        isTradeAction: true, // 取引アクションメッセージとしてマーク
         content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }
@@ -1754,31 +1762,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       >
         <div className="mt-4 space-y-4">
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <Label className="text-sm text-[#374151]">銘柄</Label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSymbolInputMode('auto');
-                    updateSymbolFromChat();
-                  }}
-                  className={`text-xs px-2 py-1 rounded ${symbolInputMode === 'auto' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}
-                >
-                  自動
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSymbolInputMode('manual');
-                    setAutoSymbolBadge(false);
-                  }}
-                  className={`text-xs px-2 py-1 rounded ${symbolInputMode === 'manual' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}
-                >
-                  手動
-                </button>
-              </div>
-            </div>
+            <Label className="text-sm text-[#374151] mb-2 block">銘柄</Label>
             <AutocompleteSymbol
               value={entrySymbol}
               onChange={(v)=>{ 
@@ -1790,10 +1774,11 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 }
               }}
               onSelect={(item:any)=>{ 
-                setEntrySymbol(`${item.code} ${item.name}`);
+                // 選択時は完全な値を設定
+                const newValue = `${item.code} ${item.name}`;
+                setEntrySymbol(newValue);
                 setEntryCode(item.code);
                 setAutoFilled(false);
-                // 選択時は手動モードに切り替え
                 setSymbolInputMode('manual');
               }}
               placeholder="銘柄コードまたは名称"
@@ -1841,17 +1826,25 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
             />
           </div>
           
-          {/* チャート画像アップロード（任意） */}
-          <div>
-            <Label className="text-sm text-[#374151] mb-2 block">
-              チャート画像アップロード（任意）
-            </Label>
+          {/* AI分析（任意） */}
+          <div className="border-t border-[#E5E7EB] pt-4">
+            <div className="mb-3">
+              <Label className="text-sm text-[#374151] font-medium">AI分析（任意）</Label>
+            </div>
+            
+            {/* 説明文 */}
+            <div className="bg-[#F6FBFF] px-4 py-3 rounded-lg mb-4">
+              <p className="text-sm text-[#374151]">
+                AIがエントリーの判断を評価し、改善のヒントをお届けします✨
+              </p>
+            </div>
+            
             <div className="space-y-3">
-              {/* チャットUIと同じデザイン */}
-              <label className="w-full h-12 border-2 border-dashed border-[#D1D5DB] rounded-lg flex items-center justify-center gap-2 cursor-pointer hover:border-[#9CA3AF] transition-colors">
+              {/* アップロード領域 */}
+              <label className="w-full border-2 border-dashed border-[#D1D5DB] rounded-lg flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#9CA3AF] transition-colors" style={{height: '72px'}}>
                 <Upload className="w-5 h-5 text-[#9CA3AF]" />
                 <span className="text-sm text-[#9CA3AF]">
-                  {entryImageFile ? entryImageFile.name : 'ファイルを選択'}
+                  チャート画像をアップロード
                 </span>
                 <input
                   type="file"
@@ -1916,7 +1909,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
               
               {/* ヘルプテキスト */}
               <div className="text-xs text-[#6B7280]">
-                画像ファイルのみ、最大10MBまで。アップロードするとAIが解析し結果を投稿します。
+                対応形式：png / jpeg・最大10MB
               </div>
             </div>
           </div>
@@ -2058,7 +2051,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
               
               {/* ヘルプテキスト */}
               <div className="text-xs text-[#6B7280]">
-                画像ファイルのみ、最大10MBまで。アップロードするとAIが解析し結果を投稿します。
+                対応形式：png / jpeg・最大10MB
               </div>
             </div>
           </div>

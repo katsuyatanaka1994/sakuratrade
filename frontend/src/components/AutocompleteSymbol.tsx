@@ -46,7 +46,19 @@ export default function AutocompleteSymbol({ value, onChange, onSelect, placehol
   }
 
   function choose(item: SymbolItem) {
-    onSelect(item);
+    setOpen(false);
+    setItems([]);
+    
+    // 選択時は入力フィールドをクリアしてからonSelectを呼ぶ
+    onChange(''); // 一度クリア
+    setTimeout(() => {
+      onSelect(item); // 次のTickでonSelectを実行
+    }, 0);
+  }
+
+  function handleClear() {
+    onChange('');
+    setItems([]);
     setOpen(false);
   }
 
@@ -54,13 +66,23 @@ export default function AutocompleteSymbol({ value, onChange, onSelect, placehol
     <div className="ac-root" ref={rootRef}>
       <div className="ac-input-wrap">
         <input
-          className="ac-input"
+          className={`ac-input ${autoBadge ? 'with-badge' : ''}`}
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder={placeholder ?? '銘柄コードまたは名称'}
           autoComplete="off"
         />
+        {value && (
+          <button
+            type="button"
+            className={`ac-clear-btn ${autoBadge ? 'with-badge' : ''}`}
+            onClick={handleClear}
+            aria-label="クリア"
+          >
+            ×
+          </button>
+        )}
         {autoBadge && <span className="ac-badge">自動入力</span>}
       </div>
       {open && (
