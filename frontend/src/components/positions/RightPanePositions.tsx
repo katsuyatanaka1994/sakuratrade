@@ -33,10 +33,10 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
       </div>
       
       <div className="flex gap-3 mb-4">
-        <div className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300">
+        <div className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300 whitespace-nowrap">
           保有 {p.qtyTotal}株
         </div>
-        <div className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300">
+        <div className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300 whitespace-nowrap">
           平均建値 ¥{new Intl.NumberFormat('ja-JP').format(p.avgPrice)}
         </div>
       </div>

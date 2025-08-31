@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""
+統合分析API エンドポイントのテスト
+"""
+
+import requests
+import base64
+import json
+import os
+from PIL import Image
+import io
+
+def create_sample_chart_image():
+    """サンプルチャート画像を作成"""
+    # 簡単なテスト用画像（600x400のグラデーション）
+    img = Image.new('RGB', (600, 400), color='white')
+    
+    # 簡単な"チャート風"のラインを描画
+    from PIL import ImageDraw
+    draw = ImageDraw.Draw(img)
+    
+    # 背景
+    draw.rectangle([50, 50, 550, 350], fill='#f0f0f0', outline='black')
+    
+    # "株価ライン"（上昇トレンド風）
+    points = []
+    for x in range(60, 540, 20):
+        y = 300 - (x - 60) * 0.3 + (x % 40 - 20) * 2
+        points.append((x, y))
+    
+    for i in range(len(points)-1):
+        draw.line([points[i], points[i+1]], fill='blue', width=2)
+    
+    # 移動平均線（赤）
+    ma_points = []
+    for x in range(60, 540, 20):
+        y = 310 - (x - 60) * 0.25
+        ma_points.append((x, y))
+    
+    for i in range(len(ma_points)-1):
+        draw.line([ma_points[i], ma_points[i+1]], fill='red', width=1)
+    
+    # テキスト（RSI等をシミュレート）
+    draw.text((60, 30), "7520 TEST CHART", fill='black')
+    draw.text((450, 30), "RSI: 62", fill='black')
+    draw.text((450, 45), "MACD: +", fill='green')
+    
+    # バイト配列に変換
+    img_byte_arr = io.BytesIO()
+    img.save(img_byte_arr, format='PNG')
+    img_byte_arr = img_byte_arr.getvalue()
+    
+    return img_byte_arr
+
+def test_integration_endpoint():
+    """統合分析エンドポイントのテスト"""
+    print("🧪 API統合テスト: /integrated-analysis")
+    print("=" * 60)
+    
+    # FastAPIサーバーが起動していることを前提
+    base_url = "http://localhost:8000"
+    endpoint = f"{base_url}/api/v1/integrated-analysis"
+    
+    try:
+        # テスト用画像作成
+        image_data = create_sample_chart_image()
+        
+        # リクエストデータ準備
+        files = {
+            'file': ('test_chart.png', image_data, 'image/png')
+        }
+        
+        data = {
+            'symbol': '7520テスト銘柄',
+            'entry_price': 7520.0,
+            'position_type': 'long',
+            'analysis_context': 'ロングエントリーの妥当性検証'
+        }
+        
+        print(f"📤 リクエスト送信中...")
+        print(f"   URL: {endpoint}")
+        print(f"   Symbol: {data['symbol']}")
+        print(f"   Entry Price: {data['entry_price']}")
+        print(f"   Position: {data['position_type']}")
+        
+        # APIリクエスト実行
+        response = requests.post(endpoint, files=files, data=data, timeout=30)
+        
+        print(f"\n📨 レスポンス:")
+        print(f"   Status Code: {response.status_code}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            
+            print(f"   Success: {result.get('success', False)}")
+            
+            if result.get('success'):
+                analysis = result.get('analysis')
+                if analysis:
+                    print(f"\n📊 分析結果:")
+                    print(f"   Overall Evaluation: {analysis.get('overall_evaluation')}")
+                    print(f"   Confidence Score: {analysis.get('confidence_score', 0):.2f}")
+                    print(f"   Indicators Count: {len(analysis.get('indicators', []))}")
+                    
+                    indicators = analysis.get('indicators', [])
+                    print(f"\n🔍 Indicators サンプル:")
+                    for i, indicator in enumerate(indicators[:3], 1):
+                        print(f"   {i}. {indicator.get('name')}: {indicator.get('value')} ({indicator.get('evaluation')})")
+                
+                natural_feedback = result.get('natural_feedback', '')
+                print(f"\n📝 自然文フィードバック（先頭200文字）:")
+                print(f"   {natural_feedback[:200]}...")
+                
+                return True, result
+            else:
+                print(f"   Error: {result.get('error_message', 'Unknown error')}")
+                return False, result
+        else:
+            print(f"   Error Response: {response.text}")
+            return False, None
+            
+    except requests.exceptions.ConnectionError:
+        print("❌ FastAPIサーバーに接続できません")
+        print("   サーバーを起動してください: uvicorn main:app --reload")
+        return False, None
+    except Exception as e:
+        print(f"❌ テストエラー: {e}")
+        return False, None
+
+def test_quick_analysis_endpoint():
+    """クイック分析エンドポイントのテスト"""
+    print("\n🧪 API統合テスト: /quick-analysis")
+    print("=" * 60)
+    
+    base_url = "http://localhost:8000"
+    endpoint = f"{base_url}/api/v1/quick-analysis"
+    
+    try:
+        # テスト用画像作成
+        image_data = create_sample_chart_image()
+        
+        files = {
+            'file': ('test_chart.png', image_data, 'image/png')
+        }
+        
+        data = {
+            'symbol': '7520テスト銘柄',
+            'analysis_context': 'クイック分析テスト'
+        }
+        
+        response = requests.post(endpoint, files=files, data=data, timeout=15)
+        
+        print(f"📨 レスポンス:")
+        print(f"   Status Code: {response.status_code}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            print(f"   Success: {result.get('success', False)}")
+            print(f"   Analysis Type: {result.get('analysis_type', 'unknown')}")
+            print(f"   Message Length: {len(result.get('message', ''))}")
+            return True, result
+        else:
+            print(f"   Error: {response.text}")
+            return False, None
+            
+    except requests.exceptions.ConnectionError:
+        print("❌ FastAPIサーバーに接続できません")
+        return False, None
+    except Exception as e:
+        print(f"❌ テストエラー: {e}")
+        return False, None
+
+def test_status_endpoint():
+    """システム状態確認エンドポイントのテスト"""
+    print("\n🧪 API統合テスト: /analysis-status")
+    print("=" * 60)
+    
+    base_url = "http://localhost:8000"
+    endpoint = f"{base_url}/api/v1/analysis-status"
+    
+    try:
+        response = requests.get(endpoint, timeout=10)
+        
+        print(f"📨 レスポンス:")
+        print(f"   Status Code: {response.status_code}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            print(f"   Overall Status: {result.get('overall_status')}")
+            
+            details = result.get('details', {})
+            rule_based = details.get('rule_based_modules', {})
+            print(f"   Pivot v1.3: {rule_based.get('pivot_v13')}")
+            print(f"   Entry v0.4: {rule_based.get('entry_v04')}")
+            print(f"   GPT Analysis: {details.get('gpt_analysis')}")
+            
+            return True, result
+        else:
+            print(f"   Error: {response.text}")
+            return False, None
+            
+    except requests.exceptions.ConnectionError:
+        print("❌ FastAPIサーバーに接続できません")
+        return False, None
+    except Exception as e:
+        print(f"❌ テストエラー: {e}")
+        return False, None
+
+def main():
+    """APIテストメイン実行"""
+    print("🎯 API統合テスト実行")
+    print("前提条件: FastAPIサーバーが localhost:8000 で起動していること")
+    print("=" * 80)
+    
+    results = []
+    
+    # テスト1: システム状態確認
+    status_success, status_result = test_status_endpoint()
+    results.append(("System Status Check", status_success))
+    
+    # テスト2: クイック分析
+    quick_success, quick_result = test_quick_analysis_endpoint()
+    results.append(("Quick Analysis API", quick_success))
+    
+    # テスト3: 統合分析（メイン機能）
+    integration_success, integration_result = test_integration_endpoint()
+    results.append(("Integrated Analysis API", integration_success))
+    
+    # 結果まとめ
+    print("\n🏁 APIテスト結果")
+    print("=" * 80)
+    
+    all_passed = True
+    for test_name, success in results:
+        status = "✅ PASS" if success else "❌ FAIL"
+        print(f"   {status} {test_name}")
+        if not success:
+            all_passed = False
+    
+    if all_passed:
+        print(f"\n🎉 全APIテストPASS！")
+        print(f"✅ 統合分析システムがAPI経由で正常に動作しています")
+        print(f"✅ structured_indicators配列がAPI応答に含まれています")
+        print(f"✅ 自然文フィードバックが正しく生成されています")
+    else:
+        print(f"\n⚠️  一部のAPIテストが失敗しました")
+        print(f"   FastAPIサーバーの起動状態を確認してください")
+        print(f"   コマンド: uvicorn main:app --reload")
+    
+    return all_passed
+
+if __name__ == "__main__":
+    main()

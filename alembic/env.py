@@ -16,8 +16,14 @@ if config.config_file_name is not None:
 
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from app.models import Base
+
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+
+# Import models directly without going through app.__init__.py
+sys.path.append(os.path.join(project_root, 'app'))
+from models import Base
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>建値入力メッセージ編集テスト</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-case {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .expected {
+            background-color: #f0f8ff;
+        }
+        .test-steps {
+            background-color: #f9f9f9;
+        }
+        ol li {
+            margin: 5px 0;
+        }
+        .highlight {
+            background-color: yellow;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <h1>建値入力メッセージ編集機能テスト</h1>
+    
+    <div class="test-case expected">
+        <h2>期待動作</h2>
+        <p>「📈 建値入力しました！」メッセージの編集時：</p>
+        <ul>
+            <li class="highlight">銘柄自動検出機能が無効になる (autoBadgeが表示されない)</li>
+            <li>メッセージ内容から銘柄・価格・数量・ポジションタイプがプレフィルされる</li>
+            <li>ユーザーは手動で銘柄を修正可能</li>
+        </ul>
+    </div>
+
+    <div class="test-case test-steps">
+        <h2>テスト手順</h2>
+        <ol>
+            <li><strong>前提条件:</strong> http://localhost:3001 でアプリケーションを開く</li>
+            <li><strong>チャット作成:</strong> 新しいチャットを作成</li>
+            <li><strong>建値入力:</strong> 「建値入力」ボタンをクリックして以下を入力:
+                <ul>
+                    <li>銘柄: 7203 トヨタ自動車</li>
+                    <li>ポジションタイプ: ロング（買い）</li>
+                    <li>建値: 2500</li>
+                    <li>数量: 100</li>
+                </ul>
+            </li>
+            <li><strong>メッセージ生成確認:</strong> 「📈 建値入力しました！」メッセージが表示される</li>
+            <li><strong>編集アイコン確認:</strong> メッセージにホバーで編集アイコン（✏️）が表示される</li>
+            <li><strong>編集開始:</strong> 編集アイコンをクリックして建値入力モーダルを開く</li>
+            <li><strong class="highlight">重要チェック:</strong> モーダル内の銘柄入力欄で：
+                <ul>
+                    <li class="success">✓ autoBadge（自動検出バッジ）が表示されない</li>
+                    <li class="success">✓ 銘柄欄に「7203 トヨタ自動車」がプレフィルされている</li>
+                    <li class="success">✓ 価格「2500」がプレフィルされている</li>
+                    <li class="success">✓ 数量「100」がプレフィルされている</li>
+                    <li class="success">✓ ポジションタイプ「ロング（買い）」がプレフィルされている</li>
+                </ul>
+            </li>
+            <li><strong>データ変更テスト:</strong> 銘柄を「6758 ソニーグループ」に変更</li>
+            <li><strong>保存確認:</strong> 「更新」ボタンをクリック</li>
+            <li><strong>結果確認:</strong> メッセージ内容が更新されることを確認</li>
+        </ol>
+    </div>
+
+    <div class="test-case">
+        <h2>新規建値入力との比較テスト</h2>
+        <p>比較のため、新規建値入力でのautoBadge動作も確認：</p>
+        <ol>
+            <li>新規で「建値入力」ボタンをクリック</li>
+            <li><strong class="highlight">確認:</strong> 銘柄入力欄でautoBadge（自動検出バッジ）が表示される</li>
+            <li>これにより編集時と新規時の動作の違いが確認できる</li>
+        </ol>
+    </div>
+
+    <div class="test-case">
+        <h2>技術的詳細</h2>
+        <p><strong>実装内容:</strong></p>
+        <pre>
+autoBadge={!editingMessageId && (autoFilled || (symbolInputMode === 'auto' && autoSymbolBadge))}
+        </pre>
+        <p><strong>説明:</strong></p>
+        <ul>
+            <li><code>editingMessageId</code>が存在する場合（編集中） → autoBadgeは無効（false）</li>
+            <li><code>editingMessageId</code>がない場合（新規入力） → autoBadgeは通常の条件で動作</li>
+        </ul>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('📋 建値入力メッセージ編集テストページが読み込まれました');
+            console.log('🔗 アプリケーション: http://localhost:3001');
+            console.log('📝 テスト対象: 建値入力メッセージ編集時の銘柄自動検出無効化');
+        });
+    </script>
+</body>
+</html>

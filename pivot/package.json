@@ -1,0 +1,34 @@
+{
+  "name": "pivot-score",
+  "version": "1.3.0",
+  "description": "押し目ロング Pivot足判定ロジック v1.3",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "keywords": [
+    "pivot",
+    "trading",
+    "chart-analysis",
+    "technical-analysis",
+    "typescript"
+  ]
+}

@@ -16,3 +16,6 @@ backend.sh
 
 # ignore node_modules
 node_modules/
+
+# Claude Code local settings
+CLAUDE.local.md

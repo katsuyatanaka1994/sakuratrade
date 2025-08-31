@@ -1,0 +1,11 @@
+{
+  "files": {
+    "main.css": "/static/css/main.bf30bdbc.css",
+    "main.js": "/static/js/main.3eac7253.js",
+    "index.html": "/index.html"
+  },
+  "entrypoints": [
+    "static/css/main.bf30bdbc.css",
+    "static/js/main.3eac7253.js"
+  ]
+}

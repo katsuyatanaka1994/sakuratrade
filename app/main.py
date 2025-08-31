@@ -2,16 +2,16 @@ from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import register_routers
-from routers import images
-from routers import analyze
-from routers import advice
-from routers import chats
-from routers import journal
-from routers import integrated_advice
-from routers import exit_feedback
+from app.routers import images
+from app.routers import analyze
+from app.routers import advice
+from app.routers import chats
+from app.routers import ai
+from app.routers import journal
+from app.routers import integrated_advice
+from app.routers import exit_feedback
 from sqlalchemy.ext.asyncio import create_async_engine
-from models import Base
+from app.models import Base
 import asyncio
 
 import os
@@ -33,13 +33,15 @@ async def on_startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-register_routers(app)
+# Register all routers
 app.include_router(images.router)
 app.include_router(analyze.router)
 # Add advice router
 app.include_router(advice.router)
 # Add chats router
 app.include_router(chats.router)
+# Add AI router
+app.include_router(ai.router)
 # Add journal router
 app.include_router(journal.router)
 # Add integrated analysis router

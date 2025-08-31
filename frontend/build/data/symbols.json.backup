@@ -1,0 +1,69 @@
+[
+  {
+    "code": "5803",
+    "name": "フジクラ",
+    "market": "プライム",
+    "kana": "フジクラ",
+    "romaji": "fujikura",
+    "sector33": "電気機器",
+    "sector17": "電機・精密",
+    "product": "株式",
+    "ticker": "5803.T"
+  },
+  {
+    "code": "9984",
+    "name": "ソフトバンクグループ",
+    "market": "プライム",
+    "kana": "ソフトバンクグループ",
+    "romaji": "softbank group",
+    "sector33": "情報・通信業",
+    "sector17": "情報通信",
+    "product": "株式",
+    "ticker": "9984.T"
+  },
+  {
+    "code": "7203",
+    "name": "トヨタ自動車",
+    "market": "プライム",
+    "kana": "トヨタ",
+    "romaji": "toyota",
+    "sector33": "輸送用機器",
+    "sector17": "自動車・輸送機",
+    "product": "株式",
+    "ticker": "7203.T"
+  },
+  {
+    "code": "6758",
+    "name": "ソニーグループ",
+    "market": "プライム",
+    "kana": "ソニーグループ",
+    "romaji": "sony group",
+    "sector33": "電気機器",
+    "sector17": "電機・精密",
+    "product": "株式",
+    "ticker": "6758.T"
+  },
+  {
+    "code": "9432",
+    "name": "日本電信電話",
+    "market": "プライム",
+    "kana": "エヌ・ティ・ティ",
+    "romaji": "ntt",
+    "sector33": "情報・通信業",
+    "sector17": "情報通信",
+    "product": "株式",
+    "ticker": "9432.T"
+  },
+  {
+    "code": "9433",
+    "name": "KDDI",
+    "market": "プライム",
+    "kana": "ケイディーディーアイ",
+    "romaji": "kddi",
+    "sector33": "情報・通信業",
+    "sector17": "情報通信",
+    "product": "株式",
+    "ticker": "9433.T"
+  }
+]
+
