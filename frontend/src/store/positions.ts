@@ -49,6 +49,8 @@ export interface Position {
   name?: string;
   chatId?: string;
   currentTradeId?: string; // ULID for trade journal tracking
+  status?: 'OPEN' | 'CLOSED'; // Position status for edit permissions
+  ownerId?: string; // Owner ID for edit permissions
 }
 export interface SymbolGroup { symbol: string; name?: string; positions: Position[] }
 
@@ -235,7 +237,7 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   const isInitialEntry = !p || p.qtyTotal === 0;
   
   if (!p) {
-    p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId };
+    p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId, status: 'OPEN', ownerId: 'current_user' };
     state.positions.set(k, p);
   }
   

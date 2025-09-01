@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { getGroups, subscribe } from '../../store/positions';
 import type { Position } from '../../store/positions';
 import { formatLSHeader } from '../../lib/validation';
 import { useSymbolSuggest } from '../../hooks/useSymbolSuggest';
+import PositionContextMenu from '../PositionContextMenu';
+import EditEntryModal from '../EditEntryModal';
+import { EntryPayload } from '../../types/chat';
 
 const Badge: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div className="flex items-center gap-1 rounded-full border border-zinc-300 px-2 py-1 text-xs text-zinc-700">
@@ -12,9 +15,86 @@ const Badge: React.FC<{ label: string; value: React.ReactNode }> = ({ label, val
 );
 
 const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: (code: string) => any }> = ({ p, chatId, findByCode }) => {
+  const [showContextMenu, setShowContextMenu] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editModalLoading, setEditModalLoading] = useState(false);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout>();
+  
+  // Current user context (simplified for demo - in real app this would come from auth)
+  const currentUserId = 'current_user';
+  
+  // Permission check: Only show edit icon for OPEN positions owned by current user
+  const canEdit = p.status === 'OPEN' && p.ownerId === currentUserId;
+
   const handleSettleClick = () => {
     window.dispatchEvent(new CustomEvent('open-settle-from-card', { detail: { symbol: p.symbol, side: p.side, maxQty: p.qtyTotal, chatId: chatId } }));
   };
+  
+  const handleEditClick = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    const rect = editButtonRef.current?.getBoundingClientRect();
+    if (rect) {
+      setContextMenuPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.bottom + 8
+      });
+      setShowContextMenu(true);
+    }
+  };
+  
+  const handleLongPressStart = (event: React.TouchEvent) => {
+    event.preventDefault();
+    longPressTimerRef.current = setTimeout(() => {
+      const touch = event.touches[0];
+      setContextMenuPosition({
+        x: touch.clientX,
+        y: touch.clientY
+      });
+      setShowContextMenu(true);
+    }, 500); // 500ms long press
+  };
+  
+  const handleLongPressEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+  };
+  
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleEditClick(event as any);
+    }
+  };
+  
+  const handleEditModalOpen = () => {
+    setShowEditModal(true);
+  };
+  
+  const handleEditModalSave = async (data: EntryPayload) => {
+    setEditModalLoading(true);
+    try {
+      // In a real app, this would send data to backend to update the position
+      console.log('Saving position edit:', data);
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } finally {
+      setEditModalLoading(false);
+    }
+  };
+  
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
   
   // 色とボーダーをサイドに応じて設定
   const borderColor = p.side === 'LONG' ? 'border-emerald-200' : 'border-red-200';
@@ -22,15 +102,34 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
   const labelTextColor = p.side === 'LONG' ? 'text-emerald-600' : 'text-red-600';
   
   return (
-    <div className={`rounded-xl border-2 ${borderColor} bg-white p-4`} style={{boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.09)'}}>
-      <div className="flex items-center justify-between mb-4">
-        <div className={`px-4 py-1 rounded-full text-sm font-medium ${labelBgColor} ${labelTextColor} min-w-[80px] text-center`}>
-          {p.side}
+    <>
+      <div className={`rounded-xl border-2 ${borderColor} bg-white p-4 relative`} style={{boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.09)'}}>
+        <div className="flex items-center justify-between mb-4">
+          <div className={`px-4 py-1 rounded-full text-sm font-medium ${labelBgColor} ${labelTextColor} min-w-[80px] text-center`}>
+            {p.side}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="text-sm text-gray-500">
+              更新 {new Date(p.updatedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+            {canEdit && (
+              <button
+                ref={editButtonRef}
+                onClick={handleEditClick}
+                onTouchStart={handleLongPressStart}
+                onTouchEnd={handleLongPressEnd}
+                onKeyDown={handleKeyDown}
+                className="size-5 rounded-full bg-gray-100 hover:bg-gray-200 focus:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 flex items-center justify-center transition-colors"
+                aria-label="ポジションを編集"
+                title="編集メニューを開く"
+              >
+                <svg className="size-3 text-gray-600" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
-        <div className="text-sm text-gray-500">
-          更新 {new Date(p.updatedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
-        </div>
-      </div>
       
       <div className="flex gap-3 mb-4">
         <div className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300 whitespace-nowrap">
@@ -49,7 +148,34 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
           決済入力
         </button>
       </div>
-    </div>
+      </div>
+      
+      {/* Context Menu */}
+      <PositionContextMenu
+        isOpen={showContextMenu}
+        onClose={() => setShowContextMenu(false)}
+        onEdit={handleEditModalOpen}
+        position={contextMenuPosition}
+      />
+      
+      {/* Edit Modal */}
+      <EditEntryModal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        initialData={{
+          symbolCode: p.symbol,
+          symbolName: p.name || '',
+          side: p.side,
+          price: p.avgPrice,
+          qty: p.qtyTotal,
+          note: '',
+          executedAt: new Date().toISOString().slice(0, 16),
+          tradeId: p.currentTradeId || ''
+        }}
+        onSave={handleEditModalSave}
+        isLoading={editModalLoading}
+      />
+    </>
   );
 };
 

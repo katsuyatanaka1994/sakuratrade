@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './UI/dialog';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogOverlay, DialogPortal } from './UI/dialog';
 import { Button } from './UI/button';
 import { Input } from './UI/input';
 import { Label } from './UI/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './UI/select';
+import { entryEditSchema, type EntryEditFormData, type ValidationErrors } from '../schemas/entryForm';
 import { EntryPayload } from '../types/chat';
 
 interface EditEntryModalProps {
@@ -21,286 +24,356 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
   onSave,
   isLoading = false
 }) => {
-  const [formData, setFormData] = useState<EntryPayload>({
-    symbolCode: '',
-    symbolName: '',
-    side: 'LONG',
-    price: 0,
-    qty: 0,
-    note: '',
-    executedAt: '',
-    tradeId: ''
+  const [submitError, setSubmitError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const {
+    control,
+    handleSubmit,
+    formState: { errors, isValid },
+    reset,
+    setValue,
+    watch
+  } = useForm<EntryEditFormData>({
+    resolver: zodResolver(entryEditSchema),
+    mode: 'onChange',
+    defaultValues: {
+      symbolCode: '',
+      symbolName: '',
+      side: 'LONG',
+      price: 0,
+      qty: 0,
+      note: '',
+      tradeId: '',
+      executedAt: new Date().toISOString().slice(0, 16)
+    }
   });
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  // Initialize form data when modal opens or initial data changes
+  // プレフィル処理
   useEffect(() => {
     if (isOpen && initialData) {
-      setFormData({
-        ...initialData,
+      reset({
+        symbolCode: initialData.symbolCode || '',
+        symbolName: initialData.symbolName || '',
+        side: initialData.side || 'LONG',
+        price: initialData.price || 0,
+        qty: initialData.qty || 0,
+        note: initialData.note || '',
+        tradeId: initialData.tradeId || '',
         executedAt: initialData.executedAt || new Date().toISOString().slice(0, 16)
       });
-      setErrors({});
+      setSubmitError('');
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, reset]);
 
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    if (!formData.symbolCode.trim()) {
-      newErrors.symbolCode = '銘柄コードは必須です';
-    } else if (!/^\d{4}$/.test(formData.symbolCode)) {
-      newErrors.symbolCode = '銘柄コードは4桁の数字で入力してください';
-    }
-
-    if (!formData.symbolName.trim()) {
-      newErrors.symbolName = '銘柄名は必須です';
-    }
-
-    if (formData.price <= 0) {
-      newErrors.price = '価格は0より大きい値を入力してください';
-    }
-
-    if (formData.qty <= 0) {
-      newErrors.qty = '数量は0より大きい値を入力してください';
-    }
-
-    if (!formData.tradeId.trim()) {
-      newErrors.tradeId = 'トレードIDは必須です';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const onSubmit = async (data: EntryEditFormData) => {
+    if (isSubmitting || !isValid) return;
     
-    if (!validateForm()) {
-      return;
-    }
-
+    setIsSubmitting(true);
+    setSubmitError('');
+    
     try {
-      await onSave(formData);
+      const payload: EntryPayload = {
+        symbolCode: data.symbolCode,
+        symbolName: data.symbolName,
+        side: data.side,
+        price: data.price,
+        qty: data.qty,
+        note: data.note,
+        tradeId: data.tradeId,
+        executedAt: data.executedAt
+      };
+      
+      await onSave(payload);
       onClose();
     } catch (error) {
       console.error('Failed to save entry:', error);
-      // Error handling could be enhanced with proper error messages
-    }
-  };
-
-  const handleInputChange = (field: keyof EntryPayload, value: string | number) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-    
-    // Clear error when user starts typing
-    if (errors[field]) {
-      setErrors(prev => ({
-        ...prev,
-        [field]: ''
-      }));
+      setSubmitError(
+        error instanceof Error 
+          ? error.message 
+          : '保存に失敗しました。もう一度お試しください。'
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
-    if (!isLoading) {
-      setFormData({
-        symbolCode: '',
-        symbolName: '',
-        side: 'LONG',
-        price: 0,
-        qty: 0,
-        note: '',
-        executedAt: '',
-        tradeId: ''
-      });
-      setErrors({});
+    if (!isSubmitting && !isLoading) {
+      reset();
+      setSubmitError('');
       onClose();
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && !isSubmitting && !isLoading) {
+      handleClose();
+    }
+  };
+
+  const watchedValues = watch();
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="w-[420px] rounded-[24px] p-6 bg-white shadow-[0_8px_24px_0_rgba(0,0,0,0.1)] z-[9999]">
-        <DialogHeader>
-          <DialogTitle className="text-base font-semibold text-[#374151]">
-            📈 建値（ENTRY）を編集
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            エントリーメッセージの編集モーダルです。
-          </DialogDescription>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="symbolCode" className="text-sm font-medium text-gray-700">
-                銘柄コード *
-              </Label>
-              <Input
-                id="symbolCode"
-                type="text"
-                placeholder="例: 6501"
-                value={formData.symbolCode}
-                onChange={(e) => handleInputChange('symbolCode', e.target.value)}
-                className={`mt-1 ${errors.symbolCode ? 'border-red-500' : ''}`}
-                disabled={isLoading}
-                maxLength={4}
-              />
-              {errors.symbolCode && (
-                <p className="mt-1 text-xs text-red-600">{errors.symbolCode}</p>
-              )}
-            </div>
-
-            <div>
-              <Label htmlFor="symbolName" className="text-sm font-medium text-gray-700">
-                銘柄名 *
-              </Label>
-              <Input
-                id="symbolName"
-                type="text"
-                placeholder="例: 日立製作所"
-                value={formData.symbolName}
-                onChange={(e) => handleInputChange('symbolName', e.target.value)}
-                className={`mt-1 ${errors.symbolName ? 'border-red-500' : ''}`}
-                disabled={isLoading}
-              />
-              {errors.symbolName && (
-                <p className="mt-1 text-xs text-red-600">{errors.symbolName}</p>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <Label className="text-sm font-medium text-gray-700">
-              サイド *
-            </Label>
-            <Select
-              value={formData.side}
-              onValueChange={(value: 'LONG' | 'SHORT') => handleInputChange('side', value)}
-              disabled={isLoading}
+      <DialogPortal>
+        <DialogOverlay className="fixed inset-0 z-50 bg-[rgba(51,51,51,0.8)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogContent 
+          className="fixed left-[50%] top-[50%] z-50 w-[369px] max-w-[90vw] translate-x-[-50%] translate-y-[-50%] bg-white p-6 shadow-[1px_4px_10.4px_0px_rgba(0,0,0,0.15)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] rounded-lg"
+          onKeyDown={handleKeyDown}
+          data-testid="entry-edit-modal"
+        >
+          <DialogHeader className="flex items-center justify-between mb-6">
+            <DialogTitle 
+              className="font-bold text-[16px] text-[#333333]"
+              data-testid="entry-edit-title"
             >
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="LONG">LONG (買い)</SelectItem>
-                <SelectItem value="SHORT">SHORT (売り)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+              建値入力
+            </DialogTitle>
+            <button
+              onClick={handleClose}
+              disabled={isSubmitting || isLoading}
+              className="w-6 h-6 flex items-center justify-center cursor-pointer disabled:cursor-not-allowed"
+              aria-label="モーダルを閉じる"
+            >
+              <svg className="w-4 h-4 text-[#333333]" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              </svg>
+            </button>
+            <DialogDescription className="sr-only">
+              建値入力の編集フォームです。
+            </DialogDescription>
+          </DialogHeader>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="price" className="text-sm font-medium text-gray-700">
-                価格 *
+          {/* エラーバナー */}
+          {submitError && (
+            <div 
+              className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md"
+              data-testid="entry-edit-banner"
+              role="alert"
+            >
+              <p className="text-sm text-red-800">{submitError}</p>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            {/* 銘柄 - 読み取り専用 */}
+            <div className="space-y-2">
+              <Label htmlFor="symbol" className="text-[14px] font-normal text-[#333333]">
+                銘柄
               </Label>
-              <Input
-                id="price"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0"
-                value={formData.price || ''}
-                onChange={(e) => handleInputChange('price', parseFloat(e.target.value) || 0)}
-                className={`mt-1 ${errors.price ? 'border-red-500' : ''}`}
-                disabled={isLoading}
+              <div 
+                className="h-10 px-2 py-2 bg-white border border-[#8b9198] rounded-[4px] flex items-center"
+                data-testid="entry-symbol"
+              >
+                <span className="text-[14px] font-medium text-[#333333]">
+                  {watchedValues.symbolCode} {watchedValues.symbolName}
+                </span>
+              </div>
+            </div>
+
+            {/* ポジションタイプ */}
+            <div className="space-y-2">
+              <Label className="text-[14px] font-normal text-[#333333]">
+                ポジションタイプ
+              </Label>
+              <Controller
+                name="side"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={isSubmitting || isLoading}
+                  >
+                    <SelectTrigger 
+                      className="h-10 border-[#8b9198] rounded-[4px]"
+                      data-testid="entry-side"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="LONG">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-green-600" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M16 6L18.29 8.29 13.41 13.17 9.41 9.17 2 16.59 3.41 18 9.41 12 13.41 16 19.71 9.71 22 12V6Z"/>
+                          </svg>
+                          <span>ロング（買い）</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="SHORT">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-red-600" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M16 18L18.29 15.71 13.41 10.83 9.41 14.83 2 7.41 3.41 6 9.41 12 13.41 8 19.71 14.29 22 12V18Z"/>
+                          </svg>
+                          <span>ショート（売り）</span>
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {errors.side && (
+                <p className="text-xs text-red-600" role="alert">
+                  {errors.side.message}
+                </p>
+              )}
+            </div>
+
+            {/* 価格 */}
+            <div className="space-y-2">
+              <Label htmlFor="price" className="text-[14px] font-normal text-[#333333]">
+                価格
+              </Label>
+              <Controller
+                name="price"
+                control={control}
+                render={({ field }) => (
+                  <div className="relative">
+                    <Input
+                      {...field}
+                      id="price"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      placeholder="0"
+                      onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                      className={`h-10 border-[#8b9198] rounded-[4px] pr-8 ${errors.price ? 'border-red-500' : ''}`}
+                      disabled={isSubmitting || isLoading}
+                      data-testid="entry-price"
+                      aria-describedby={errors.price ? 'price-error' : undefined}
+                    />
+                    <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[14px] text-[#8b9198]">
+                      円
+                    </span>
+                  </div>
+                )}
               />
               {errors.price && (
-                <p className="mt-1 text-xs text-red-600">{errors.price}</p>
+                <p id="price-error" className="text-xs text-red-600" role="alert">
+                  {errors.price.message}
+                </p>
               )}
             </div>
 
-            <div>
-              <Label htmlFor="qty" className="text-sm font-medium text-gray-700">
-                数量 *
+            {/* 株数 */}
+            <div className="space-y-2">
+              <Label htmlFor="qty" className="text-[14px] font-normal text-[#333333]">
+                株数
               </Label>
-              <Input
-                id="qty"
-                type="number"
-                min="0"
-                step="1"
-                placeholder="0"
-                value={formData.qty || ''}
-                onChange={(e) => handleInputChange('qty', parseInt(e.target.value) || 0)}
-                className={`mt-1 ${errors.qty ? 'border-red-500' : ''}`}
-                disabled={isLoading}
+              <Controller
+                name="qty"
+                control={control}
+                render={({ field }) => (
+                  <div className="relative">
+                    <Input
+                      {...field}
+                      id="qty"
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="0"
+                      onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                      className={`h-10 border-[#8b9198] rounded-[4px] pr-8 ${errors.qty ? 'border-red-500' : ''}`}
+                      disabled={isSubmitting || isLoading}
+                      data-testid="entry-qty"
+                      aria-describedby={errors.qty ? 'qty-error' : undefined}
+                    />
+                    <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[14px] text-[#8b9198]">
+                      株
+                    </span>
+                  </div>
+                )}
               />
               {errors.qty && (
-                <p className="mt-1 text-xs text-red-600">{errors.qty}</p>
+                <p id="qty-error" className="text-xs text-red-600" role="alert">
+                  {errors.qty.message}
+                </p>
               )}
             </div>
-          </div>
 
-          <div>
-            <Label htmlFor="tradeId" className="text-sm font-medium text-gray-700">
-              トレードID *
-            </Label>
-            <Input
-              id="tradeId"
-              type="text"
-              placeholder="例: t_12345"
-              value={formData.tradeId}
-              onChange={(e) => handleInputChange('tradeId', e.target.value)}
-              className={`mt-1 ${errors.tradeId ? 'border-red-500' : ''}`}
-              disabled={isLoading}
-            />
-            {errors.tradeId && (
-              <p className="mt-1 text-xs text-red-600">{errors.tradeId}</p>
-            )}
-          </div>
+            {/* 区切り線 */}
+            <div className="h-px bg-[#d9d9d9] my-4" />
 
-          <div>
-            <Label htmlFor="executedAt" className="text-sm font-medium text-gray-700">
-              実行日時
-            </Label>
-            <Input
-              id="executedAt"
-              type="datetime-local"
-              value={formData.executedAt}
-              onChange={(e) => handleInputChange('executedAt', e.target.value)}
-              className="mt-1"
-              disabled={isLoading}
-            />
-          </div>
+            {/* AI分析セクション */}
+            <div className="space-y-2">
+              <Label className="text-[16px] font-normal text-[#333333]">
+                AI分析 <span className="text-[#70757c]">（任意）</span>
+              </Label>
+              <div className="bg-[#f6fbff] p-2 rounded-[4px] text-[14px] text-[#565a5f] leading-[1.6]">
+                AIがエントリーの判断を評価し、改善のヒントをお届けします✨
+              </div>
+              
+              {/* 画像アップロード */}
+              <div className="border-2 border-dashed border-[#8b9198] rounded-lg p-4 text-center">
+                <div className="flex flex-col items-center gap-2">
+                  <svg className="w-6 h-6 text-[#8b9198]" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                  </svg>
+                  <span className="text-[14px] font-medium text-[#8b9198]">
+                    チャート画像をアップロード
+                  </span>
+                </div>
+                <div className="mt-2 text-[12px] text-[#8b9198]">
+                  <p>対応ファイル形式：png・jpg</p>
+                  <p>最大ファイルサイズ：10MB</p>
+                </div>
+              </div>
+            </div>
 
-          <div>
-            <Label htmlFor="note" className="text-sm font-medium text-gray-700">
-              メモ
-            </Label>
-            <textarea
-              id="note"
-              placeholder="メモを入力..."
-              value={formData.note || ''}
-              onChange={(e) => handleInputChange('note', e.target.value)}
-              className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-              rows={3}
-              disabled={isLoading}
-            />
-          </div>
+            {/* メモ */}
+            <div className="space-y-2">
+              <Label htmlFor="note" className="text-[14px] font-normal text-[#333333]">
+                メモ（任意）
+              </Label>
+              <Controller
+                name="note"
+                control={control}
+                render={({ field }) => (
+                  <textarea
+                    {...field}
+                    id="note"
+                    placeholder="メモを入力..."
+                    rows={3}
+                    className="w-full px-3 py-2 border border-[#8b9198] rounded-[4px] text-[14px] resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    disabled={isSubmitting || isLoading}
+                    data-testid="entry-note"
+                  />
+                )}
+              />
+            </div>
 
-          <div className="flex justify-end space-x-3 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleClose}
-              disabled={isLoading}
-            >
-              キャンセル
-            </Button>
-            <Button
-              type="submit"
-              disabled={isLoading}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              {isLoading ? '保存中...' : '保存'}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
+            {/* アクションボタン */}
+            <div className="flex justify-end gap-8 pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleClose}
+                disabled={isSubmitting || isLoading}
+                className="text-[16px] font-medium text-[#8b9198] hover:text-[#333333]"
+                data-testid="entry-edit-cancel"
+              >
+                キャンセル
+              </Button>
+              <Button
+                type="submit"
+                disabled={isSubmitting || isLoading || !isValid}
+                className="bg-[#1e77f0] hover:bg-[#1557b0] text-white text-[16px] font-bold px-4 py-3 rounded-lg w-[83px] disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="entry-edit-save"
+              >
+                {isSubmitting ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>送信中</span>
+                  </div>
+                ) : (
+                  '送信'
+                )}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </DialogPortal>
     </Dialog>
   );
 };
