@@ -110,7 +110,7 @@ interface Chat {
 }
 
 // Feature flag: allow editing from chat bubbles (ENTRY/EXIT/TEXT)
-const ENABLE_CHAT_BUBBLE_EDIT = false;
+const ENABLE_CHAT_BUBBLE_EDIT = true;
 
 // MessageBubble Component with improved style & timestamp below bubble
 const MessageBubble: React.FC<{ 
