@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { entryEditSchema, type EntryEditFormData, type ValidationErrors } from '../schemas/entryForm';
 import { EntryPayload } from '../types/chat';
 import { updatePositionEntry, fetchPositionById, PositionsApiError } from '../lib/api/positions';
-import { Position } from '../store/positions';
+import { Position, updatePosition } from '../store/positions';
 import { 
   classifyError, 
   generateUserFriendlyMessage, 
@@ -29,11 +29,12 @@ import { regeneratePositionAnalysis } from '../lib/aiRegeneration';
 interface EditEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialData?: EntryPayload & { positionId?: string; version?: number };
+  initialData?: EntryPayload & { positionId?: string; version?: number; chartImageId?: string | null; aiFeedbacked?: boolean };
   onSave: (data: EntryPayload) => Promise<void>;
   onUpdateSuccess?: (position: Position) => void;
   onAddBotMessage?: (message: { id: string; type: 'bot'; content: string; timestamp: string; testId?: string }) => void;
   isLoading?: boolean;
+  chatId?: string | null;
 }
 
 const EditEntryModal: React.FC<EditEntryModalProps> = ({
@@ -43,8 +44,13 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
   onSave,
   onUpdateSuccess,
   onAddBotMessage,
-  isLoading = false
+  isLoading = false,
+  chatId: modalChatId = null
 }) => {
+  // API base URL resolver (align with Trade.tsx/services)
+  const getApiUrl = () => {
+    return (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8000';
+  };
   const [submitError, setSubmitError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConflictMode, setIsConflictMode] = useState(false);
@@ -52,6 +58,8 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
   const [currentErrorDetail, setCurrentErrorDetail] = useState<ErrorDetail | null>(null);
   const [bannerType, setBannerType] = useState<'error' | 'info'>('error');
   const [aiRegeneratingStatus, setAiRegeneratingStatus] = useState<'idle' | 'regenerating' | 'error' | 'ready'>('idle');
+  const [uploadedImage, setUploadedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   const {
     control,
@@ -103,26 +111,51 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
       });
       setSubmitError('');
       setIsConflictMode(false);
+
+      // 画像プレビューの初期化（Positionに保持されている場合は表示）
+      // chartImageId には DataURL/URL を格納しているため、そのままプレビューとして表示可能
+      if (initialData.chartImageId) {
+        setImagePreview(initialData.chartImageId as unknown as string);
+      }
+
+      // 保存済みチャート画像のプレビュー表示（chartImageId -> dataURL）
+      try {
+        const imageId = initialData.chartImageId;
+        if (imageId) {
+          const raw = localStorage.getItem('chart_images');
+          if (raw) {
+            const map: Record<string, string> = JSON.parse(raw);
+            const dataUrl = map[imageId];
+            if (dataUrl) {
+              setImagePreview(dataUrl);
+            }
+          }
+        } else {
+          setImagePreview(null);
+        }
+      } catch (e) {
+        console.warn('保存済みチャート画像の読み込みに失敗しました', e);
+      }
       
-      // テレメトリ記録: エントリ編集モーダル表示
-      const currentPosition: Position = {
-        id: initialData?.positionId || '',
-        symbol: initialData.symbolCode || '',
-        side: initialData.side || 'LONG',
-        avgPrice: initialData.price || 0,
-        qtyTotal: initialData.qty || 0,
-        status: 'OPEN' as const,
-        ownerId: 'current_user',
-        version: initialData?.version || 1,
-        updatedAt: new Date().toISOString(),
-        chatId: 'default'
-      };
-      
-      telemetryHelpers.trackEditOpened(
-        currentPosition,
-        'menu', // トリガー - メニューから開かれることが多い
-        Boolean(initialData.symbolCode) // 既存データありか
-      );
+      // TODO: テレメトリ記録: エントリ編集モーダル表示 (API未実装のため一時無効化)
+      // const currentPosition: Position = {
+      //   id: initialData?.positionId || '',
+      //   symbol: initialData.symbolCode || '',
+      //   side: initialData.side || 'LONG',
+      //   avgPrice: initialData.price || 0,
+      //   qtyTotal: initialData.qty || 0,
+      //   status: 'OPEN' as const,
+      //   ownerId: 'current_user',
+      //   version: initialData?.version || 1,
+      //   updatedAt: new Date().toISOString(),
+      //   chatId: 'default'
+      // };
+      // 
+      // telemetryHelpers.trackEditOpened(
+      //   currentPosition,
+      //   'menu', // トリガー - メニューから開かれることが多い
+      //   Boolean(initialData.symbolCode) // 既存データありか
+      // );
     }
   }, [isOpen, initialData, reset]);
 
@@ -223,12 +256,13 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
       
       const validationErrors = Object.keys(errors).length;
       
-      telemetryHelpers.trackEditSaved(
-        updatedPosition,
-        changeFields,
-        validationErrors,
-        0 // 初回成功時はretryCount = 0
-      );
+      // TODO: テレメトリ記録: 編集保存成功 (API未実装のため一時無効化)
+      // telemetryHelpers.trackEditSaved(
+      //   updatedPosition,
+      //   changeFields,
+      //   validationErrors,
+      //   0 // 初回成功時はretryCount = 0
+      // );
       
       // 成功イベント発行
       if (onUpdateSuccess) {
@@ -282,22 +316,58 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
           }
         }, 500);
 
-        // AI分析再生成を実行（チャート画像がある場合のみ）
+        // 画像が変更/新規アップロードされた場合のみ、統合分析APIを実行（新規建値と同じ仕様）
         setTimeout(async () => {
+          if (!uploadedImage) {
+            return; // 画像変更なし: 再生成しない
+          }
           try {
             setAiRegeneratingStatus('regenerating');
-            const chatId = 'default'; // チャットIDを適切に取得
-            
-            const result = await regeneratePositionAnalysis(chatId, updatedPosition);
-            
-            if (result.success) {
+            const apiUrl = getApiUrl();
+            const formData = new FormData();
+            formData.append('file', uploadedImage);
+            formData.append('symbol', updatedPosition.symbol || '');
+            formData.append('entry_price', String(updatedPosition.avgPrice));
+            formData.append('position_type', updatedPosition.side === 'LONG' ? 'long' : 'short');
+            formData.append('analysis_context', `建値編集: ${updatedPosition.symbol} ${updatedPosition.side} ${updatedPosition.avgPrice}円 ${updatedPosition.qtyTotal}株`);
+            const effectiveChatId = (modalChatId || initialData?.positionId?.split(':')[2] || 'default') as string;
+            formData.append('chat_id', effectiveChatId);
+
+            const response = await fetch(`${apiUrl}/api/v1/integrated-analysis`, {
+              method: 'POST',
+              body: formData
+            });
+
+            if (response.ok) {
+              const analysisData = await response.json();
+              if (analysisData.success && analysisData.natural_feedback && onAddBotMessage) {
+                onAddBotMessage({
+                  id: crypto.randomUUID(),
+                  type: 'bot',
+                  content: analysisData.natural_feedback,
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  testId: 'bot-msg-integrated-analysis-updated'
+                });
+              }
+
+              // 分析成功時: アップロード画像をPositionに保持（再度モーダルを開いた際に表示するため）
+              const persistChatId = effectiveChatId;
+              const imageToPersist = imagePreview; // DataURL / プレビューURL
+              if (imageToPersist) {
+                updatePosition(
+                  updatedPosition.symbol,
+                  updatedPosition.side,
+                  { chartImageId: imageToPersist, aiFeedbacked: true },
+                  persistChatId
+                );
+              }
               setAiRegeneratingStatus('ready');
             } else {
-              console.log('AI regeneration skipped:', result.error);
-              setAiRegeneratingStatus('idle'); // 画像がない場合は通常状態に戻す
+              console.warn('統合分析APIエラー:', response.status);
+              setAiRegeneratingStatus('idle');
             }
           } catch (error) {
-            console.error('AI regeneration error:', error);
+            console.error('統合分析実行エラー:', error);
             setAiRegeneratingStatus('error');
           }
         }, 1000); // 取引プランメッセージの後に実行
@@ -355,12 +425,13 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
         const conflictFields = (error instanceof PositionsApiError && error.details?.conflictFields) || [];
         const versionDiff = (error instanceof PositionsApiError && error.details?.currentVersion || 1) - (data.version || 1);
         
-        telemetryHelpers.trackConflict409(
-          currentPosition,
-          conflictFields,
-          versionDiff,
-          'refresh' // デフォルトは再取得アクション
-        );
+        // TODO: テレメトリ記録: 409競合エラー (API未実装のため一時無効化)
+        // telemetryHelpers.trackConflict409(
+        //   currentPosition,
+        //   conflictFields,
+        //   versionDiff,
+        //   'refresh' // デフォルトは再取得アクション
+        // );
         
         // 既存のgtag記録も維持
         if (window.gtag) {
@@ -390,6 +461,42 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
     }
   };
 
+  // 画像アップロードハンドラー
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // ファイルサイズチェック（10MB）
+    if (file.size > 10 * 1024 * 1024) {
+      setSubmitError('画像ファイルは10MB以下にしてください');
+      return;
+    }
+
+    // ファイル形式チェック
+    if (!file.type.startsWith('image/')) {
+      setSubmitError('画像ファイル（PNG/JPEG）を選択してください');
+      return;
+    }
+
+    setUploadedImage(file);
+    
+    // プレビュー作成
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setImagePreview(e.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+    
+    // エラーをクリア
+    setSubmitError('');
+  };
+
+  // 画像削除ハンドラー
+  const handleImageRemove = () => {
+    setUploadedImage(null);
+    setImagePreview(null);
+  };
+
   const handleClose = () => {
     if (!isSubmitting && !isLoading && !isRefetching) {
       reset();
@@ -408,6 +515,17 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
   };
 
   const watchedValues = watch();
+  const watchedSide = watch('side');
+  const watchedPrice = watch('price');
+  const watchedQty = watch('qty');
+  const initialSide = initialData?.side ?? 'LONG';
+  const initialPrice = initialData?.price ?? 0;
+  const initialQty = initialData?.qty ?? 0;
+  const hasFieldChanges =
+    watchedSide !== initialSide ||
+    watchedPrice !== initialPrice ||
+    watchedQty !== initialQty ||
+    !!uploadedImage;
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -508,17 +626,14 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
           )}
 
           <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-4">
-            {/* 銘柄 - 読み取り専用 */}
+            {/* 銘柄 - 表示のみ（編集不可） */}
             <div className="space-y-2">
-              <Label htmlFor="symbol" className="text-sm text-[#374151] mb-2 block">
+              <Label className="text-sm text-[#374151] mb-2 block">
                 銘柄
               </Label>
-              <Input
-                value={`${watchedValues.symbolCode || ''} ${watchedValues.symbolName || ''}`.trim()}
-                readOnly
-                className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB] bg-[#F6F6F6]"
-                data-testid="entry-symbol"
-              />
+              <div className="text-[#111827] font-bold" data-testid="entry-symbol">
+                {`${watchedValues.symbolCode || ''} ${watchedValues.symbolName || ''}`.trim()}
+              </div>
             </div>
 
             {/* ポジションタイプ */}
@@ -539,9 +654,9 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
                       className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB]"
                       data-testid="entry-side"
                     >
-                      <SelectValue />
+                      <SelectValue placeholder="選択してください" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="z-[10000] bg-white border border-gray-200 shadow-lg">
                       <SelectItem value="LONG">
                         <div className="flex items-center gap-2">
                           <svg className="w-4 h-4 text-green-600" viewBox="0 0 24 24" fill="currentColor">
@@ -632,19 +747,46 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
               </div>
               
               <div className="space-y-3">
-                {/* アップロード領域 */}
-                <label className="w-full border-2 border-dashed border-[#D1D5DB] rounded-lg flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#9CA3AF] transition-colors" style={{height: '72px'}}>
-                  <svg className="w-5 h-5 text-[#9CA3AF]" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7,10 12,5 17,10"/>
-                    <line x1="12" y1="15" x2="12" y2="5"/>
-                  </svg>
-                  <span className="text-sm text-[#9CA3AF]">
-                    チャート画像をアップロード
-                  </span>
-                  <input type="file" accept="image/*" className="hidden" />
-                </label>
-                <p className="text-xs text-[#9CA3AF] text-center">対応形式：png / jpeg・最大10MB</p>
+                {/* 画像プレビュー表示 */}
+                {imagePreview && (
+                  <div className="relative">
+                    <img 
+                      src={imagePreview} 
+                      alt="アップロードされた画像" 
+                      className="w-full max-h-48 object-contain rounded-lg border border-gray-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleImageRemove}
+                      className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold"
+                      title="画像を削除"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+                
+                {/* アップロード領域（画像がない場合のみ表示） */}
+                {!imagePreview && (
+                  <label className="w-full border-2 border-dashed border-[#D1D5DB] rounded-lg flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#9CA3AF] transition-colors" style={{height: '72px'}}>
+                    <svg className="w-5 h-5 text-[#9CA3AF]" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="7,10 12,5 17,10"/>
+                      <line x1="12" y1="15" x2="12" y2="5"/>
+                    </svg>
+                    <span className="text-sm text-[#9CA3AF]">
+                      チャート画像をアップロード
+                    </span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      onChange={handleImageUpload}
+                    />
+                  </label>
+                )}
+                
+                <p className="text-xs text-[#9CA3AF] text-left">対応形式：png / jpeg・最大10MB</p>
               </div>
             </div>
 
@@ -713,7 +855,7 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting || isLoading || isRefetching || !isValid}
+                disabled={isSubmitting || isLoading || isRefetching || !isValid || !hasFieldChanges}
                 className="bg-[#1e77f0] hover:bg-[#1557b0] text-white text-[16px] font-bold px-4 py-3 rounded-lg w-[83px] disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="entry-edit-save"
               >

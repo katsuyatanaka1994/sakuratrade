@@ -11,7 +11,7 @@ import {
   calculateUpdateDiff, 
   formatPrice, 
   formatQty, 
-  formatPnl,
+  formatPercent,
   type PositionMetrics,
   type PositionUpdateDiff 
 } from '../../utils/positionCalculations';
@@ -21,6 +21,9 @@ import { executeRetry, showRetryToast, type RetryContext } from '../../lib/retry
 import { classifyError } from '../../lib/errorHandling';
 import { ToastContainer, showToast } from '../UI/Toast';
 import { telemetryHelpers } from '../../lib/telemetry';
+
+// Feature flag: レガシーAI再生成（/api/chat/... 経由）を一時無効化
+const ENABLE_LEGACY_AI_REGENERATION = false;
 
 const Badge: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div className="flex items-center gap-1 rounded-full border border-zinc-300 px-2 py-1 text-xs text-zinc-700">
@@ -36,12 +39,17 @@ const PositionCard: React.FC<{
   onPositionUpdate?: (position: Position) => void;
   onAddBotMessage?: (message: { id: string; type: 'bot'; content: string; timestamp: string; testId?: string }) => void;
 }> = ({ p, chatId, findByCode, onPositionUpdate, onAddBotMessage }) => {
+  // 取引プラン設定（Botのロジックに合わせる）
+  const riskSettings = {
+    stopLossPercent: 0.02,      // -2%
+    profitTargetPercent: 0.05,  // +5%
+  } as const;
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [showEditModal, setShowEditModal] = useState(false);
   const [editModalLoading, setEditModalLoading] = useState(false);
   const [positionMetrics, setPositionMetrics] = useState<PositionMetrics>(() => 
-    calculatePositionMetrics(p)
+    calculatePositionMetrics(p, undefined, riskSettings)
   );
   const [isUpdating, setIsUpdating] = useState(false);
   const editButtonRef = useRef<HTMLButtonElement>(null);
@@ -61,9 +69,9 @@ const PositionCard: React.FC<{
     event.preventDefault();
     event.stopPropagation();
     
-    // テレメトリ: メニュー表示
-    const positionCount = 1; // この位置では1つのポジション
-    telemetryHelpers.trackMenuOpened(p, 'button', positionCount);
+    // TODO: テレメトリ記録: メニュー表示 (API未実装のため一時無効化)
+    // const positionCount = 1; // この位置では1つのポジション
+    // telemetryHelpers.trackMenuOpened(p, 'button', positionCount);
     
     const rect = editButtonRef.current?.getBoundingClientRect();
     if (rect) {
@@ -78,9 +86,9 @@ const PositionCard: React.FC<{
   const handleLongPressStart = (event: React.TouchEvent) => {
     event.preventDefault();
     longPressTimerRef.current = setTimeout(() => {
-      // テレメトリ: メニュー表示（ロングプレス）
-      const positionCount = 1;
-      telemetryHelpers.trackMenuOpened(p, 'context', positionCount);
+      // TODO: テレメトリ記録: メニュー表示（ロングプレス） (API未実装のため一時無効化)
+      // const positionCount = 1;
+      // telemetryHelpers.trackMenuOpened(p, 'context', positionCount);
       
       const touch = event.touches[0];
       setContextMenuPosition({
@@ -105,8 +113,8 @@ const PositionCard: React.FC<{
   };
   
   const handleEditModalOpen = () => {
-    // テレメトリ: モーダル表示
-    telemetryHelpers.trackEditOpened(p, 'menu', false);
+    // TODO: テレメトリ記録: モーダル表示 (API未実装のため一時無効化)
+    // telemetryHelpers.trackEditOpened(p, 'menu', false);
     setShowEditModal(true);
   };
   
@@ -155,7 +163,10 @@ const PositionCard: React.FC<{
           qtyTotal: updatedPosition.qtyTotal,
           name: updatedPosition.name,
           updatedAt: updatedPosition.updatedAt || new Date().toISOString(),
-          version: updatedPosition.version
+          version: updatedPosition.version,
+          // 画像保持（EditEntryModal側で追加された場合）
+          chartImageId: updatedPosition.chartImageId ?? p.chartImageId,
+          aiFeedbacked: updatedPosition.aiFeedbacked ?? p.aiFeedbacked
         },
         p.chatId
       );
@@ -165,7 +176,7 @@ const PositionCard: React.FC<{
       }
 
       // 2. Position Card再計算・更新
-      const newMetrics = calculatePositionMetrics(storeUpdatedPosition);
+      const newMetrics = calculatePositionMetrics(storeUpdatedPosition, undefined, riskSettings);
       setPositionMetrics(newMetrics);
       
       // 3. 親コンポーネントに更新通知
@@ -219,13 +230,34 @@ const PositionCard: React.FC<{
           showRetryToast(errorDetail, retryContext, 'bot_messages');
         }
         
-        // 3. AI分析再生成 (画像条件付・非同期)
-        try {
-          const aiResult = await regeneratePositionAnalysis(chatId, updatedPosition);
-          if (!aiResult.success) {
-            // AI失敗時のトースト表示
+        // 3. AI分析再生成 (旧フロー) は一時停止
+        if (ENABLE_LEGACY_AI_REGENERATION) {
+          try {
+            const aiResult = await regeneratePositionAnalysis(chatId, updatedPosition);
+            if (!aiResult.success) {
+              // AI失敗時のトースト表示
+              const errorDetail = classifyError(
+                new Error(aiResult.error || 'AI分析の生成に失敗しました'),
+                {
+                  operation: 'ai_regeneration',
+                  statusCode: undefined
+                }
+              );
+              
+              const retryContext: RetryContext = {
+                chatId,
+                position: updatedPosition,
+                originalError: errorDetail
+              };
+              
+              showRetryToast(errorDetail, retryContext, 'ai_regeneration');
+            }
+          } catch (aiError) {
+            console.error('AI regeneration failed:', aiError);
+            
+            // AI例外エラー時のトースト表示
             const errorDetail = classifyError(
-              new Error(aiResult.error || 'AI分析の生成に失敗しました'),
+              aiError instanceof Error ? aiError : new Error('AI分析でエラーが発生しました'),
               {
                 operation: 'ai_regeneration',
                 statusCode: undefined
@@ -240,25 +272,6 @@ const PositionCard: React.FC<{
             
             showRetryToast(errorDetail, retryContext, 'ai_regeneration');
           }
-        } catch (aiError) {
-          console.error('AI regeneration failed:', aiError);
-          
-          // AI例外エラー時のトースト表示
-          const errorDetail = classifyError(
-            aiError instanceof Error ? aiError : new Error('AI分析でエラーが発生しました'),
-            {
-              operation: 'ai_regeneration',
-              statusCode: undefined
-            }
-          );
-          
-          const retryContext: RetryContext = {
-            chatId,
-            position: updatedPosition,
-            originalError: errorDetail
-          };
-          
-          showRetryToast(errorDetail, retryContext, 'ai_regeneration');
         }
       }
       
@@ -319,7 +332,7 @@ const PositionCard: React.FC<{
   
   // Positionメトリクス更新
   useEffect(() => {
-    const newMetrics = calculatePositionMetrics(p);
+    const newMetrics = calculatePositionMetrics(p, undefined, riskSettings);
     setPositionMetrics(newMetrics);
   }, [p.avgPrice, p.qtyTotal, p.side, p.version]);
   
@@ -328,8 +341,7 @@ const PositionCard: React.FC<{
   const labelBgColor = p.side === 'LONG' ? 'bg-emerald-100' : 'bg-red-100';
   const labelTextColor = p.side === 'LONG' ? 'text-emerald-600' : 'text-red-600';
   
-  // 損益表示用フォーマット
-  const pnlDisplay = formatPnl(positionMetrics.unrealizedPnl);
+  // 含み損益は非表示（pnlDisplay等は未使用）
   
   return (
     <>
@@ -381,20 +393,24 @@ const PositionCard: React.FC<{
       
       {/* Position Metrics */}
       <div 
-        className="mb-4 space-y-2"
+        className="mb-4 space-y-1"
         data-testid="position-metrics"
       >
         <div className="flex justify-between items-center text-sm">
-          <span className="text-gray-600">含み損益</span>
-          <span className={pnlDisplay.colorClass}>{pnlDisplay.text}</span>
+          <span className="text-gray-600">
+            {`利確目標+${(riskSettings.profitTargetPercent * 100).toFixed(0)}%:`}
+          </span>
+          <span className="text-green-600" data-testid="position-tp">
+            ¥{new Intl.NumberFormat('ja-JP').format(Math.round(positionMetrics.profitTarget))}
+          </span>
         </div>
         <div className="flex justify-between items-center text-sm">
-          <span className="text-gray-600">損切目標</span>
-          <span className="text-gray-900" data-testid="position-sl">{formatPrice(positionMetrics.stopLossTarget)}</span>
-        </div>
-        <div className="flex justify-between items-center text-sm">
-          <span className="text-gray-600">利確目標</span>
-          <span className="text-gray-900" data-testid="position-tp">{formatPrice(positionMetrics.profitTarget)}</span>
+          <span className="text-gray-600">
+            {`損切り目標 -${(riskSettings.stopLossPercent * 100).toFixed(0)}%:`}
+          </span>
+          <span className="text-red-600" data-testid="position-sl">
+            ¥{new Intl.NumberFormat('ja-JP').format(Math.round(positionMetrics.stopLossTarget))}
+          </span>
         </div>
       </div>
       
@@ -421,6 +437,7 @@ const PositionCard: React.FC<{
       <EditEntryModal
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}
+        chatId={chatId || p.chatId || 'default'}
         initialData={{
           positionId: `${p.symbol}:${p.side}:${p.chatId || 'default'}`,
           symbolCode: p.symbol,
@@ -431,7 +448,9 @@ const PositionCard: React.FC<{
           note: '',
           executedAt: new Date().toISOString().slice(0, 16),
           tradeId: p.currentTradeId || '',
-          version: p.version
+          version: p.version,
+          chartImageId: p.chartImageId ?? null,
+          aiFeedbacked: p.aiFeedbacked ?? false
         }}
         onSave={handleEditModalSave}
         onUpdateSuccess={handlePositionUpdateSuccess}
