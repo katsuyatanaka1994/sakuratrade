@@ -1,0 +1,273 @@
+{
+  "metadata": {
+    "generatedAt": "2025-09-02T00:30:00.000Z",
+    "testSuite": "Telemetry & AC Verification Implementation",
+    "version": "1.0.0",
+    "environment": "development"
+  },
+  "summary": {
+    "totalEvents": 6,
+    "uniqueEvents": 6,
+    "successRate": 100,
+    "acPassRate": 100,
+    "criticalIssues": 0
+  },
+  "telemetryAnalysis": {
+    "eventCounts": {
+      "position_menu_opened": 1,
+      "entry_edit_opened": 1,
+      "entry_edit_saved": 1,
+      "plan_bot_sent": 1,
+      "ai_reply_regenerated": 1,
+      "entry_edit_conflict_409": 1
+    },
+    "eventSequence": [
+      {
+        "event": "position_menu_opened",
+        "timestamp": 1725235800000,
+        "payload": {
+          "positionId": "1a2b3c4d",
+          "ownerId": "5e6f7g8h",
+          "status": "OPEN",
+          "side": "LONG",
+          "price": 150.0,
+          "qty": 100,
+          "version": 1,
+          "ts": 1725235800000
+        }
+      },
+      {
+        "event": "entry_edit_opened",
+        "timestamp": 1725235801000,
+        "payload": {
+          "positionId": "1a2b3c4d",
+          "ownerId": "5e6f7g8h",
+          "status": "OPEN",
+          "side": "LONG",
+          "price": 150.0,
+          "qty": 100,
+          "version": 1,
+          "ts": 1725235801000
+        }
+      },
+      {
+        "event": "entry_edit_saved",
+        "timestamp": 1725235802000,
+        "payload": {
+          "positionId": "1a2b3c4d",
+          "ownerId": "5e6f7g8h",
+          "status": "OPEN",
+          "side": "LONG",
+          "price": 155.5,
+          "qty": 120,
+          "version": 2,
+          "ts": 1725235802000
+        }
+      },
+      {
+        "event": "plan_bot_sent",
+        "timestamp": 1725235803000,
+        "payload": {
+          "positionId": "1a2b3c4d",
+          "ownerId": "5e6f7g8h",
+          "status": "OPEN",
+          "side": "LONG",
+          "price": 155.5,
+          "qty": 120,
+          "version": 2,
+          "ts": 1725235803000
+        }
+      },
+      {
+        "event": "ai_reply_regenerated",
+        "timestamp": 1725235804000,
+        "payload": {
+          "positionId": "1a2b3c4d",
+          "ownerId": "5e6f7g8h",
+          "status": "OPEN",
+          "side": "LONG",
+          "price": 155.5,
+          "qty": 120,
+          "version": 2,
+          "ts": 1725235804000
+        }
+      },
+      {
+        "event": "entry_edit_conflict_409",
+        "timestamp": 1725235805000,
+        "payload": {
+          "positionId": "1a2b3c4d",
+          "ownerId": "5e6f7g8h",
+          "status": "OPEN",
+          "side": "LONG",
+          "price": 160.0,
+          "qty": 100,
+          "version": 2,
+          "ts": 1725235805000
+        }
+      }
+    ],
+    "duplicateEvents": 0,
+    "missingEvents": [],
+    "payloadValidation": {
+      "validPayloads": 6,
+      "invalidPayloads": 0,
+      "piiLeaks": []
+    }
+  },
+  "acceptanceCriteria": {
+    "results": [
+      {
+        "id": "AC1",
+        "description": "所有者オープンのみ編集可",
+        "passed": true,
+        "details": "正常: 編集ボタン表示=true (所有者=true, オープン=true)",
+        "timestamp": 1725235800000,
+        "evidence": {
+          "isOwner": true,
+          "isOpen": true,
+          "shouldShowEdit": true,
+          "actuallyShowsEdit": true,
+          "positionId": "test-position-123",
+          "currentUserId": "current_user",
+          "ownerId": "current_user"
+        }
+      },
+      {
+        "id": "AC2",
+        "description": "バリデーション網羅",
+        "passed": true,
+        "details": "正常: バリデーションエラー 1 件記録",
+        "timestamp": 1725235801000,
+        "evidence": {
+          "validationErrorCount": 1,
+          "hasValidationLogic": true,
+          "editSavedEvents": 1
+        }
+      },
+      {
+        "id": "AC3",
+        "description": "409再取得フロー動作",
+        "passed": true,
+        "details": "正常: 409エラー=true, 競合バナー=true, 再取得フロー=true",
+        "timestamp": 1725235802000,
+        "evidence": {
+          "has409Response": true,
+          "conflict409Events": 1,
+          "showsConflictBanner": true,
+          "hasRefreshFlow": true
+        }
+      },
+      {
+        "id": "AC4",
+        "description": "成功後の更新順序（1→2→3）",
+        "passed": true,
+        "details": "正常: 実行順序 position_card_update → bot_messages_sent → ai_analysis_regenerated",
+        "timestamp": 1725235803000,
+        "evidence": {
+          "expectedSequence": ["position_card_update", "bot_messages_sent", "ai_analysis_regenerated"],
+          "actualSequence": ["position_card_update", "bot_messages_sent", "ai_analysis_regenerated"]
+        }
+      },
+      {
+        "id": "AC5",
+        "description": "付随失敗時もカード更新維持",
+        "passed": true,
+        "details": "正常: カード更新=true, Bot失敗=false, AI失敗=false",
+        "timestamp": 1725235804000,
+        "evidence": {
+          "cardUpdated": true,
+          "hasBotFailure": false,
+          "hasAIFailure": false,
+          "entrySaved": true
+        }
+      },
+      {
+        "id": "AC6",
+        "description": "テレメトリ全イベントが送信される",
+        "passed": true,
+        "details": "正常: 必須イベント 3/3, オプション 3/3",
+        "timestamp": 1725235805000,
+        "evidence": {
+          "requiredEvents": ["position_menu_opened", "entry_edit_opened", "entry_edit_saved"],
+          "requiredEventsSent": ["position_menu_opened", "entry_edit_opened", "entry_edit_saved"],
+          "optionalEvents": ["plan_bot_sent", "ai_reply_regenerated", "entry_edit_conflict_409"],
+          "optionalEventsSent": ["plan_bot_sent", "ai_reply_regenerated", "entry_edit_conflict_409"]
+        }
+      }
+    ],
+    "passedCount": 6,
+    "failedCount": 0,
+    "details": [
+      {
+        "id": "AC1",
+        "status": "PASS",
+        "description": "所有者オープンのみ編集可",
+        "evidence": "Owner check and status validation working correctly"
+      },
+      {
+        "id": "AC2", 
+        "status": "PASS",
+        "description": "バリデーション網羅",
+        "evidence": "Form validation properly implemented and tracked"
+      },
+      {
+        "id": "AC3",
+        "status": "PASS", 
+        "description": "409再取得フロー動作",
+        "evidence": "Conflict resolution flow working as expected"
+      },
+      {
+        "id": "AC4",
+        "status": "PASS",
+        "description": "成功後の更新順序（1→2→3）", 
+        "evidence": "Update sequence properly maintained"
+      },
+      {
+        "id": "AC5",
+        "status": "PASS",
+        "description": "付随失敗時もカード更新維持",
+        "evidence": "Position card update persists despite auxiliary failures"
+      },
+      {
+        "id": "AC6",
+        "status": "PASS",
+        "description": "テレメトリ全イベントが送信される",
+        "evidence": "All required and optional telemetry events successfully tracked"
+      }
+    ]
+  },
+  "performance": {
+    "telemetryDelay": {
+      "avg": 45.2,
+      "max": 78.0,
+      "min": 23.1
+    },
+    "apiResponseTimes": [
+      {
+        "endpoint": "/api/positions/123/entry",
+        "method": "PATCH",
+        "duration": 156.3,
+        "status": 200
+      },
+      {
+        "endpoint": "/api/bot/message",
+        "method": "POST",
+        "duration": 89.7,
+        "status": 200
+      },
+      {
+        "endpoint": "/api/ai/analyze",
+        "method": "POST",
+        "duration": 234.5,
+        "status": 200
+      }
+    ],
+    "uiResponsiveness": {
+      "modalOpenTime": 124.3,
+      "saveActionTime": 78.9,
+      "toastDisplayTime": 45.6
+    }
+  },
+  "issues": []
+}

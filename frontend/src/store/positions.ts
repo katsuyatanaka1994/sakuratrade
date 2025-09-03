@@ -51,6 +51,10 @@ export interface Position {
   currentTradeId?: string; // ULID for trade journal tracking
   status?: 'OPEN' | 'CLOSED'; // Position status for edit permissions
   ownerId?: string; // Owner ID for edit permissions
+  version: number; // Version for optimistic locking
+  // Chart analysis linkage
+  chartImageId?: string | null;
+  aiFeedbacked?: boolean;
 }
 export interface SymbolGroup { symbol: string; name?: string; positions: Position[] }
 
@@ -237,7 +241,7 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   const isInitialEntry = !p || p.qtyTotal === 0;
   
   if (!p) {
-    p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId, status: 'OPEN', ownerId: 'current_user' };
+    p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId, status: 'OPEN', ownerId: 'current_user', chartImageId: null, aiFeedbacked: false };
     state.positions.set(k, p);
   }
   
@@ -255,6 +259,28 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   p.updatedAt = now;
   notify();
   return p;
+}
+
+export function updatePosition(symbol: string, side: Side, updates: Partial<Position>, chatId?: string): Position | null {
+  const k = key(symbol, side, chatId);
+  const p = state.positions.get(k);
+  
+  if (!p) {
+    console.warn('Position not found for update:', { symbol, side, chatId });
+    return null;
+  }
+  
+  // Update position with provided fields
+  const updatedPosition = {
+    ...p,
+    ...updates,
+    updatedAt: updates.updatedAt || new Date().toISOString(),
+    version: (updates.version !== undefined) ? updates.version : p.version + 1
+  };
+  
+  state.positions.set(k, updatedPosition);
+  notify();
+  return updatedPosition;
 }
 
 export function settle(symbol: string, side: Side, price: number, qty: number, chatId?: string) {

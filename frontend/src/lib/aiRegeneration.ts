@@ -209,9 +209,9 @@ export async function executeAIRegeneration(
     
     const result = await response.json();
     
-    // テレメトリ記録: AI再生成成功
-    const regenerationReason: 'failure' | 'manual' | 'timeout' = 'manual'; // Position更新による手動再生成
-    telemetryHelpers.trackAIRegenerated(position, regenerationReason, result.analysis_id);
+    // TODO: テレメトリ記録: AI再生成成功 (API未実装のため一時無効化)
+    // const regenerationReason: 'failure' | 'manual' | 'timeout' = 'manual'; // Position更新による手動再生成
+    // telemetryHelpers.trackAIRegenerated(position, regenerationReason, result.analysis_id);
     
     // シーケンスログ記録（AC検証用）
     if ((window as any).acTestContext) {

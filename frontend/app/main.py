@@ -2,11 +2,11 @@ from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from routers import register_routers
 from routers import images
 from routers import analyze
 from routers import advice
 from routers import chats
-from routers import ai
 from routers import journal
 from routers import integrated_advice
 from routers import exit_feedback
@@ -33,15 +33,13 @@ async def on_startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-# Register all routers
+register_routers(app)
 app.include_router(images.router)
 app.include_router(analyze.router)
 # Add advice router
 app.include_router(advice.router)
 # Add chats router
 app.include_router(chats.router)
-# Add AI router
-app.include_router(ai.router)
 # Add journal router
 app.include_router(journal.router)
 # Add integrated analysis router

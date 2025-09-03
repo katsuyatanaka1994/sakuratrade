@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Header from './components/Header';
 import Login from './components/Login';
@@ -8,11 +8,29 @@ import Trade from './components/Trade';
 import Settings from './components/Settings';
 import Support from './components/Support';
 import { ToastProvider } from './components/ToastContainer';
+import { initializeTelemetry, telemetryHelpers } from './lib/telemetry';
 
 function AppContent() {
   const location = useLocation();
   const [isFileListVisible, setIsFileListVisible] = useState(true);
   const [selectedFile, setSelectedFile] = useState('フジクラ');
+  
+  // テレメトリシステムの初期化
+  useEffect(() => {
+    // テレメトリ初期化
+    initializeTelemetry({
+      enabled: true,
+      endpoint: '/api/telemetry',
+      batchSize: 10,
+      flushInterval: 5000
+    });
+    
+    // グローバルに公開（ブラウザでのテスト用）
+    if (typeof window !== 'undefined') {
+      (window as any).telemetryHelpers = telemetryHelpers;
+      console.log('✅ Telemetry system initialized and exposed globally');
+    }
+  }, []);
   
   // ヘッダーを表示しないページを定義
   const noHeaderPages = ['/login', '/onboarding'];

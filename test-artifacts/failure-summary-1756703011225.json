@@ -1,0 +1,34 @@
+{
+  "timestamp": "2025-09-01T05:03:31.225Z",
+  "duration": 13521,
+  "status": "failed",
+  "stats": {
+    "passed": 0,
+    "failed": 3,
+    "skipped": 0,
+    "total": 0
+  },
+  "failedTests": [
+    {
+      "title": "should capture entry edit modal screenshot",
+      "location": "/Users/prism.tokyo/gptset/tests/e2e/entry-edit-modal.spec.ts:410",
+      "error": "TimeoutError: locator.click: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('entry-edit-open-icon')\u001b[22m\n",
+      "duration": 11278,
+      "retry": 0
+    },
+    {
+      "title": "should capture entry edit modal screenshot",
+      "location": "/Users/prism.tokyo/gptset/tests/e2e/entry-edit-modal.spec.ts:410",
+      "error": "TimeoutError: locator.click: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('entry-edit-open-icon')\u001b[22m\n",
+      "duration": 11844,
+      "retry": 0
+    },
+    {
+      "title": "should capture entry edit modal screenshot",
+      "location": "/Users/prism.tokyo/gptset/tests/e2e/entry-edit-modal.spec.ts:410",
+      "error": "TimeoutError: locator.click: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('entry-edit-open-icon')\u001b[22m\n",
+      "duration": 12173,
+      "retry": 0
+    }
+  ]
+}

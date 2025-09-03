@@ -43,7 +43,10 @@ export const entryEditSchema = z.object({
   // メタデータ
   tradeId: z.string().min(1, 'トレードIDが必要です'),
   executedAt: z.string().optional(),
-  version: z.number().optional()
+  version: z.number({
+    required_error: 'バージョン情報が必要です',
+    invalid_type_error: 'バージョン情報が不正です'
+  }).min(0, 'バージョン情報が不正です')
 });
 
 export type EntryEditFormData = z.infer<typeof entryEditSchema>;
@@ -58,6 +61,7 @@ export interface ValidationErrors {
   note?: string;
   tradeId?: string;
   executedAt?: string;
+  version?: string;
 }
 
 // フォーム用のヘルパー関数
