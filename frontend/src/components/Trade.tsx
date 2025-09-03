@@ -22,7 +22,7 @@ import { getLatestSymbolFromChat, loadSymbols } from '../utils/symbols';
 import type { ChatMsg } from '../utils/symbols';
 import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
 import { useToast } from './ToastContainer';
-import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, TradeSnapshot, getLongShortQty } from '../store/positions';
+import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, TradeSnapshot, getLongShortQty, updatePosition } from '../store/positions';
 import { convertChatMessageToTradeMessage } from '../utils/messageAdapter';
 
 // Helper function to get API URL - hardcoded for now to debug
@@ -109,6 +109,9 @@ interface Chat {
   updatedAt: string;
 }
 
+// Feature flag: allow editing from chat bubbles (ENTRY/EXIT/TEXT)
+const ENABLE_CHAT_BUBBLE_EDIT = false;
+
 // MessageBubble Component with improved style & timestamp below bubble
 const MessageBubble: React.FC<{ 
   message: Message; 
@@ -182,15 +185,18 @@ const MessageBubble: React.FC<{
       <div
         className={`relative max-w-[75%] ${isUser ? 'ml-auto' : 'mr-auto'}`}
         onMouseEnter={() => {
+          if (!ENABLE_CHAT_BUBBLE_EDIT) return;
           if (isUser) setShowEditIcon(true);
         }}
         onMouseLeave={() => {
+          if (!ENABLE_CHAT_BUBBLE_EDIT) return;
           setShowEditIcon(false);
         }}
       >
         <div
           ref={messageRef}
           data-message-id={message.id}
+          data-testid={(message as any)['data-testid'] || (message.type === 'bot' ? 'bot-message' : 'user-message')}
           className={`relative w-full px-4 py-3 rounded-2xl text-[13px] leading-relaxed shadow transition-all duration-300 ${
             isHighlighted 
               ? 'ring-2 ring-yellow-400 bg-yellow-50' 
@@ -201,8 +207,8 @@ const MessageBubble: React.FC<{
         >
           <span dangerouslySetInnerHTML={{ __html: message.content }} />
           
-          {/* Action Icons - Only show for user messages on hover */}
-          {isUser && showEditIcon && (
+          {/* Action Icons (disabled when ENABLE_CHAT_BUBBLE_EDIT=false) */}
+          {ENABLE_CHAT_BUBBLE_EDIT && isUser && showEditIcon && (
             <div className="absolute bottom-1 right-1 flex gap-1">
               {/* Edit Icon - Show for all user messages except settled ENTRY messages */}
               {(() => {
@@ -447,6 +453,18 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     const symbol = symbolMatch ? symbolMatch[1].trim() : '';
     console.log('🔧 Symbol extraction:', { symbolMatch, symbol });
     
+    // Extract symbol code and name
+    let symbolCode = '';
+    let symbolName = '';
+    if (symbol.includes(' ')) {
+      const parts = symbol.split(' ');
+      symbolCode = parts[0];
+      symbolName = parts.slice(1).join(' ');
+    } else {
+      symbolCode = symbol;
+      // 銘柄コードから銘柄名を取得する処理が必要な場合はここで実装
+    }
+    
     // Extract position type
     const positionMatch = content.match(/ポジションタイプ:\s*([^\<\<br/\>]+)/);
     const positionText = positionMatch ? positionMatch[1].trim() : '';
@@ -471,10 +489,26 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     });
     
     // Then prefill the form data
-    setEntrySymbol(symbol);
+    setEntrySymbol(symbol); // 既存の新規モーダル用
     setEntryPrice(price);
     setEntryQuantity(qty);
     setEntryPositionType(isLong ? 'long' : 'short');
+    
+    // 編集モーダル用のデータ設定
+    const editData = {
+      symbolCode: symbolCode,
+      symbolName: symbolName,
+      side: isLong ? 'LONG' : 'SHORT',
+      price: parseFloat(price) || 0,
+      qty: parseInt(qty) || 0
+    };
+    
+    // 編集モーダルの状態を更新
+    setEditEntryModal({
+      isOpen: true,
+      messageId: message.id,
+      data: editData
+    });
     
     console.log('🔧 Prefilling entry modal:', { 
       messageId: message.id,
@@ -1806,6 +1840,11 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
     
     // 画像が添付されている場合、統合分析を実行
+    // 成功した場合のみ初回エントリーのポジションにチャート画像IDを紐付け
+    let attachChart: { imageId: string } | null = null;
+    const symbolCodeForPosition = entryCode || entrySymbol.split(' ')[0];
+    const preQty = getLongShortQty(symbolCodeForPosition, currentChatId);
+    const isInitialForSide = (entryPositionType === 'long' ? preQty.long : preQty.short) === 0;
     if (entryImageFile) {
       // 統合分析を実行
       try {
@@ -1818,6 +1857,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         formData.append('entry_price', price.toString());
         formData.append('position_type', entryPositionType === 'LONG' ? 'long' : 'short');
         formData.append('analysis_context', `建値入力: ${entrySymbol} ${positionText} ${price}円 ${qty}株`);
+        if (currentChatId) {
+          formData.append('chat_id', currentChatId);
+        }
 
         const apiUrl = getApiUrl();
         const response = await fetch(`${apiUrl}/api/v1/integrated-analysis`, {
@@ -1840,6 +1882,27 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 }
               ]);
             }, 1000); // 建値入力メッセージの後に表示
+
+            // 初回エントリーかつAI成功時のみ、後でポジションに画像IDを紐付け
+            if (isInitialForSide) {
+              attachChart = { imageId: `img-${crypto.randomUUID()}` };
+              // 保存用にデータURL化してlocalStorageへ永続化
+              try {
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(String(reader.result));
+                  reader.onerror = () => reject(new Error('failed_to_read_image'));
+                  reader.readAsDataURL(entryImageFile);
+                });
+                const key = 'chart_images';
+                const existingRaw = localStorage.getItem(key);
+                const existing: Record<string, string> = existingRaw ? JSON.parse(existingRaw) : {};
+                existing[attachChart.imageId] = dataUrl;
+                localStorage.setItem(key, JSON.stringify(existing));
+              } catch (e) {
+                console.warn('画像の保存に失敗しました（プレビュー用）', e);
+              }
+            }
           }
         } else {
           console.warn('統合分析APIエラー:', response.status);
@@ -1854,7 +1917,27 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // 右カラムのストアを更新
     const chatIdForEntry = currentChatId || undefined;
     console.log('🎯 Creating position with chatId:', chatIdForEntry);
-    positionsEntry(entryCode || entrySymbol, entryPositionType === 'long' ? 'LONG' : 'SHORT', price, qty, undefined, chatIdForEntry);
+    // 銘柄名を抽出（"4661 オリエンタルランド"形式の場合）
+    let symbolName = '';
+    if (entrySymbol.includes(' ')) {
+      const parts = entrySymbol.split(' ');
+      symbolName = parts.slice(1).join(' ');
+    }
+    
+    const createdPosition = positionsEntry(symbolCodeForPosition, entryPositionType === 'long' ? 'LONG' : 'SHORT', price, qty, symbolName || undefined, chatIdForEntry);
+
+    // AI成功時のみ画像IDを紐付け（初回エントリー限定）
+    if (attachChart) {
+      updatePosition(
+        symbolCodeForPosition,
+        entryPositionType === 'long' ? 'LONG' : 'SHORT',
+        {
+          chartImageId: attachChart.imageId,
+          aiFeedbacked: true,
+        },
+        chatIdForEntry
+      );
+    }
 
     // 利確・損切り目標価格計算とボットメッセージ
     const takeProfit = entryPositionType === 'long' 
@@ -2285,9 +2368,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                       message={message}
                       onImageClick={handleImageClick}
                       isHighlighted={highlightedMessageId === message.id}
-                      onMessageEdit={handleMessageEdit}
+                      onMessageEdit={ENABLE_CHAT_BUBBLE_EDIT ? handleMessageEdit : undefined}
                       isEntrySettled={isEntrySettled}
-                      onMessageUndo={handleMessageUndo}
+                      onMessageUndo={ENABLE_CHAT_BUBBLE_EDIT ? handleMessageUndo : undefined}
                     />
                   ))}
                 </div>
@@ -2410,7 +2493,19 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
         {/* Right column for positions */}
         <div className="w-[360px] shrink-0 border-l border-[#E5E7EB] bg-[#E9F7F6]">
-          <RightPanePositions chatId={currentChatId} />
+          <RightPanePositions 
+            chatId={currentChatId} 
+            onAddBotMessage={(message) => {
+              setMessages(prev => [...prev, {
+                id: message.id,
+                type: message.type,
+                content: message.content,
+                timestamp: message.timestamp,
+                'data-testid': message.testId
+              }]);
+              setTimeout(() => scrollToLatestMessage(), 50);
+            }}
+          />
         </div>
       </div>
 
@@ -2521,7 +2616,11 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
             
             <div className="space-y-3">
               {/* アップロード領域 */}
-              <label className="w-full border-2 border-dashed border-[#D1D5DB] rounded-lg flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#9CA3AF] transition-colors" style={{height: '72px'}}>
+              <label
+                className="w-full rounded-xl border p-3 flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#9CA3AF] transition-colors"
+                style={{height: '72px'}}
+                data-testid="chart-upload"
+              >
                 <Upload className="w-5 h-5 text-[#9CA3AF]" />
                 <span className="text-sm text-[#9CA3AF]">
                   チャート画像をアップロード
