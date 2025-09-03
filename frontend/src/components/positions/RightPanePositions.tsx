@@ -1,11 +1,26 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getGroups, subscribe } from '../../store/positions';
+import { getGroups, subscribe, updatePosition } from '../../store/positions';
 import type { Position } from '../../store/positions';
 import { formatLSHeader } from '../../lib/validation';
 import { useSymbolSuggest } from '../../hooks/useSymbolSuggest';
 import PositionContextMenu from '../PositionContextMenu';
 import EditEntryModal from '../EditEntryModal';
 import { EntryPayload } from '../../types/chat';
+import { 
+  calculatePositionMetrics, 
+  calculateUpdateDiff, 
+  formatPrice, 
+  formatQty, 
+  formatPnl,
+  type PositionMetrics,
+  type PositionUpdateDiff 
+} from '../../utils/positionCalculations';
+import { sendPositionUpdateMessages } from '../../lib/botMessaging';
+import { regeneratePositionAnalysis } from '../../lib/aiRegeneration';
+import { executeRetry, showRetryToast, type RetryContext } from '../../lib/retryLogic';
+import { classifyError } from '../../lib/errorHandling';
+import { ToastContainer, showToast } from '../UI/Toast';
+import { telemetryHelpers } from '../../lib/telemetry';
 
 const Badge: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div className="flex items-center gap-1 rounded-full border border-zinc-300 px-2 py-1 text-xs text-zinc-700">
@@ -14,11 +29,21 @@ const Badge: React.FC<{ label: string; value: React.ReactNode }> = ({ label, val
   </div>
 );
 
-const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: (code: string) => any }> = ({ p, chatId, findByCode }) => {
+const PositionCard: React.FC<{ 
+  p: Position; 
+  chatId?: string | null; 
+  findByCode: (code: string) => any;
+  onPositionUpdate?: (position: Position) => void;
+  onAddBotMessage?: (message: { id: string; type: 'bot'; content: string; timestamp: string; testId?: string }) => void;
+}> = ({ p, chatId, findByCode, onPositionUpdate, onAddBotMessage }) => {
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [showEditModal, setShowEditModal] = useState(false);
   const [editModalLoading, setEditModalLoading] = useState(false);
+  const [positionMetrics, setPositionMetrics] = useState<PositionMetrics>(() => 
+    calculatePositionMetrics(p)
+  );
+  const [isUpdating, setIsUpdating] = useState(false);
   const editButtonRef = useRef<HTMLButtonElement>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout>();
   
@@ -36,6 +61,10 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
     event.preventDefault();
     event.stopPropagation();
     
+    // テレメトリ: メニュー表示
+    const positionCount = 1; // この位置では1つのポジション
+    telemetryHelpers.trackMenuOpened(p, 'button', positionCount);
+    
     const rect = editButtonRef.current?.getBoundingClientRect();
     if (rect) {
       setContextMenuPosition({
@@ -49,6 +78,10 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
   const handleLongPressStart = (event: React.TouchEvent) => {
     event.preventDefault();
     longPressTimerRef.current = setTimeout(() => {
+      // テレメトリ: メニュー表示（ロングプレス）
+      const positionCount = 1;
+      telemetryHelpers.trackMenuOpened(p, 'context', positionCount);
+      
       const touch = event.touches[0];
       setContextMenuPosition({
         x: touch.clientX,
@@ -72,18 +105,206 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
   };
   
   const handleEditModalOpen = () => {
+    // テレメトリ: モーダル表示
+    telemetryHelpers.trackEditOpened(p, 'menu', false);
     setShowEditModal(true);
   };
   
   const handleEditModalSave = async (data: EntryPayload) => {
     setEditModalLoading(true);
     try {
-      // In a real app, this would send data to backend to update the position
-      console.log('Saving position edit:', data);
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Placeholder for actual implementation
+      // This will be handled by EditEntryModal's new success flow
+      console.log('Position edit will be handled by modal:', data);
     } finally {
       setEditModalLoading(false);
+    }
+  };
+
+  const handlePositionDelete = async () => {
+    if (!chatId || !p.id) return;
+    
+    try {
+      // DELETE API呼び出し（実装予定）
+      // await deletePosition(p.id);
+      console.log('Position delete will be implemented:', p.id);
+      
+      // 削除成功時の処理
+      if (onPositionUpdate) {
+        // ポジションリストから削除通知（実装により調整）
+        onPositionUpdate({...p, status: 'DELETED'} as Position);
+      }
+    } catch (error) {
+      console.error('Position delete failed:', error);
+      // エラーハンドリング（実装予定）
+    }
+  };
+
+  // Position更新成功後の処理
+  const handlePositionUpdateSuccess = async (updatedPosition: Position) => {
+    setIsUpdating(true);
+    const oldPosition = { ...p }; // スナップショット作成
+    
+    try {
+      // 1. Position Store更新（即時UI反映）
+      const storeUpdatedPosition = updatePosition(
+        p.symbol, 
+        p.side, 
+        {
+          avgPrice: updatedPosition.avgPrice,
+          qtyTotal: updatedPosition.qtyTotal,
+          name: updatedPosition.name,
+          updatedAt: updatedPosition.updatedAt || new Date().toISOString(),
+          version: updatedPosition.version
+        },
+        p.chatId
+      );
+
+      if (!storeUpdatedPosition) {
+        throw new Error('Position store update failed');
+      }
+
+      // 2. Position Card再計算・更新
+      const newMetrics = calculatePositionMetrics(storeUpdatedPosition);
+      setPositionMetrics(newMetrics);
+      
+      // 3. 親コンポーネントに更新通知
+      if (onPositionUpdate) {
+        onPositionUpdate(storeUpdatedPosition);
+      }
+      
+      // シーケンスログ記録（AC検証用）
+      if ((window as any).acTestContext) {
+        (window as any).acTestContext.sequenceLog.push({
+          action: 'position_card_update',
+          timestamp: Date.now(),
+          success: true
+        });
+      }
+      
+      // 2. Bot投稿2件送信 (非同期・順序保証)
+      if (chatId) {
+        const updateDiff = calculateUpdateDiff(oldPosition, updatedPosition);
+        const botResult = await sendPositionUpdateMessages(
+          chatId,
+          updatedPosition,
+          updateDiff,
+          {
+            stopLossTarget: newMetrics.stopLossTarget,
+            profitTarget: newMetrics.profitTarget,
+            riskRatio: newMetrics.riskRatio
+          }
+        );
+        
+        // Bot投稿失敗時のトースト表示
+        if (!botResult.allSuccess) {
+          const errorDetail = classifyError(
+            new Error(botResult.userMessageResult.success ? 
+              'システムメッセージの送信に失敗しました' : 
+              'ユーザーメッセージの送信に失敗しました'
+            ),
+            {
+              operation: 'bot_messages',
+              statusCode: undefined
+            }
+          );
+          
+          const retryContext: RetryContext = {
+            chatId,
+            position: updatedPosition,
+            updateDiff,
+            originalError: errorDetail
+          };
+          
+          showRetryToast(errorDetail, retryContext, 'bot_messages');
+        }
+        
+        // 3. AI分析再生成 (画像条件付・非同期)
+        try {
+          const aiResult = await regeneratePositionAnalysis(chatId, updatedPosition);
+          if (!aiResult.success) {
+            // AI失敗時のトースト表示
+            const errorDetail = classifyError(
+              new Error(aiResult.error || 'AI分析の生成に失敗しました'),
+              {
+                operation: 'ai_regeneration',
+                statusCode: undefined
+              }
+            );
+            
+            const retryContext: RetryContext = {
+              chatId,
+              position: updatedPosition,
+              originalError: errorDetail
+            };
+            
+            showRetryToast(errorDetail, retryContext, 'ai_regeneration');
+          }
+        } catch (aiError) {
+          console.error('AI regeneration failed:', aiError);
+          
+          // AI例外エラー時のトースト表示
+          const errorDetail = classifyError(
+            aiError instanceof Error ? aiError : new Error('AI分析でエラーが発生しました'),
+            {
+              operation: 'ai_regeneration',
+              statusCode: undefined
+            }
+          );
+          
+          const retryContext: RetryContext = {
+            chatId,
+            position: updatedPosition,
+            originalError: errorDetail
+          };
+          
+          showRetryToast(errorDetail, retryContext, 'ai_regeneration');
+        }
+      }
+      
+      // テレメトリ記録
+      if (window.gtag) {
+        window.gtag('event', 'entry_edit_saved', {
+          event_category: 'position_management',
+          position_symbol: updatedPosition.symbol,
+          position_side: updatedPosition.side,
+          chat_id: chatId || 'unknown'
+        });
+      }
+      
+    } catch (error) {
+      console.error('Position update processing failed:', error);
+      
+      // ロールバック: Position Storeを元の状態に戻す
+      updatePosition(
+        oldPosition.symbol,
+        oldPosition.side,
+        {
+          avgPrice: oldPosition.avgPrice,
+          qtyTotal: oldPosition.qtyTotal,
+          name: oldPosition.name,
+          updatedAt: oldPosition.updatedAt,
+          version: oldPosition.version
+        },
+        oldPosition.chatId
+      );
+      
+      // メトリクスも元に戻す
+      const rollbackMetrics = calculatePositionMetrics(oldPosition);
+      setPositionMetrics(rollbackMetrics);
+      
+      // 親コンポーネントにも元の状態を通知
+      if (onPositionUpdate) {
+        onPositionUpdate(oldPosition);
+      }
+      
+      // エラートースト表示
+      showToast.error('ポジション更新に失敗しました', {
+        description: error instanceof Error ? error.message : '不明なエラーが発生しました',
+        duration: 5000
+      });
+    } finally {
+      setIsUpdating(false);
     }
   };
   
@@ -96,10 +317,19 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
     };
   }, []);
   
+  // Positionメトリクス更新
+  useEffect(() => {
+    const newMetrics = calculatePositionMetrics(p);
+    setPositionMetrics(newMetrics);
+  }, [p.avgPrice, p.qtyTotal, p.side, p.version]);
+  
   // 色とボーダーをサイドに応じて設定
   const borderColor = p.side === 'LONG' ? 'border-emerald-200' : 'border-red-200';
   const labelBgColor = p.side === 'LONG' ? 'bg-emerald-100' : 'bg-red-100';
   const labelTextColor = p.side === 'LONG' ? 'text-emerald-600' : 'text-red-600';
+  
+  // 損益表示用フォーマット
+  const pnlDisplay = formatPnl(positionMetrics.unrealizedPnl);
   
   return (
     <>
@@ -109,7 +339,10 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
             {p.side}
           </div>
           <div className="flex items-center gap-2">
-            <div className="text-sm text-gray-500">
+            <div 
+              className="text-sm text-gray-500"
+              data-testid="position-updated-at"
+            >
               更新 {new Date(p.updatedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
             </div>
             {canEdit && (
@@ -132,11 +365,36 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
         </div>
       
       <div className="flex gap-3 mb-4">
-        <div className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300 whitespace-nowrap">
-          保有 {p.qtyTotal}株
+        <div 
+          className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300 whitespace-nowrap"
+          data-testid="position-qty"
+        >
+          保有 {formatQty(p.qtyTotal)}
         </div>
-        <div className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300 whitespace-nowrap">
-          平均建値 ¥{new Intl.NumberFormat('ja-JP').format(p.avgPrice)}
+        <div 
+          className="bg-white rounded-full px-4 py-1.5 text-sm text-gray-900 border border-gray-300 whitespace-nowrap"
+          data-testid="position-avg-price"
+        >
+          平均建値 {formatPrice(p.avgPrice)}
+        </div>
+      </div>
+      
+      {/* Position Metrics */}
+      <div 
+        className="mb-4 space-y-2"
+        data-testid="position-metrics"
+      >
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-gray-600">含み損益</span>
+          <span className={pnlDisplay.colorClass}>{pnlDisplay.text}</span>
+        </div>
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-gray-600">損切目標</span>
+          <span className="text-gray-900" data-testid="position-sl">{formatPrice(positionMetrics.stopLossTarget)}</span>
+        </div>
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-gray-600">利確目標</span>
+          <span className="text-gray-900" data-testid="position-tp">{formatPrice(positionMetrics.profitTarget)}</span>
         </div>
       </div>
       
@@ -155,6 +413,7 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
         isOpen={showContextMenu}
         onClose={() => setShowContextMenu(false)}
         onEdit={handleEditModalOpen}
+        onDelete={handlePositionDelete}
         position={contextMenuPosition}
       />
       
@@ -163,6 +422,7 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
         isOpen={showEditModal}
         onClose={() => setShowEditModal(false)}
         initialData={{
+          positionId: `${p.symbol}:${p.side}:${p.chatId || 'default'}`,
           symbolCode: p.symbol,
           symbolName: p.name || '',
           side: p.side,
@@ -170,10 +430,13 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
           qty: p.qtyTotal,
           note: '',
           executedAt: new Date().toISOString().slice(0, 16),
-          tradeId: p.currentTradeId || ''
+          tradeId: p.currentTradeId || '',
+          version: p.version
         }}
         onSave={handleEditModalSave}
-        isLoading={editModalLoading}
+        onUpdateSuccess={handlePositionUpdateSuccess}
+        onAddBotMessage={onAddBotMessage}
+        isLoading={editModalLoading || isUpdating}
       />
     </>
   );
@@ -181,9 +444,10 @@ const PositionCard: React.FC<{ p: Position; chatId?: string | null; findByCode: 
 
 interface RightPanePositionsProps {
   chatId?: string | null;
+  onAddBotMessage?: (message: { id: string; type: 'bot'; content: string; timestamp: string; testId?: string }) => void;
 }
 
-const RightPanePositions: React.FC<RightPanePositionsProps> = ({ chatId }) => {
+const RightPanePositions: React.FC<RightPanePositionsProps> = ({ chatId, onAddBotMessage }) => {
   // 銘柄情報取得のためのhook
   const { findByCode } = useSymbolSuggest();
   
@@ -222,38 +486,50 @@ const RightPanePositions: React.FC<RightPanePositionsProps> = ({ chatId }) => {
   }
 
   return (
-    <div className="h-full p-4 space-y-4">
-      <h2 className="text-[16px] font-semibold text-[#1F2937]">オープンポジション</h2>
-      {groups.map((g) => {
-        const long = g.positions.find(p => p.side === 'LONG')?.qtyTotal ?? 0;
-        const short = g.positions.find(p => p.side === 'SHORT')?.qtyTotal ?? 0;
-        const header = formatLSHeader(long, short);
-        // グループ表示用の銘柄情報を取得
-        const groupSymbolInfo = findByCode(g.symbol);
-        const groupDisplayName = groupSymbolInfo ? `${g.symbol} ${groupSymbolInfo.name}` : g.symbol;
-        
-        return (
-          <div key={g.symbol} className="rounded-xl bg-white shadow-sm p-4">
-            {/* 上部の銘柄情報 */}
-            <div className="space-y-4">
-              <div className="text-sm text-gray-600 font-medium">
-                {header}
+    <>
+      <div className="h-full p-4 space-y-4">
+        <h2 className="text-[16px] font-semibold text-[#1F2937]">オープンポジション</h2>
+        {groups.map((g) => {
+          const long = g.positions.find(p => p.side === 'LONG')?.qtyTotal ?? 0;
+          const short = g.positions.find(p => p.side === 'SHORT')?.qtyTotal ?? 0;
+          const header = formatLSHeader(long, short);
+          // グループ表示用の銘柄情報を取得
+          const groupSymbolInfo = findByCode(g.symbol);
+          const groupDisplayName = groupSymbolInfo ? `${g.symbol} ${groupSymbolInfo.name}` : g.symbol;
+          
+          return (
+            <div key={g.symbol} className="rounded-xl bg-white shadow-sm p-4">
+              {/* 上部の銘柄情報 */}
+              <div className="space-y-4">
+                <div className="text-sm text-gray-600 font-medium">
+                  {header}
+                </div>
+                <div className="text-xl font-bold text-gray-900">
+                  {g.symbol} {groupSymbolInfo?.name || ''}
+                </div>
               </div>
-              <div className="text-xl font-bold text-gray-900">
-                {g.symbol} {groupSymbolInfo?.name || ''}
+              
+              {/* ポジション部分 */}
+              <div className="space-y-4 mt-2">
+                {g.positions.filter(p => p.side === 'SHORT').map(p => <PositionCard key={`${p.symbol}:SHORT:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} onPositionUpdate={(pos) => {/* Handle position update */}} onAddBotMessage={onAddBotMessage} />)}
+                {g.positions.filter(p => p.side === 'LONG').map(p => <PositionCard key={`${p.symbol}:LONG:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} onPositionUpdate={(pos) => {/* Handle position update */}} onAddBotMessage={onAddBotMessage} />)}
               </div>
             </div>
-            
-            {/* ポジション部分 */}
-            <div className="space-y-4 mt-2">
-              {g.positions.filter(p => p.side === 'SHORT').map(p => <PositionCard key={`${p.symbol}:SHORT:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} />)}
-              {g.positions.filter(p => p.side === 'LONG').map(p => <PositionCard key={`${p.symbol}:LONG:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} />)}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+      
+      {/* Toast Container for Bot/AI failure notifications */}
+      <ToastContainer position="top-right" maxToasts={3} />
+    </>
   );
 };
 
 export default RightPanePositions;
+
+// Global gtag types
+declare global {
+  interface Window {
+    gtag?: (...args: any[]) => void;
+  }
+}
