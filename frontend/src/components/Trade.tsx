@@ -124,6 +124,17 @@ const MessageBubble: React.FC<{
   const isUser = message.type === 'user';
   const messageRef = React.useRef<HTMLDivElement>(null);
   const [showEditIcon, setShowEditIcon] = React.useState(false);
+
+  // 編集対象: ユーザーが自由入力したメッセージのみ
+  // 非対象: 取引アクション（ENTRY/EXIT）やユーザー通知（建値更新など）
+  const isTradeAction = Boolean((message as any).isTradeAction);
+  const isUserUpdateNotice =
+    typeof message.content === 'string' && (
+      message.content.includes('建値を更新しました') ||
+      message.content.includes('建値入力しました') ||
+      message.content.includes('決済しました')
+    );
+  const isEligibleForEdit = ENABLE_CHAT_BUBBLE_EDIT && isUser && !isTradeAction && !isUserUpdateNotice;
   
   // メッセージがレンダリングされた後、画像にクリックイベントを追加
   React.useEffect(() => {
@@ -186,7 +197,7 @@ const MessageBubble: React.FC<{
         className={`relative max-w-[75%] ${isUser ? 'ml-auto' : 'mr-auto'}`}
         onMouseEnter={() => {
           if (!ENABLE_CHAT_BUBBLE_EDIT) return;
-          if (isUser) setShowEditIcon(true);
+          if (isEligibleForEdit) setShowEditIcon(true);
         }}
         onMouseLeave={() => {
           if (!ENABLE_CHAT_BUBBLE_EDIT) return;
@@ -207,18 +218,11 @@ const MessageBubble: React.FC<{
         >
           <span dangerouslySetInnerHTML={{ __html: message.content }} />
           
-          {/* Action Icons (disabled when ENABLE_CHAT_BUBBLE_EDIT=false) */}
-          {ENABLE_CHAT_BUBBLE_EDIT && isUser && showEditIcon && (
+          {/* Action Icons (自由入力のみ) */}
+          {isEligibleForEdit && showEditIcon && (
             <div className="absolute bottom-1 right-1 flex gap-1">
-              {/* Edit Icon - Show for all user messages except settled ENTRY messages */}
-              {(() => {
-                const isENTRY = message.content.includes('建値入力しました');
-                const isSettled = isENTRY && isEntrySettled ? isEntrySettled(message) : false;
-                const shouldShowIcon = !(isENTRY && isSettled);
-                console.log(`🔍 DEBUG: Edit icon for ${message.id}: isENTRY=${isENTRY}, isSettled=${isSettled}, shouldShow=${shouldShowIcon}`);
-                return shouldShowIcon;
-              })() && (
-                <button
+              {/* Edit Icon */}
+              <button
                 className="w-6 h-6 bg-gray-400 hover:bg-gray-500 text-white rounded-full flex items-center justify-center transition-all opacity-60 hover:opacity-80 shadow-sm z-10"
                 onClick={() => onMessageEdit?.(message)}
                   aria-label="メッセージを編集"
@@ -226,8 +230,7 @@ const MessageBubble: React.FC<{
                   <svg width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
                     <path d="M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Zm640-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z"/>
                   </svg>
-                </button>
-              )}
+              </button>
               
               {/* Undo Icon - Hidden for new requirements (ENTRY/EXIT messages only show edit icon) */}
               {false && message.isTradeAction && message.content.includes('決済しました') && (
