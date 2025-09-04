@@ -111,6 +111,16 @@ interface Chat {
   updatedAt: string;
 }
 
+// Image preview attachment type for chat input
+type ChatImageType = 'image/png' | 'image/jpeg' | 'image/webp';
+interface ChatImage {
+  id: string;
+  file: File;
+  url: string;
+  size: number;
+  type: ChatImageType;
+}
+
 // Feature flag: allow editing from chat bubbles (ENTRY/EXIT/TEXT)
 const ENABLE_CHAT_BUBBLE_EDIT = true;
 
@@ -130,13 +140,14 @@ const MessageBubble: React.FC<{
   // 編集対象: ユーザーが自由入力したメッセージのみ
   // 非対象: 取引アクション（ENTRY/EXIT）やユーザー通知（建値更新など）
   const isTradeAction = Boolean((message as any).isTradeAction);
+  const hasInlineImages = typeof message.content === 'string' && /<img\b|data-image-url=/.test(message.content);
   const isUserUpdateNotice =
     typeof message.content === 'string' && (
       message.content.includes('建値を更新しました') ||
       message.content.includes('建値入力しました') ||
       message.content.includes('決済しました')
     );
-  const isEligibleForEdit = ENABLE_CHAT_BUBBLE_EDIT && isUser && !isTradeAction && !isUserUpdateNotice;
+  const isEligibleForEdit = ENABLE_CHAT_BUBBLE_EDIT && isUser && !isTradeAction && !isUserUpdateNotice && !hasInlineImages;
   // EXIT bubble detection and 30-min window for Undo icon visibility
   const isExitBubble = Boolean(isTradeAction && typeof message.content === 'string' && message.content.includes('決済しました'));
   const canUndoWindow = (() => {
@@ -442,6 +453,11 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   // Message editing handlers
   const handleMessageEdit = (message: Message) => {
     if (message.type === 'user' && !message.isTradeAction) {
+      // 画像付きメッセージは編集不可
+      if (typeof message.content === 'string' && /<img\b|data-image-url=/.test(message.content)) {
+        showToast('warning', '画像付きメッセージは編集できません');
+        return;
+      }
       // Handle regular text message edit
       setEditingTextMessage({
         messageId: message.id,
@@ -769,8 +785,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       ? previous.slice(exitIndex + 1).find(m => m.type === 'bot' && typeof m.content === 'string' && m.content.includes('損益情報'))?.id
       : undefined;
 
-    // 楽観的: まずUIから取り除く（EXITバブル）
-    setMessages(prev => prev.filter(m => m.id !== message.id));
+    // 楽観的: まずUIから取り除く（EXITバブル） + 画像URLクリーンアップ
+    removeMessagesByIds([message.id]);
 
     try {
       await undoChatMessage(message.id);
@@ -783,10 +799,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       } catch (e) {
         console.warn('Failed to unsettle position after undo:', e);
       }
-      // 直後の「損益情報」ボットメッセージも削除
-      if (nextPnlMessageId) {
-        setMessages(prev => prev.filter(m => m.id !== nextPnlMessageId));
-      }
+      // 直後の「損益情報」ボットメッセージも削除（クリーンアップ含む）
+      if (nextPnlMessageId) removeMessagesByIds([nextPnlMessageId]);
       showToast('success', 'ポジションを復元しました。');
     } catch (err: any) {
       console.error('Undo failed:', err);
@@ -796,10 +810,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         // サーバー未登録の場合はローカルで復元のみ実施して成功扱い
         const ok = positionsUnsettle(message.id);
         if (ok) {
-          // 直後の「損益情報」ボットメッセージも削除（ローカル）
-          if (nextPnlMessageId) {
-            setMessages(prev => prev.filter(m => m.id !== nextPnlMessageId));
-          }
+          // 直後の「損益情報」ボットメッセージも削除（ローカル cleanup）
+          if (nextPnlMessageId) removeMessagesByIds([nextPnlMessageId]);
           showToast('success', 'ポジションを復元しました。');
         } else {
           // 履歴が無ければ元に戻す
@@ -1251,8 +1263,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   
   // 画像バリデーション関数
   const validateImage = (file: File): { ok: boolean; message?: string } => {
-    if (!file.type.startsWith('image/')) {
-      return { ok: false, message: '画像ファイルのみアップロードできます' };
+    const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      return { ok: false, message: 'png / jpg / jpeg / webp のみアップロードできます' };
     }
     if (file.size > 10 * 1024 * 1024) {
       return { ok: false, message: 'ファイルサイズは10MB以下にしてください' };
@@ -1511,6 +1524,28 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
   };
 
+  // --- Helper: revoke blob: object URLs embedded in message HTML when removing messages ---
+  const getBlobUrlsFromHtml = (html: string): string[] => {
+    const urls: string[] = [];
+    try {
+      const re = /data-image-url=\"([^\"]+)\"/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(html)) !== null) {
+        const u = m[1];
+        if (u && u.startsWith('blob:')) urls.push(u);
+      }
+    } catch {}
+    return urls;
+  };
+
+  const removeMessagesByIds = (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const toRemove = messages.filter(m => ids.includes(m.id));
+    const urls = toRemove.flatMap(m => typeof m.content === 'string' ? getBlobUrlsFromHtml(m.content) : []);
+    setMessages(prev => prev.filter(m => !ids.includes(m.id)));
+    if (urls.length) setTimeout(() => { urls.forEach(u => { try { URL.revokeObjectURL(u); } catch {} }); }, 0);
+  };
+
   useEffect(() => {
     // メッセージが追加されたら最新メッセージを表示（DOM更新後に実行）
     setTimeout(() => {
@@ -1518,6 +1553,32 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }, 100);
   }, [messages]);
   const [loading, setLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
+
+  // Image preview helpers
+  const MAX_FILES = 3;
+  const ACCEPTED: ChatImageType[] = ['image/png', 'image/jpeg', 'image/webp'];
+  const formatBytes = (b: number) => b < 1024 ? `${b}B` : b < 1024*1024 ? `${(b/1024).toFixed(1)}KB` : `${(b/(1024*1024)).toFixed(1)}MB`;
+  const addPreviewImages = (files: FileList | null) => {
+    if (!files) return;
+    const current = pendingImages;
+    const next: ChatImage[] = [];
+    for (const file of Array.from(files)) {
+      const type = file.type as ChatImageType;
+      if (!ACCEPTED.includes(type)) { showToast('warning', 'サポート外の形式です（png/jpeg/webp のみ）'); continue; }
+      if (file.size > 10 * 1024 * 1024) { showToast('warning', 'ファイルサイズは10MB以下にしてください'); continue; }
+      if (current.length + next.length >= MAX_FILES) { showToast('warning', `添付は最大${MAX_FILES}枚までです`); break; }
+      const dup = current.concat(next).some(p => p.file.name === file.name && p.size === file.size);
+      if (dup) continue;
+      const url = URL.createObjectURL(file);
+      next.push({ id: crypto.randomUUID(), file, url, size: file.size, type });
+    }
+    if (next.length) setPendingImages(prev => [...prev, ...next]);
+  };
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { addPreviewImages(e.target.files); e.target.value=''; };
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => { const fl = e.clipboardData?.files; if (fl && fl.length) addPreviewImages(fl); };
+  const removePreview = (id: string) => { setPendingImages(prev => { prev.forEach(p => { if (p.id===id) URL.revokeObjectURL(p.url); }); return prev.filter(p => p.id!==id); }); };
   const storageKey = `chatMessages_${selectedFile || 'default'}`;
 
   // Save messages to current chat whenever messages change
@@ -1712,7 +1773,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   };
 
   const handleSendMessage = async () => {
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() && pendingImages.length === 0) return;
+    if (isSending) return;
+    setIsSending(true);
 
     const userMessage = chatInput.trim();
     
@@ -1779,10 +1842,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     
     // 新しいメッセージ（楽観的追加）
     const tempId = crypto.randomUUID();
+    const galleryHtml = pendingImages.length > 0
+      ? `<div class=\"flex gap-2 flex-wrap mb-2\">${pendingImages.map(img => `<img src=\"${img.url}\" alt=\"添付画像\" class=\"w-24 h-24 object-cover rounded-lg border\" data-image-url=\"${img.url}\" />`).join('')}</div>`
+      : '';
+    const contentHtml = `${galleryHtml}${userMessage ? `<div>${userMessage}</div>` : ''}`;
     const newUserMessage = {
       id: tempId,
       type: 'user' as const,
-      content: userMessage,
+      content: contentHtml || '(画像)',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
@@ -1796,11 +1863,16 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       const created = await createChatMessage(chatForApi, {
         type: 'TEXT',
         author_id: 'user-1',
-        text: userMessage,
+        text: pendingImages.length > 0 ? `${userMessage || ''} [画像${pendingImages.length}枚]` : userMessage,
       } as any);
       // 返却メッセージで置き換え（ID同期）
       const tradeMsg = convertChatMessageToTradeMessage(created);
-      setMessages(prev => prev.map(m => (m.id === tempId ? tradeMsg : m)));
+      setMessages(prev => prev.map(m => (
+        m.id === tempId
+          // 画像を表示中のメッセージはコンテンツを保持し、IDのみサーバーIDへ差し替え
+          ? (pendingImages.length > 0 ? { ...m, id: tradeMsg.id } : tradeMsg)
+          : m
+      )));
     } catch (e) {
       console.warn('TEXTメッセージの保存に失敗（ローカルのみ）:', e);
       // 失敗してもUIは維持（後で編集できない可能性あり）
@@ -1857,6 +1929,12 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         }
       ]);
       setTimeout(() => scrollToLatestMessage(), 50);
+    } finally {
+      // 入力クリア。タイムラインで表示している画像のObjectURLは維持（破棄しない）
+      // TODO: メッセージ削除時にURL.revokeObjectURLを行う
+      setChatInput('');
+      setPendingImages([]);
+      setIsSending(false);
     }
   };
 
@@ -2590,13 +2668,28 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                     </div>
                   )}
 
-                  {/* Upper tier: Text input field */}
+                  {/* Upper tier: Preview list + Text input field */}
                   <div className="mb-4 px-6 py-4 relative">
+                    {pendingImages.length > 0 && (
+                      <div role="list" className="mb-3 flex flex-wrap gap-3">
+                        {pendingImages.map(img => (
+                          <div role="listitem" key={img.id} className="group relative flex items-center gap-2 p-2 bg-[#F3F4F6] rounded-xl">
+                            <img src={img.url} alt={img.file.name} className="w-[72px] h-[72px] object-cover rounded-lg border" />
+                            <div className="flex flex-col max-w-[160px]">
+                              <span className="text-xs text-gray-600 truncate">{img.file.name}</span>
+                              <span className="text-xs text-gray-400">{formatBytes(img.size)}</span>
+                            </div>
+                            <button type="button" onClick={() => removePreview(img.id)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs flex items-center justify-center">×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <input
                       type="text"
                       placeholder="AIに質問する..."
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
+                      onPaste={handlePaste}
                       onKeyDown={(e) => {
                         // 編集時は ⌘/Ctrl+Enter で更新、通常時は Enter 送信
                         if (editingTextMessage && (e.key === 'Enter') && (e.metaKey || e.ctrlKey)) {
@@ -2648,16 +2741,18 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                     {/* Spacer */}
                     <div className="flex-1"></div>
 
-                    {/* File upload area */}
+                    {/* File upload area */
+                    }
                     <div className="border-2 border-dashed border-[#D1D5DB] bg-white rounded-xl px-5 py-3 flex items-center gap-2 mr-4 text-[#6B7280]">
                       <label className="cursor-pointer flex items-center gap-2">
                         <Upload className="w-4 h-4" />
                         <span className="text-sm whitespace-nowrap">チャート画像をアップロード</span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/png,image/jpeg,image/webp"
                           className="hidden"
-                          onChange={handleFileUpload}
+                          multiple
+                          onChange={handleFileSelect}
                         />
                       </label>
                     </div>
@@ -2665,11 +2760,15 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                     {/* Send button stays at default position even in edit mode */}
                     <button
                       onClick={handleSendMessage}
-                      disabled={!chatInput.trim() || (editingTextMessage && isUpdating)}
+                      disabled={(chatInput.trim().length === 0 && pendingImages.length === 0) || (editingTextMessage && isUpdating) || isSending}
                       className="bg-[#007AFF] hover:bg-[#0056CC] disabled:bg-[#C7C7CC] text-white w-12 h-12 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
                       aria-label={editingTextMessage ? '更新を送信' : '送信'}
                     >
-                      <Send className="w-5 h-5" />
+                      {isSending ? (
+                        <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                      ) : (
+                        <Send className="w-5 h-5" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -2814,7 +2913,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 </span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/webp"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -2957,7 +3056,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 </span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/webp"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
