@@ -240,6 +240,56 @@
 
 ---
 
-**📝 日報作成者**: Claude Code  
-**📅 次回作業予定**: 2025年9月2日  
+**📝 日報作成者**: codex 
+**📅 次回作業予定**: 2025年9月3日  
 **✅ 本日の作業完了度**: 100% (全タスク完了)
+## 本日のサマリ
+
+- 目的: 建値編集〜AI分析のUX安定化、編集導線の整理、画像保持の改善
+- 結果: 統合分析成功時に画像保持・プレビュー復元が機能。旧AI再生成停止で誤トースト解消。編集アイコンは自由入力のみ有効化。
+
+## 実装・変更
+
+- 統合分析成功時の画像保持と復元
+  - EditEntryModal で画像添付→統合分析成功時に `updatePosition()` で `chartImageId`/`aiFeedbacked` を保存。
+  - モーダル再表示時に `initialData.chartImageId` をプレビューへ反映。
+  - 変更: `frontend/src/components/EditEntryModal.tsx`、`frontend/src/components/positions/RightPanePositions.tsx`
+
+- 旧AI再生成の停止（誤トースト抑止）
+  - RightPane からの `/api/chat/:chatId/images/recent` ベースの旧フローをフラグで無効化。
+  - `ENABLE_LEGACY_AI_REGENERATION=false`（必要時に再有効化可能）。
+  - 変更: `frontend/src/components/positions/RightPanePositions.tsx`
+
+- 編集アイコンの対象整理（チャットバブル）
+  - 自由入力のユーザーメッセージのみ編集可。
+  - 取引アクション（ENTRY/EXIT）や通知（「建値を更新しました！」等）は編集不可。
+  - `isEligibleForEdit` を導入し、ホバー・アイコン表示・クリックをガード。
+  - 変更: `frontend/src/components/Trade.tsx`
+
+## 動作確認
+
+- 統合分析 API（`/api/v1/integrated-analysis`）成功でテクニカル指標メッセージが投稿されることを確認。
+- EditEntryModal を再度開いてもアップロード画像のプレビューが表示されることを確認。
+- 旧フロー無効化により「AI分析の生成に失敗しました」トーストが表示されないことを確認。
+- チャットバブルでは、自由入力のみ鉛筆アイコンが表示され、ENTRY/EXIT/建値更新通知では非表示。
+
+## 既知の課題・リスク
+
+- `/api/chat/:chatId/images/recent` が HTML（SPAフォールバック）を返しており未実装。旧フロー再開時はBE実装が必要。
+- 画像を DataURL で保持しているため localStorage 容量圧迫の可能性（クリーンアップ/圧縮/保存先の見直し検討）。
+- 通知メッセージの判定が本文マッチに依存（将来の文言変更で脆弱）。`testId`/`kind` 等のメタでの判定へ移行したい。
+
+## 次のアクション（提案）
+
+- BE 実装: `GET /api/chat/:chatId/images/recent` を JSON 返却で提供（旧AI再生成用・将来のフォールバック）。
+- 判定の堅牢化: 通知系メッセージへ `kind`/`testId` を必須付与し、本文依存を排除。
+- 画像保存設計: Blob URL 利用や圧縮、ガーベジルール（最新N件/期限）導入。
+- 未使用の編集統合コンポーネント（MessageEditIntegration/Container）の整理方針決定。
+
+## 本日コミット
+
+- 44c780a fix(trade): 自由入力のみ編集可（ENTRY/EXIT/通知は非対象）
+- f7dd5a4 feat(trade): ユーザーメッセのみ編集再有効化（Botは不可）
+- ad15593 chore(trade): チャットバブル編集の一時停止（のち条件見直し）
+- f0e1a78 feat(EditEntryModal): 統合分析成功時に画像保持＋旧AI再生成停止
+- 492ff33 chore: 残変更を一括コミット

@@ -7,11 +7,19 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
+import os
+import urllib.request
+import urllib.error
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 
 app = FastAPI(title="Chat Message Edit API", version="1.0.0")
+
+
+def now_iso_utc() -> str:
+    """Return ISO8601 with UTC timezone offset (e.g., 2025-09-04T08:30:00.123456+00:00)."""
+    return datetime.now(timezone.utc).isoformat()
 
 # CORS設定
 app.add_middleware(
@@ -63,7 +71,7 @@ class AIReplyRequest(BaseModel):
 # ヘルスチェック
 @app.get("/health")
 async def health():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "ok", "timestamp": now_iso_utc()}
 
 # チャット作成
 class CreateChatRequest(BaseModel):
@@ -81,8 +89,8 @@ async def create_chat(request: CreateChatRequest):
         "id": chat_id,
         "name": request.name,
         "user_id": request.user_id,
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat()
+        "created_at": now_iso_utc(),
+        "updated_at": now_iso_utc()
     }
     
     chats_storage[chat_id] = new_chat
@@ -115,8 +123,8 @@ async def create_default_chat():
     chats_storage[chat_id] = {
         "id": chat_id,
         "name": "デフォルトチャット",
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat()
+        "created_at": now_iso_utc(),
+        "updated_at": now_iso_utc()
     }
     print(f"✅ デフォルトチャット作成: {chat_id}")
 
@@ -140,14 +148,14 @@ async def create_message(chat_id: str, message: ChatMessageCreate):
         "author_id": message.author_id,
         "text": message.text,
         "payload": message.payload,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": now_iso_utc(),
         "updated_at": None
     }
     
     messages_storage[message_id] = new_message
     
     # チャットの更新日時を更新
-    chats_storage[chat_id]["updated_at"] = datetime.utcnow().isoformat()
+    chats_storage[chat_id]["updated_at"] = now_iso_utc()
     
     print(f"✅ メッセージ作成: {message_id} (タイプ: {message.type})")
     
@@ -197,7 +205,7 @@ async def update_message(message_id: str, message_update: ChatMessageUpdate):
     
     # 更新データを適用
     message["type"] = message_update.type
-    message["updated_at"] = datetime.utcnow().isoformat()
+    message["updated_at"] = now_iso_utc()
     
     if message_update.type == "TEXT":
         message["text"] = message_update.text
@@ -209,7 +217,7 @@ async def update_message(message_id: str, message_update: ChatMessageUpdate):
     # チャットの更新日時を更新
     chat_id = message["chat_id"]
     if chat_id in chats_storage:
-        chats_storage[chat_id]["updated_at"] = datetime.utcnow().isoformat()
+        chats_storage[chat_id]["updated_at"] = now_iso_utc()
     
     print(f"✅ メッセージ更新: {message_id} (タイプ: {message_update.type})")
     
@@ -269,17 +277,17 @@ async def undo_message(message_id: str):
     
     # チャットの更新日時を更新
     if chat_id in chats_storage:
-        chats_storage[chat_id]["updated_at"] = datetime.utcnow().isoformat()
+        chats_storage[chat_id]["updated_at"] = now_iso_utc()
     
     print(f"✅ メッセージUndo: {message_id}")
     
     return {
         "message": "Message undone successfully",
         "message_id": message_id,
-        "undone_at": datetime.utcnow().isoformat()
+        "undone_at": now_iso_utc()
     }
 
-# AI返信生成
+# ===== AI返信生成 =====
 @app.post("/ai/reply")
 async def generate_ai_reply(request: AIReplyRequest):
     """AI返信を生成（モック実装）"""
@@ -295,9 +303,48 @@ async def generate_ai_reply(request: AIReplyRequest):
     if latest_user_message_id not in messages_storage:
         raise HTTPException(status_code=404, detail=f"Message {latest_user_message_id} not found")
     
-    # AI応答を生成（モック）
     user_message = messages_storage[latest_user_message_id]
-    ai_response = f"AI応答: メッセージ「{user_message.get('text', user_message.get('type', 'メッセージ'))}」に対する分析結果です。メッセージの更新/Undo後の再分析を行いました。"
+
+    # 実API呼び出し（OPENAI_API_KEYが設定されている場合のみ）
+    ai_response: str | None = None
+    api_key = os.getenv("OPENAI_API_KEY")
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    if api_key:
+        try:
+            # Chat Completions API を使用（依存導入不要のurllib）
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+
+            latest_text = user_message.get("text") or str(user_message.get("type"))
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "あなたは日本語で簡潔に答える投資アシスタントです。専門用語は短く補足してください。"},
+                    {"role": "user", "content": latest_text},
+                ],
+                "temperature": 0.3,
+            }
+
+            req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                ai_response = (data.get("choices", [{}])[0]
+                                   .get("message", {})
+                                   .get("content"))
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, Exception) as e:
+            print(f"❌ OpenAI呼び出し失敗: {e}")
+            ai_response = None
+
+    # フォールバック（モック）
+    if not ai_response:
+        ai_response = (
+            f"AI応答: メッセージ「{user_message.get('text', user_message.get('type', 'メッセージ'))}」に対する分析結果です。"
+            "（現在はモック応答。OPENAI_API_KEY を設定すると実応答に切り替わります）"
+        )
     
     # AI返信メッセージを作成
     ai_message_id = str(uuid.uuid4())
@@ -309,14 +356,14 @@ async def generate_ai_reply(request: AIReplyRequest):
         "author_id": "ai-system",
         "text": ai_response,
         "payload": None,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": now_iso_utc(),
         "updated_at": None
     }
     
     messages_storage[ai_message_id] = ai_message
     
     # チャットの更新日時を更新
-    chats_storage[chat_id]["updated_at"] = datetime.utcnow().isoformat()
+    chats_storage[chat_id]["updated_at"] = now_iso_utc()
     
     print(f"✅ AI返信生成: {ai_message_id}")
     

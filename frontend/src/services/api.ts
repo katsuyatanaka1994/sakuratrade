@@ -1,11 +1,78 @@
 import { ChatMessage, UpdateMessageRequest, EntryPayload, ExitPayload } from '../types/chat';
 
-// API base URL
+// API base URL (robust across environments)
 const getApiUrl = () => {
-  return import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+  try {
+    // Vite (if available)
+    const viteUrl = (import.meta as any)?.env?.VITE_API_BASE_URL;
+    if (viteUrl) return viteUrl as string;
+  } catch (_) {
+    // ignore — import.meta may not exist
+  }
+
+  // Meta tag override: <meta name="api-base-url" content="http://..." />
+  if (typeof document !== 'undefined') {
+    const meta = document.querySelector('meta[name="api-base-url"]') as HTMLMetaElement | null;
+    const metaUrl = meta?.getAttribute('content');
+    if (metaUrl) return metaUrl;
+  }
+
+  // Window global override: window.API_BASE_URL or window.ENV.VITE_API_BASE_URL
+  if (typeof window !== 'undefined') {
+    const w = window as any;
+    const globalUrl = w.API_BASE_URL || w?.ENV?.VITE_API_BASE_URL;
+    if (globalUrl) return globalUrl as string;
+  }
+
+  // Fallback
+  return "http://localhost:8000";
 };
 
 // Chat Message API functions
+
+// API response type (snake_case)
+type ApiChatMessage = {
+  id: string;
+  chat_id?: string;
+  type: 'TEXT' | 'ENTRY' | 'EXIT';
+  author_id: string;
+  text?: string;
+  payload?: unknown;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+function mapApiChatMessage(api: ApiChatMessage): ChatMessage {
+  if (api.type === 'TEXT') {
+    return {
+      id: api.id,
+      type: 'TEXT',
+      authorId: api.author_id,
+      text: api.text || '',
+      createdAt: api.created_at,
+      updatedAt: api.updated_at || undefined,
+    };
+  }
+  if (api.type === 'ENTRY') {
+    return {
+      id: api.id,
+      type: 'ENTRY',
+      authorId: api.author_id,
+      payload: api.payload as EntryPayload,
+      createdAt: api.created_at,
+      updatedAt: api.updated_at || undefined,
+    };
+  }
+  // EXIT
+  return {
+    id: api.id,
+    type: 'EXIT',
+    authorId: api.author_id,
+    payload: api.payload as ExitPayload,
+    createdAt: api.created_at,
+    updatedAt: api.updated_at || undefined,
+  };
+}
 
 export async function updateChatMessage(messageId: string, data: UpdateMessageRequest): Promise<ChatMessage> {
   try {
@@ -22,7 +89,8 @@ export async function updateChatMessage(messageId: string, data: UpdateMessageRe
       throw new Error(errorData.detail || `API request failed with status ${response.status}`);
     }
 
-    return await response.json();
+    const apiMsg = (await response.json()) as ApiChatMessage;
+    return mapApiChatMessage(apiMsg);
   } catch (error) {
     console.error('Error updating chat message:', error);
     throw error;
@@ -49,7 +117,8 @@ export async function createChatMessage(chatId: string, message: {
       throw new Error(errorData.detail || `API request failed with status ${response.status}`);
     }
 
-    return await response.json();
+    const apiMsg = (await response.json()) as ApiChatMessage;
+    return mapApiChatMessage(apiMsg);
   } catch (error) {
     console.error('Error creating chat message:', error);
     throw error;
@@ -73,7 +142,8 @@ export async function getChatMessages(chatId: string, options?: {
       throw new Error(errorData.detail || `API request failed with status ${response.status}`);
     }
 
-    return await response.json();
+    const apiMsgs = (await response.json()) as ApiChatMessage[];
+    return apiMsgs.map(mapApiChatMessage);
   } catch (error) {
     console.error('Error fetching chat messages:', error);
     throw error;
@@ -99,7 +169,13 @@ export async function undoChatMessage(messageId: string): Promise<void> {
   }
 }
 
-export async function generateAIReply(chatId: string, latestUserMessageId: string): Promise<void> {
+export interface AIReplyResult {
+  aiMessageId: string;
+  response: string;
+  chatId: string;
+}
+
+export async function generateAIReply(chatId: string, latestUserMessageId: string): Promise<AIReplyResult> {
   try {
     const response = await fetch(`${getApiUrl()}/ai/reply`, {
       method: 'POST',
@@ -117,6 +193,13 @@ export async function generateAIReply(chatId: string, latestUserMessageId: strin
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.detail || `AI reply request failed with status ${response.status}`);
     }
+
+    const data = await response.json();
+    return {
+      aiMessageId: data.ai_message_id ?? '',
+      response: data.response ?? '',
+      chatId: data.chat_id ?? chatId,
+    };
   } catch (error) {
     console.error('Error generating AI reply:', error);
     throw error;

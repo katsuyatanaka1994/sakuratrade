@@ -57,11 +57,19 @@ export function convertChatMessageToTradeMessage(chatMessage: ChatMessage): Trad
       content = 'Unknown message type';
   }
 
+  // createdAt のフォールバック（snake_caseにも対応）
+  const ts = (chatMessage as unknown as { createdAt?: string; created_at?: string });
+  let createdAt = ts.createdAt ?? ts.created_at ?? new Date().toISOString();
+  // If no timezone info, treat as UTC to avoid local-interpretation drift
+  if (typeof createdAt === 'string' && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(createdAt)) {
+    createdAt = createdAt + 'Z';
+  }
+
   return {
     id: chatMessage.id,
     type: 'user', // ChatMessageは基本的にユーザーメッセージとして扱う
     content,
-    timestamp: new Date(chatMessage.createdAt).toLocaleTimeString('ja-JP', {
+    timestamp: new Date(createdAt).toLocaleTimeString('ja-JP', {
       hour: '2-digit',
       minute: '2-digit'
     }),

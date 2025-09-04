@@ -22,8 +22,10 @@ import { getLatestSymbolFromChat, loadSymbols } from '../utils/symbols';
 import type { ChatMsg } from '../utils/symbols';
 import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
 import { useToast } from './ToastContainer';
-import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, TradeSnapshot, getLongShortQty, updatePosition } from '../store/positions';
+import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, TradeSnapshot, getLongShortQty, updatePosition, recordSettlement as positionsRecordSettlement, unsettle as positionsUnsettle } from '../store/positions';
 import { convertChatMessageToTradeMessage } from '../utils/messageAdapter';
+import { undoChatMessage } from '../services/api';
+import { createChatMessage, generateAIReply } from '../services/api';
 
 // Helper function to get API URL - hardcoded for now to debug
 const getApiUrl = () => {
@@ -135,6 +137,18 @@ const MessageBubble: React.FC<{
       message.content.includes('決済しました')
     );
   const isEligibleForEdit = ENABLE_CHAT_BUBBLE_EDIT && isUser && !isTradeAction && !isUserUpdateNotice;
+  // EXIT bubble detection and 30-min window for Undo icon visibility
+  const isExitBubble = Boolean(isTradeAction && typeof message.content === 'string' && message.content.includes('決済しました'));
+  const canUndoWindow = (() => {
+    try {
+      const ts = new Date(message.timestamp).getTime();
+      if (!isFinite(ts)) return true; // fallback: show when timestamp unparsable
+      return (Date.now() - ts) <= 30 * 60 * 1000;
+    } catch {
+      return true;
+    }
+  })();
+  const canShowUndo = isExitBubble && canUndoWindow;
   
   // メッセージがレンダリングされた後、画像にクリックイベントを追加
   React.useEffect(() => {
@@ -197,7 +211,7 @@ const MessageBubble: React.FC<{
         className={`relative max-w-[75%] ${isUser ? 'ml-auto' : 'mr-auto'}`}
         onMouseEnter={() => {
           if (!ENABLE_CHAT_BUBBLE_EDIT) return;
-          if (isEligibleForEdit) setShowEditIcon(true);
+          if (isEligibleForEdit || canShowUndo) setShowEditIcon(true);
         }}
         onMouseLeave={() => {
           if (!ENABLE_CHAT_BUBBLE_EDIT) return;
@@ -218,26 +232,29 @@ const MessageBubble: React.FC<{
         >
           <span dangerouslySetInnerHTML={{ __html: message.content }} />
           
-          {/* Action Icons (自由入力のみ) */}
-          {isEligibleForEdit && showEditIcon && (
+          {/* Action Icons */}
+          {(showEditIcon && (isEligibleForEdit || canShowUndo)) && (
             <div className="absolute bottom-1 right-1 flex gap-1">
               {/* Edit Icon */}
-              <button
-                className="w-6 h-6 bg-gray-400 hover:bg-gray-500 text-white rounded-full flex items-center justify-center transition-all opacity-60 hover:opacity-80 shadow-sm z-10"
-                onClick={() => onMessageEdit?.(message)}
+              {isEligibleForEdit && (
+                <button
+                  className="w-6 h-6 bg-gray-400 hover:bg-gray-500 text-white rounded-full flex items-center justify-center transition-all opacity-60 hover:opacity-80 shadow-sm z-10"
+                  onClick={() => onMessageEdit?.(message)}
                   aria-label="メッセージを編集"
                 >
                   <svg width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
                     <path d="M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Zm640-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z"/>
                   </svg>
-              </button>
-              
-              {/* Undo Icon - Hidden for new requirements (ENTRY/EXIT messages only show edit icon) */}
-              {false && message.isTradeAction && message.content.includes('決済しました') && (
+                </button>
+              )}
+
+              {/* Undo Icon for EXIT messages */}
+              {canShowUndo && (
                 <button
-                  className="w-6 h-6 bg-orange-500 hover:bg-orange-600 text-white rounded-full flex items-center justify-center transition-all opacity-60 hover:opacity-80 shadow-sm z-10"
+                  className="w-6 h-6 bg-orange-500 hover:bg-orange-600 text-white rounded-full flex items-center justify-center transition-all opacity-80 hover:opacity-100 shadow-sm z-10"
                   onClick={() => onMessageUndo?.(message)}
                   aria-label="決済を取り消し"
+                  title="決済を取り消し"
                 >
                   <svg width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
                     <path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z"/>
@@ -625,7 +642,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       if (!response.ok) {
         if (response.status === 409 || response.status === 405) {
           // Entry is settled/closed - show error and revert changes
-          showToast('この建値は決済済みのため編集できません', 'error');
+          showToast('error', 'この建値は決済済みのため編集できません');
           // Revert the optimistic update
           setMessages(prevMessages => prevMessages.map(msg =>
             msg.id === editingMessageId 
@@ -644,7 +661,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       // Success - keep the optimistic update
     } catch (error) {
       console.error('Failed to update ENTRY message:', error);
-      showToast('メッセージの更新に失敗しました', 'error');
+      showToast('error', 'メッセージの更新に失敗しました');
       // Revert the optimistic update
       setMessages(prevMessages => prevMessages.map(msg =>
         msg.id === editingMessageId 
@@ -709,7 +726,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       // Success - keep the optimistic update
     } catch (error) {
       console.error('Failed to update EXIT message:', error);
-      showToast('メッセージの更新に失敗しました', 'error');
+      showToast('error', 'メッセージの更新に失敗しました');
       // Revert the optimistic update
       const originalMessage = messages.find(msg => msg.id === editingMessageId);
       const originalContent = originalMessage?.content || '';
@@ -727,27 +744,78 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     console.log('Updated exit message:', { price, qty, symbol: exitSymbol, side: exitSide });
   };
 
-  const handleMessageUndo = (message: Message) => {
-    // Only allow undo for EXIT trade actions within 30 minutes
-    if (!message.isTradeAction || !message.content.includes('決済しました')) {
-      return;
-    }
+  const [undoingIds, setUndoingIds] = useState<Set<string>>(new Set());
+  const handleMessageUndo = async (message: Message) => {
+    if (!message.isTradeAction || typeof message.content !== 'string' || !message.content.includes('決済しました')) return;
+    if (undoingIds.has(message.id)) return; // 冪等
 
-    // Check 30-minute time limit (simple implementation)
+    // 時間制限（30分）
     const messageTime = new Date(message.timestamp).getTime();
-    const currentTime = new Date().getTime();
-    const timeDiff = currentTime - messageTime;
-    const thirtyMinutes = 30 * 60 * 1000;
-
-    if (timeDiff > thirtyMinutes) {
-      alert('決済から30分以上経過しているため、取り消しできません。');
+    const timeDiff = Date.now() - messageTime;
+    if (timeDiff > 30 * 60 * 1000) {
+      showToast('warning', '決済から30分以上経過しているため、取り消しできません。');
       return;
     }
 
-    if (confirm('決済を取り消しますか？この操作は元に戻せません。')) {
-      // Remove the message
-      setMessages(prev => prev.filter(msg => msg.id !== message.id));
-      // TODO: Also call API to undo the message if needed
+    // Confirm
+    if (!confirm('決済を取り消しますか？')) return;
+
+    setUndoingIds(prev => new Set(prev).add(message.id));
+
+    // 事前に、直後の「損益情報」ボットメッセージを特定
+    const previous = messages;
+    const exitIndex = previous.findIndex(m => m.id === message.id);
+    const nextPnlMessageId = exitIndex >= 0
+      ? previous.slice(exitIndex + 1).find(m => m.type === 'bot' && typeof m.content === 'string' && m.content.includes('損益情報'))?.id
+      : undefined;
+
+    // 楽観的: まずUIから取り除く（EXITバブル）
+    setMessages(prev => prev.filter(m => m.id !== message.id));
+
+    try {
+      await undoChatMessage(message.id);
+      // ポジションを厳密に復元
+      try {
+        const ok = positionsUnsettle(message.id);
+        if (!ok) {
+          console.warn('No settlement record found for undo, position not modified');
+        }
+      } catch (e) {
+        console.warn('Failed to unsettle position after undo:', e);
+      }
+      // 直後の「損益情報」ボットメッセージも削除
+      if (nextPnlMessageId) {
+        setMessages(prev => prev.filter(m => m.id !== nextPnlMessageId));
+      }
+      showToast('success', 'ポジションを復元しました。');
+    } catch (err: any) {
+      console.error('Undo failed:', err);
+      const msg = String(err?.message || err);
+      const isNotFound = /404|not\s*found/i.test(msg);
+      if (isNotFound) {
+        // サーバー未登録の場合はローカルで復元のみ実施して成功扱い
+        const ok = positionsUnsettle(message.id);
+        if (ok) {
+          // 直後の「損益情報」ボットメッセージも削除（ローカル）
+          if (nextPnlMessageId) {
+            setMessages(prev => prev.filter(m => m.id !== nextPnlMessageId));
+          }
+          showToast('success', 'ポジションを復元しました。');
+        } else {
+          // 履歴が無ければ元に戻す
+          setMessages(previous);
+          showToast('error', '取り消しに失敗しました（履歴なし）');
+        }
+      } else {
+        setMessages(previous); // それ以外はロールバック
+        showToast('error', '取り消しに失敗しました');
+      }
+    } finally {
+      setUndoingIds(prev => {
+        const n = new Set(prev);
+        n.delete(message.id);
+        return n;
+      });
     }
   };
   
@@ -1650,30 +1718,93 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     
     // Check if we are in edit mode
     if (editingTextMessage) {
-      // Update existing message
-      setMessages(prev => prev.map(msg => 
-        msg.id === editingTextMessage.messageId 
-          ? { ...msg, content: userMessage }
-          : msg
-      ));
-      
-      // Clear edit mode
-      setEditingTextMessage(null);
-      setChatInput('');
+      // 新仕様: 元メッセージは残し、編集内容を新しいユーザーバブルとして追加
+      try {
+        setIsUpdating(true);
+
+        // 1) まずローカルに新しいユーザーバブルを追加（楽観的）
+        const tempId = crypto.randomUUID();
+        const optimisticUser = {
+          id: tempId,
+          type: 'user' as const,
+          content: userMessage,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+        setMessages(prev => [...prev, optimisticUser]);
+
+        // 2) サーバーにTEXTとして新規作成（元メッセージは触らない）
+        const chatForApi = currentChatId || 'default-chat-123';
+        const created = await createChatMessage(chatForApi, {
+          type: 'TEXT',
+          author_id: 'user-1',
+          text: userMessage,
+        });
+
+        // 3) サーバーIDで置換
+        const tradeMsg = convertChatMessageToTradeMessage(created);
+        setMessages(prev => prev.map(m => (m.id === tempId ? tradeMsg : m)));
+
+        // 4) 新規メッセージを基点にAI再生成→直下に追加
+        try {
+          let ai = await generateAIReply(chatForApi, created.id);
+          if (!ai?.response && chatForApi !== 'default-chat-123') {
+            ai = await generateAIReply('default-chat-123', created.id);
+          }
+          if (ai?.response) {
+            setMessages(prev => [
+              ...prev,
+              {
+                id: ai.aiMessageId || crypto.randomUUID(),
+                type: 'bot' as const,
+                content: ai.response,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              }
+            ]);
+            setTimeout(() => scrollToLatestMessage(), 50);
+          }
+        } catch (aiErr) {
+          console.warn('AI再生成に失敗:', aiErr);
+        }
+      } catch (err) {
+        // ロールバック（追加した楽観的新規バブルを削除）
+        setMessages(prev => prev.slice(0, -1));
+      showToast('error', 'メッセージの更新に失敗しました');
+      } finally {
+        setIsUpdating(false);
+        setEditingTextMessage(null);
+        setChatInput('');
+      }
       return;
     }
     
-    // 新しいメッセージを追加
+    // 新しいメッセージ（楽観的追加）
+    const tempId = crypto.randomUUID();
     const newUserMessage = {
-      id: crypto.randomUUID(),
+      id: tempId,
       type: 'user' as const,
       content: userMessage,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
-    
+
     setMessages(prev => [...prev, newUserMessage]);
     setTimeout(() => scrollToLatestMessage(), 50);
     setChatInput('');
+
+    // バックエンドにもTEXTメッセージを保存（編集用のID付与）
+    try {
+      const chatForApi = currentChatId || 'default-chat-123';
+      const created = await createChatMessage(chatForApi, {
+        type: 'TEXT',
+        author_id: 'user-1',
+        text: userMessage,
+      } as any);
+      // 返却メッセージで置き換え（ID同期）
+      const tradeMsg = convertChatMessageToTradeMessage(created);
+      setMessages(prev => prev.map(m => (m.id === tempId ? tradeMsg : m)));
+    } catch (e) {
+      console.warn('TEXTメッセージの保存に失敗（ローカルのみ）:', e);
+      // 失敗してもUIは維持（後で編集できない可能性あり）
+    }
     
     // 現在のチャットが「新規チャット」で始まる場合、銘柄名を抽出して名前を更新
     if (currentChatId) {
@@ -1813,6 +1944,20 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           ...prev,
           convertChatMessageToTradeMessage(newMessage)
         ]);
+        // 決済履歴を紐づけ（UNDOで厳密復元に使用）
+        try {
+          positionsRecordSettlement(newMessage.id, {
+            symbol: exitSymbol,
+            side: exitSide,
+            chatId: exitChatId || currentChatId || undefined,
+            exitPrice: price,
+            exitQty: qty,
+            realizedPnl: settleResult?.realizedPnl || 0,
+            matchedLots: (settleResult?.details?.matchedLots || []).map((l: any) => ({ lotPrice: l.lotPrice, qty: l.qty })),
+          });
+        } catch (e) {
+          console.warn('Failed to record settlement history:', e);
+        }
       } else {
         console.error('Failed to create ENTRY message:', response.statusText);
         // フォールバックで既存のメッセージ形式を使用
@@ -2093,30 +2238,60 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       } else {
         console.error('Failed to create EXIT message:', response.statusText);
         // フォールバックで既存のメッセージ形式を使用
+        const localId = crypto.randomUUID();
         setMessages(prev => [
           ...prev,
           {
-            id: crypto.randomUUID(),
+            id: localId,
             type: 'user' as const,
             isTradeAction: true,
             content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           }
         ]);
+        // ローカルメッセージでも復元できるよう決済履歴を保存
+        try {
+          positionsRecordSettlement(localId, {
+            symbol: exitSymbol,
+            side: exitSide,
+            chatId: exitChatId || currentChatId || undefined,
+            exitPrice: price,
+            exitQty: qty,
+            realizedPnl: settleResult?.realizedPnl || 0,
+            matchedLots: (settleResult?.details?.matchedLots || []).map((l: any) => ({ lotPrice: l.lotPrice, qty: l.qty })),
+          });
+        } catch (e) {
+          console.warn('Failed to record settlement history (fallback):', e);
+        }
       }
     } catch (error) {
       console.error('Error creating EXIT message:', error);
       // フォールバックで既存のメッセージ形式を使用
+      const localId = crypto.randomUUID();
       setMessages(prev => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: localId,
           type: 'user' as const,
           isTradeAction: true,
           content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         }
       ]);
+      // ローカルメッセージでも復元できるよう決済履歴を保存
+      try {
+        positionsRecordSettlement(localId, {
+          symbol: exitSymbol,
+          side: exitSide,
+          chatId: exitChatId || currentChatId || undefined,
+          exitPrice: price,
+          exitQty: qty,
+          realizedPnl: settleResult?.realizedPnl || 0,
+          matchedLots: (settleResult?.details?.matchedLots || []).map((l: any) => ({ lotPrice: l.lotPrice, qty: l.qty })),
+        });
+      } catch (e) {
+        console.warn('Failed to record settlement history (catch):', e);
+      }
     }
 
     // 2. システム側メッセージを少し遅延して表示
@@ -2391,28 +2566,61 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           >
             <div className="px-20 pb-6">
               <div className="max-w-4xl mx-auto">
-                {/* Chat Input Card - 2-tier layout as shown in image */}
-                <div className="bg-[#F7F8FA] shadow-lg rounded-2xl mb-4 px-6 py-4">
+                {/* Chat Input Card - with edit header when editing */}
+                <div className="bg-[#F7F8FA] shadow-lg rounded-2xl mb-4">
+                  {/* Edit header (only in edit mode) */}
+                  {editingTextMessage && (
+                    <div className="flex items-center justify-between bg-[#6B7280] text-white rounded-t-2xl px-4 py-2">
+                      <div className="flex items-center gap-2 text-sm">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm2.92 2.33H5v-.92l8.06-8.06.92.92L5.92 19.58zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"/>
+                        </svg>
+                        <span>編集する</span>
+                      </div>
+                      <button
+                        onClick={handleCancelTextEdit}
+                        disabled={isUpdating}
+                        aria-label="編集をキャンセル"
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 disabled:opacity-60"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Upper tier: Text input field */}
-                  <div className="mb-4">
+                  <div className="mb-4 px-6 py-4 relative">
                     <input
                       type="text"
                       placeholder="AIに質問する..."
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
+                        // 編集時は ⌘/Ctrl+Enter で更新、通常時は Enter 送信
+                        if (editingTextMessage && (e.key === 'Enter') && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          handleSendMessage();
+                          return;
+                        }
+                        if (editingTextMessage && e.key === 'Escape') {
+                          e.preventDefault();
+                          handleCancelTextEdit();
+                          return;
+                        }
+                        if (e.key === 'Enter' && !e.shiftKey && !editingTextMessage) {
                           e.preventDefault();
                           handleSendMessage();
                         }
                       }}
-                      className="w-full h-12 bg-transparent border-none outline-none text-[#333] placeholder-[#999] text-base px-4"
+                      className={`w-full h-12 bg-white border border-[#E5E7EB] rounded-lg outline-none text-[#333] placeholder-[#999] text-base px-4`}
                       style={{ fontSize: '16px' }}
                     />
                   </div>
 
                   {/* Lower tier: Buttons and controls */}
-                  <div className="flex items-center">
+                  <div className="flex items-center px-6 pb-4">
                     {/* Left side buttons */}
                     <div className="flex gap-3 mr-6">
                       {/* Entry Button */}
@@ -2441,10 +2649,10 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                     <div className="flex-1"></div>
 
                     {/* File upload area */}
-                    <div className="border-2 border-dashed border-[#C7C7CC] rounded-xl px-6 py-3 flex items-center gap-2 mr-4">
+                    <div className="border-2 border-dashed border-[#D1D5DB] bg-white rounded-xl px-5 py-3 flex items-center gap-2 mr-4 text-[#6B7280]">
                       <label className="cursor-pointer flex items-center gap-2">
-                        <Upload className="w-4 h-4 text-[#8E8E93]" />
-                        <span className="text-sm text-[#8E8E93] whitespace-nowrap">チャート画像をアップロード</span>
+                        <Upload className="w-4 h-4" />
+                        <span className="text-sm whitespace-nowrap">チャート画像をアップロード</span>
                         <input
                           type="file"
                           accept="image/*"
@@ -2454,39 +2662,15 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                       </label>
                     </div>
 
-                    {/* Edit mode buttons or Send button */}
-                    {editingTextMessage ? (
-                      <div className="flex gap-2">
-                        {/* Cancel button */}
-                        <button
-                          onClick={handleCancelTextEdit}
-                          className="bg-gray-400 hover:bg-gray-500 text-white w-12 h-12 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
-                        >
-                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                        {/* Update button */}
-                        <button
-                          onClick={handleSendMessage}
-                          disabled={!chatInput.trim()}
-                          className="bg-blue-600 hover:bg-blue-700 disabled:bg-[#C7C7CC] text-white w-12 h-12 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
-                        >
-                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                      </div>
-                    ) : (
-                      /* Send button */
-                      <button
-                        onClick={handleSendMessage}
-                        disabled={!chatInput.trim()}
-                        className="bg-[#007AFF] hover:bg-[#0056CC] disabled:bg-[#C7C7CC] text-white w-12 h-12 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
-                      >
-                        <Send className="w-5 h-5" />
-                      </button>
-                    )}
+                    {/* Send button stays at default position even in edit mode */}
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={!chatInput.trim() || (editingTextMessage && isUpdating)}
+                      className="bg-[#007AFF] hover:bg-[#0056CC] disabled:bg-[#C7C7CC] text-white w-12 h-12 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
+                      aria-label={editingTextMessage ? '更新を送信' : '送信'}
+                    >
+                      <Send className="w-5 h-5" />
+                    </button>
                   </div>
                 </div>
               </div>
