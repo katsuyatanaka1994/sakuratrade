@@ -328,45 +328,43 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
   let tradeSnapshot: TradeSnapshot | null = null;
   
   // Check for complete close (qtyTotal becomes 0)
-  if (p.qtyTotal === 0 && p.currentTradeId && state.tradeEntries.has(p.currentTradeId)) {
-    const entryTime = state.tradeEntries.get(p.currentTradeId)!;
-    const closeTime = new Date().toISOString();
-    const holdMinutes = Math.floor((new Date(closeTime).getTime() - new Date(entryTime).getTime()) / 60000);
-    
-    // 一度建てた平均建値（エントリー時点の加重平均）を avgEntry として固定利用
-    const avgEntry = startAvg;
-    
-    // Calculate pnl_pct safely to avoid NaN/Infinity
-    let pnlPct = 0;
-    if (avgEntry > 0) {
-      pnlPct = side === 'LONG' 
-        ? ((price - avgEntry) / avgEntry) * 100 
-        : ((avgEntry - price) / avgEntry) * 100;
-      
-      // Ensure pnlPct is a valid finite number
-      if (!isFinite(pnlPct)) {
-        pnlPct = 0;
+  if (p.qtyTotal === 0) {
+    // When possible, create a trade snapshot using tracked entry time
+    if (p.currentTradeId && state.tradeEntries.has(p.currentTradeId)) {
+      const entryTime = state.tradeEntries.get(p.currentTradeId)!;
+      const closeTime = new Date().toISOString();
+      const holdMinutes = Math.floor((new Date(closeTime).getTime() - new Date(entryTime).getTime()) / 60000);
+
+      const avgEntry = startAvg; // fixed average entry
+
+      let pnlPct = 0;
+      if (avgEntry > 0) {
+        pnlPct = side === 'LONG'
+          ? ((price - avgEntry) / avgEntry) * 100
+          : ((avgEntry - price) / avgEntry) * 100;
+        if (!isFinite(pnlPct)) pnlPct = 0;
       }
+
+      tradeSnapshot = {
+        tradeId: p.currentTradeId,
+        chatId: chatId || 'default',
+        symbol,
+        side,
+        avgEntry: isFinite(avgEntry) ? avgEntry : 0,
+        avgExit: price,
+        qty: wasQtyTotal,
+        pnlAbs: isFinite(realized) ? realized : 0,
+        pnlPct,
+        holdMinutes,
+        closedAt: closeTime.replace(/\.\d{3}Z$/, 'Z')
+      };
+
+      // Clear trade tracking
+      state.tradeEntries.delete(p.currentTradeId);
+      delete p.currentTradeId;
     }
 
-    tradeSnapshot = {
-      tradeId: p.currentTradeId,
-      chatId: chatId || 'default',
-      symbol,
-      side,
-      avgEntry: isFinite(avgEntry) ? avgEntry : 0,
-      avgExit: price,
-      qty: wasQtyTotal,
-      pnlAbs: isFinite(realized) ? realized : 0,
-      pnlPct,
-      holdMinutes,
-      closedAt: closeTime.replace(/\.\d{3}Z$/, 'Z') // Remove milliseconds from ISO string
-    };
-    
-    // Clear trade tracking
-    state.tradeEntries.delete(p.currentTradeId);
-    delete p.currentTradeId;
-    
+    // In all cases, remove from open positions and archive into closed
     state.positions.delete(k);
     state.closed.push(p);
     positionResult = null;
