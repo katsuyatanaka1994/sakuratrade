@@ -248,7 +248,7 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   const isInitialEntry = !p || p.qtyTotal === 0;
   
   if (!p) {
-    p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId, status: 'OPEN', ownerId: 'current_user', chartImageId: null, aiFeedbacked: false };
+    p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId, status: 'OPEN', ownerId: 'current_user', version: 1, chartImageId: null, aiFeedbacked: false };
     state.positions.set(k, p);
   }
   
@@ -282,7 +282,10 @@ export function updatePosition(symbol: string, side: Side, updates: Partial<Posi
     ...p,
     ...updates,
     updatedAt: updates.updatedAt || new Date().toISOString(),
-    version: (updates.version !== undefined) ? updates.version : p.version + 1
+    // Guard against undefined/NaN version from legacy data
+    version: (updates.version !== undefined)
+      ? updates.version
+      : (typeof p.version === 'number' && isFinite(p.version) ? p.version + 1 : 1)
   };
   
   state.positions.set(k, updatedPosition);
@@ -299,6 +302,8 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
   const matchedLots: { lotPrice: number; qty: number; pnl: number }[] = [];
   let remaining = qty;
   let realized = 0;
+  const startQtyTotal = p.qtyTotal;
+  const startAvg = p.avgPrice; // 固定平均建値（証券会社風）
 
   for (const lot of p.lots) {
     if (remaining <= 0) break;
@@ -314,7 +319,8 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
   const wasQtyTotal = p.qtyTotal;
   p.qtyTotal -= qty;
   p.lots = p.lots.filter(l => l.qtyRemaining > 0);
-  p.avgPrice = p.qtyTotal > 0 ? p.lots.reduce((acc, l) => acc + l.price * l.qtyRemaining, 0) / p.qtyTotal : 0;
+  // 平均建値は売却では変えない（固定）。完全クローズ時のみ0。
+  p.avgPrice = p.qtyTotal > 0 ? startAvg : 0;
   p.realizedPnl += realized;
   p.updatedAt = new Date().toISOString();
 
@@ -327,20 +333,8 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
     const closeTime = new Date().toISOString();
     const holdMinutes = Math.floor((new Date(closeTime).getTime() - new Date(entryTime).getTime()) / 60000);
     
-    // Use position's average price (calculated correctly during entry)
-    let avgEntry = p.avgPrice;
-    
-    // Ensure avgEntry is valid
-    if (!isFinite(avgEntry) || avgEntry <= 0) {
-      // Fallback: calculate from remaining lots
-      if (p.lots.length > 0) {
-        const totalValue = p.lots.reduce((sum, lot) => sum + (lot.price * lot.qtyRemaining), 0);
-        const totalQty = p.lots.reduce((sum, lot) => sum + lot.qtyRemaining, 0);
-        avgEntry = totalQty > 0 ? totalValue / totalQty : price;
-      } else {
-        avgEntry = price; // Use exit price as last resort
-      }
-    }
+    // 一度建てた平均建値（エントリー時点の加重平均）を avgEntry として固定利用
+    const avgEntry = startAvg;
     
     // Calculate pnl_pct safely to avoid NaN/Infinity
     let pnlPct = 0;
@@ -468,6 +462,32 @@ export function getLongShortQty(symbol: string, chatId?: string) {
   const long = state.positions.get(key(symbol, 'LONG', chatId))?.qtyTotal ?? 0;
   const short = state.positions.get(key(symbol, 'SHORT', chatId))?.qtyTotal ?? 0;
   return { long, short };
+}
+
+// Explicitly delete a position (user-initiated removal)
+export function deletePosition(symbol: string, side: Side, chatId?: string): boolean {
+  console.log('[positions.store] deletePosition called', { symbol, side, chatId });
+  // Try exact key first
+  const tryKeys: string[] = [];
+  tryKeys.push(key(symbol, side, chatId));
+  // Fallbacks for legacy/default chatId
+  if (chatId && chatId !== 'default') {
+    tryKeys.push(key(symbol, side, 'default'));
+  }
+  // As a last resort, search by symbol+side (ignore chatId)
+  const anyKey = Array.from(state.positions.keys()).find(k => k.startsWith(`${symbol}:${side}:`));
+  if (anyKey) tryKeys.push(anyKey);
+
+  for (const kpos of tryKeys) {
+    if (state.positions.has(kpos)) {
+      console.log('[positions.store] deleting key', kpos);
+      state.positions.delete(kpos);
+      notify();
+      return true;
+    }
+  }
+  console.warn('[positions.store] deletePosition: no matching key found', { tryKeys, keys: Array.from(state.positions.keys()) });
+  return false;
 }
 
 // Debug and utility functions

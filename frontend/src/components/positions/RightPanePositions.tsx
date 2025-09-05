@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getGroups, subscribe, updatePosition } from '../../store/positions';
+import { getGroups, subscribe, updatePosition, deletePosition as storeDeletePosition } from '../../store/positions';
 import type { Position } from '../../store/positions';
 import { formatLSHeader } from '../../lib/validation';
 import { useSymbolSuggest } from '../../hooks/useSymbolSuggest';
@@ -130,21 +130,41 @@ const PositionCard: React.FC<{
   };
 
   const handlePositionDelete = async () => {
-    if (!chatId || !p.id) return;
-    
     try {
-      // DELETE API呼び出し（実装予定）
-      // await deletePosition(p.id);
-      console.log('Position delete will be implemented:', p.id);
-      
-      // 削除成功時の処理
-      if (onPositionUpdate) {
-        // ポジションリストから削除通知（実装により調整）
-        onPositionUpdate({...p, status: 'DELETED'} as Position);
+      console.log('[PositionCard] handlePositionDelete start', { symbol: p.symbol, side: p.side, cardChatId: p.chatId, viewChatId: chatId });
+      const ok = storeDeletePosition(p.symbol, p.side, p.chatId || chatId);
+      console.log('[PositionCard] storeDeletePosition result', ok);
+      if (ok) {
+        showToast.success('ポジションを削除しました');
+        // ボットメッセージ: 削除記録
+        if (onAddBotMessage) {
+          const info = findByCode(p.symbol);
+          const symbolName = info?.name ? ` ${info.name}` : '';
+          const sideText = p.side === 'LONG' ? 'ロング（買い）' : 'ショート（売り）';
+          const content = `🗑️ ポジションを削除しました。<br/><br/>銘柄: ${p.symbol}${symbolName}<br/>ポジションタイプ: ${sideText}<br/>建値: ${Math.round(p.avgPrice).toLocaleString()}円<br/>数量: ${p.qtyTotal.toLocaleString()}株`;
+          onAddBotMessage({
+            id: crypto.randomUUID(),
+            type: 'bot',
+            content,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            testId: 'bot-delete-position'
+          });
+        }
+        // 親へ通知（即時リスト再取得のトリガ）
+        if (onPositionUpdate) {
+          onPositionUpdate({ ...p, status: 'DELETED' } as Position);
+        }
+        // 明示的な再描画イベントを発火（購読に加えて）
+        if (typeof window !== 'undefined') {
+          console.log('[PositionCard] dispatch positions-changed');
+          window.dispatchEvent(new Event('positions-changed'));
+        }
+      } else {
+        showToast.error('ポジションの削除に失敗しました');
       }
     } catch (error) {
       console.error('Position delete failed:', error);
-      // エラーハンドリング（実装予定）
+      showToast.error('ポジションの削除に失敗しました');
     }
   };
 
@@ -419,7 +439,7 @@ const PositionCard: React.FC<{
           onClick={handleSettleClick} 
           className="w-full bg-red-600 text-white text-base font-medium py-2 rounded-full hover:bg-red-700 transition-colors"
         >
-          決済入力
+          約定入力
         </button>
       </div>
       </div>
@@ -484,7 +504,16 @@ const RightPanePositions: React.FC<RightPanePositionsProps> = ({ chatId, onAddBo
       const updated = chatId ? getGroups(chatId) : [];
       setGroups(updated);
     });
-    return () => unsub();
+    // 明示イベントでも再取得（削除後の即時反映を補助）
+    const onPositionsChanged = () => {
+      const updated = chatId ? getGroups(chatId) : [];
+      setGroups(updated);
+    };
+    window.addEventListener('positions-changed', onPositionsChanged);
+    return () => {
+      unsub();
+      window.removeEventListener('positions-changed', onPositionsChanged);
+    };
   }, [chatId]);
 
   // chatIdがnullの場合はポジションを表示しない
@@ -530,8 +559,8 @@ const RightPanePositions: React.FC<RightPanePositionsProps> = ({ chatId, onAddBo
               
               {/* ポジション部分 */}
               <div className="space-y-4 mt-2">
-                {g.positions.filter(p => p.side === 'SHORT').map(p => <PositionCard key={`${p.symbol}:SHORT:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} onPositionUpdate={(pos) => {/* Handle position update */}} onAddBotMessage={onAddBotMessage} />)}
-                {g.positions.filter(p => p.side === 'LONG').map(p => <PositionCard key={`${p.symbol}:LONG:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} onPositionUpdate={(pos) => {/* Handle position update */}} onAddBotMessage={onAddBotMessage} />)}
+                {g.positions.filter(p => p.side === 'SHORT').map(p => <PositionCard key={`${p.symbol}:SHORT:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} onPositionUpdate={() => { const updated = chatId ? getGroups(chatId) : []; setGroups(updated); }} onAddBotMessage={onAddBotMessage} />)}
+                {g.positions.filter(p => p.side === 'LONG').map(p => <PositionCard key={`${p.symbol}:LONG:${p.chatId}`} p={p} chatId={chatId} findByCode={findByCode} onPositionUpdate={() => { const updated = chatId ? getGroups(chatId) : []; setGroups(updated); }} onAddBotMessage={onAddBotMessage} />)}
               </div>
             </div>
           );

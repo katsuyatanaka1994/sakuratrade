@@ -10,7 +10,7 @@ test('コンポーネントが正常にレンダリングされる', () => {
   
   // Check if main buttons are rendered
   expect(screen.getByText("建値入力")).toBeInTheDocument();
-  expect(screen.getByText("決済入力")).toBeInTheDocument();
+  expect(screen.getByText("約定入力")).toBeInTheDocument();
   expect(screen.getByText("チャート画像をアップロード")).toBeInTheDocument();
 });
 
@@ -23,11 +23,11 @@ test('建値入力モーダルが開く', () => {
   expect(screen.getByText("建値入力")).toBeInTheDocument();
 });
 
-test('決済入力モーダルが開く', () => {
+test('約定入力モーダルが開く', () => {
   render(<Trade isFileListVisible={false} selectedFile="テスト" setSelectedFile={() => {}} />);
   
-  fireEvent.click(screen.getByText("決済入力"));
+  fireEvent.click(screen.getByText("約定入力"));
   
   // Check if modal title appears
-  expect(screen.getByText("決済入力")).toBeInTheDocument();
+  expect(screen.getByText("約定入力")).toBeInTheDocument();
 });

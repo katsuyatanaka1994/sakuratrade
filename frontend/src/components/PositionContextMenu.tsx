@@ -25,6 +25,8 @@ const PositionContextMenu: React.FC<PositionContextMenuProps> = ({
     if (!isOpen) return;
 
     const handleClickOutside = (event: MouseEvent) => {
+      // ダイアログ表示中はメニューを閉じない（コンポーネントのアンマウントを防ぐ）
+      if (showDeleteConfirm) return;
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         onClose();
       }
@@ -32,7 +34,11 @@ const PositionContextMenu: React.FC<PositionContextMenuProps> = ({
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        if (showDeleteConfirm) {
+          setShowDeleteConfirm(false);
+        } else {
+          onClose();
+        }
       }
     };
 
@@ -43,7 +49,13 @@ const PositionContextMenu: React.FC<PositionContextMenuProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, showDeleteConfirm]);
+
+  // Reset delete dialog state whenever open/close toggles
+  useEffect(() => {
+    // Always start with no delete dialog when menu visibility changes
+    setShowDeleteConfirm(false);
+  }, [isOpen]);
 
   // Focus management for accessibility
   useEffect(() => {
@@ -114,15 +126,19 @@ const PositionContextMenu: React.FC<PositionContextMenuProps> = ({
     }
     
     onEdit();
+    setShowDeleteConfirm(false);
     onClose();
   };
 
   const handleDelete = () => {
+    console.log('[PositionContextMenu] Delete selected -> open confirm dialog');
     setShowDeleteConfirm(true);
   };
 
   const handleConfirmDelete = () => {
+    console.log('[PositionContextMenu] Confirm delete clicked');
     if (onDelete) {
+      console.log('[PositionContextMenu] Calling onDelete handler');
       onDelete();
     }
     setShowDeleteConfirm(false);

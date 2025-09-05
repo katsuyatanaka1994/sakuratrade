@@ -22,7 +22,7 @@ import { getLatestSymbolFromChat, loadSymbols } from '../utils/symbols';
 import type { ChatMsg } from '../utils/symbols';
 import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
 import { useToast } from './ToastContainer';
-import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, TradeSnapshot, getLongShortQty, updatePosition, recordSettlement as positionsRecordSettlement, unsettle as positionsUnsettle } from '../store/positions';
+import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, TradeSnapshot, getLongShortQty, updatePosition, recordSettlement as positionsRecordSettlement, unsettle as positionsUnsettle, getState as getPositionsState } from '../store/positions';
 import { convertChatMessageToTradeMessage } from '../utils/messageAdapter';
 import { undoChatMessage } from '../services/api';
 import { createChatMessage, generateAIReply } from '../services/api';
@@ -2001,7 +2001,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           side: entryPositionType === 'long' ? 'LONG' : 'SHORT',
           price: price,
           qty: qty,
-          note: entryNote || null,
+          note: null,
           executedAt: new Date().toISOString(),
           tradeId: crypto.randomUUID()
         }
@@ -2220,7 +2220,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     
     // カードからの呼び出し時のバリデーション
     if (!exitSymbol || !exitSide) {
-      alert('決済はカードの「決済入力」から実行してください（銘柄・サイドが未選択）');
+      alert('約定はカードの「約定入力」から実行してください（銘柄・サイドが未選択）');
       return;
     }
     
@@ -2260,8 +2260,28 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       return;
     }
 
-    // 建値を取得（保存された状態を優先、バックアップとしてメッセージから取得）
-    let entryVal = currentEntryPrice;
+    // 建値を取得（ポジションストアの平均建値を優先し、バックアップを用意）
+    let entryVal = 0;
+
+    // 1) Positions store の平均建値（カード表示と一致させる）
+    try {
+      const state = getPositionsState();
+      const posKey = `${exitSymbol}:${exitSide}:${exitChatId || currentChatId || 'default'}`;
+      const pos = state.positions.get(posKey);
+      if (pos && typeof pos.avgPrice === 'number' && pos.avgPrice > 0) {
+        entryVal = pos.avgPrice;
+      }
+    } catch {}
+
+    // 2) 完全クローズ時は settleResult の tradeSnapshot から補完
+    if (entryVal <= 0 && settleResult?.tradeSnapshot && typeof settleResult.tradeSnapshot.avgEntry === 'number') {
+      entryVal = settleResult.tradeSnapshot.avgEntry;
+    }
+
+    // 3) それでも取得できない場合は、従来の保持値/メッセージ解析でフォールバック
+    if (entryVal <= 0) {
+      entryVal = currentEntryPrice;
+    }
     
     // 保存された建値がない場合、メッセージから取得
     if (entryVal <= 0) {
@@ -2385,13 +2405,13 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       
       if (pnl > 0) {
         // 利益時のメッセージ
-        messageContent = `💹 損益情報<br/><br/>建値価格: ${entryVal.toLocaleString()}円<br/>決済価格: ${price.toLocaleString()}円<br/>差額: <span style="color: #16a34a;">${priceDiffStr}</span><br/>株数: ${qty.toLocaleString()}株<br/>損益額: <span style="color: #16a34a;">${pnlStr}</span><br/><br/>🎉 振り返り: おめでとうございます！利益を確定できました。今回の成功要因を分析して、次回の取引にも活かしていきましょう。`;
+        messageContent = `💹 損益情報<br/><br/>平均建値: ${entryVal.toLocaleString()}円<br/>約定価格: ${price.toLocaleString()}円<br/>差額: <span style="color: #16a34a;">${priceDiffStr}</span><br/>株数: ${qty.toLocaleString()}株<br/>損益額: <span style="color: #16a34a;">${pnlStr}</span><br/><br/>🎉 振り返り: おめでとうございます！利益を確定できました。今回の成功要因を分析して、次回の取引にも活かしましょう。`;
       } else if (pnl < 0) {
         // 損失時のメッセージ
-        messageContent = `💹 損益情報<br/><br/>建値価格: ${entryVal.toLocaleString()}円<br/>決済価格: ${price.toLocaleString()}円<br/>差額: <span style="color: #dc2626;">${priceDiffStr}</span><br/>株数: ${qty.toLocaleString()}株<br/>損益額: <span style="color: #dc2626;">${pnlStr}</span><br/><br/>🤔 振り返り: 今回は残念ながら損失となりました。エントリーのタイミングや損切りラインを振り返り、次回に活かしましょう。`;
+        messageContent = `💹 損益情報<br/><br/>平均建値: ${entryVal.toLocaleString()}円<br/>約定価格: ${price.toLocaleString()}円<br/>差額: <span style="color: #dc2626;">${priceDiffStr}</span><br/>株数: ${qty.toLocaleString()}株<br/>損益額: <span style="color: #dc2626;">${pnlStr}</span><br/><br/>🤔 振り返り: 今回は残念ながら損失となりました。エントリーのタイミングや損切りラインを振り返り、次回に活かしましょう。`;
       } else {
         // ブレイクイーブン時のメッセージ
-        messageContent = `💹 損益情報<br/><br/>建値価格: ${entryVal.toLocaleString()}円<br/>決済価格: ${price.toLocaleString()}円<br/>差額: ${priceDiffStr}<br/>株数: ${qty.toLocaleString()}株<br/>損益額: ${pnlStr}<br/><br/>😐 振り返り: ブレイクイーブンでした。リスクを最小限に抑えた取引ができました。`;
+        messageContent = `💹 損益情報<br/><br/>平均建値: ${entryVal.toLocaleString()}円<br/>約定価格: ${price.toLocaleString()}円<br/>差額: ${priceDiffStr}<br/>株数: ${qty.toLocaleString()}株<br/>損益額: ${pnlStr}<br/><br/>😐 振り返り: ブレイクイーブンでした。リスクを最小限に抑えた取引ができました。`;
       }
 
       const botMessageId = crypto.randomUUID();
@@ -2725,14 +2745,19 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                           // モーダルを開く
                           setIsEntryModalOpen(true);
                         }}
-                        className="bg-[#007AFF] hover:bg-[#0056CC] text-white px-6 py-3 rounded-xl font-medium text-sm transition-colors"
+                        className="bg-[#007AFF] hover:bg-[#0056CC] text-white px-6 py-3 rounded-xl font-medium text-sm transition-colors w-[120px]"
                       >
-                        建値
+                        建値入力
                       </button>
-                      {/* Exit Button */}
+                      {/* Exit Button (rendered but hidden/disabled per spec) */}
                       <button
+                        data-testid="payment-button"
                         onClick={() => setIsExitModalOpen(true)}
-                        className="bg-[#FF3B30] hover:bg-[#D70015] text-white px-6 py-3 rounded-xl font-medium text-sm transition-colors"
+                        disabled
+                        aria-hidden="true"
+                        aria-disabled="true"
+                        tabIndex={-1}
+                        className="hidden bg-[#FF3B30] hover:bg-[#D70015] text-white px-6 py-3 rounded-xl font-medium text-sm transition-colors disabled:cursor-not-allowed"
                       >
                         決済
                       </button>
@@ -3013,7 +3038,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           setIsExitModalOpen(false);
           clearEditMode();
         }}
-        title="決済入力"
+        title="約定入力"
       >
         <div className="mt-4 space-y-4">
           <div className="text-xs text-zinc-500">
