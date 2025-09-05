@@ -41,7 +41,8 @@ export const entryEditSchema = z.object({
   note: z.string().optional(),
   
   // メタデータ
-  tradeId: z.string().min(1, 'トレードIDが必要です'),
+  // tradeId は既存データに存在しないケースがあるため任意扱いにする
+  tradeId: z.string().optional(),
   executedAt: z.string().optional(),
   version: z.number({
     required_error: 'バージョン情報が必要です',

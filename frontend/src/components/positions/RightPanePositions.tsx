@@ -461,7 +461,8 @@ const PositionCard: React.FC<{
         initialData={{
           positionId: `${p.symbol}:${p.side}:${p.chatId || 'default'}`,
           symbolCode: p.symbol,
-          symbolName: p.name || '',
+          // 企業名は Position.name が未設定の場合でも銘柄辞書から補完
+          symbolName: p.name || (findByCode(p.symbol)?.name ?? ''),
           side: p.side,
           price: p.avgPrice,
           qty: p.qtyTotal,
