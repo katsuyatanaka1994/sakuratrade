@@ -89,3 +89,9 @@ http://localhost:8000/static/uploaded_images/{filename}
 - [x] レスポンスにファイル名と保存パスが含まれる
 - [x] /static 経由で画像のプレビューが確認できる
 - [x] app/routers/static/uploaded_images に保存されている
+
+## Setup
+1. Copy environment file
+   ```bash
+   cp .env.example .env
+   cp frontend/.env.example frontend/.env

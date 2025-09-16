@@ -468,7 +468,7 @@ const TradeRecordsPage: React.FC = () => {
           </div>
         </section>
 
-        <section className="flex h-full flex-col rounded-2xl border border-gray-200 bg-white p-6">
+        <section className="flex h-full max-h-[calc(100vh-160px)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white">
           {selectedTrade ? (
             <div className="flex h-full flex-col">
               <div
@@ -521,63 +521,64 @@ const TradeRecordsPage: React.FC = () => {
                 </div>
               </div>
 
-              <section
-                data-testid="ai-feedback"
-                className="mt-6 mb-4 flex flex-col gap-4 rounded-md border border-indigo-100 bg-indigo-50/60 p-4"
-              >
-                <div className="flex items-center gap-2 px-1">
-                  <span role="img" aria-hidden="true" className="text-pink-500">
-                    🧠
-                  </span>
-                  <span className="text-[16px] font-bold text-gray-800">AIフィードバック</span>
-                </div>
-                <div
-                  data-testid="ai-feedback-grid"
-                  className="grid grid-cols-1 gap-4 md:grid-cols-3"
+              <div className="flex-1 overflow-y-auto px-6 pb-6">
+                <section
+                  data-testid="ai-feedback"
+                  className="mt-6 mb-4 flex flex-col gap-4 rounded-md border border-indigo-100 bg-indigo-50/60 p-4"
                 >
-                  {detail.aiFeedback.map((item) => (
-                    <article
-                      key={item.id}
-                      data-testid={`ai-card-${item.id}`}
-                      className="flex h-[112px] flex-col gap-2 rounded-md bg-white p-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={clsx(
-                            {
-                              good: 'text-green-600',
-                              improve: 'text-amber-500',
-                              next: 'text-blue-600',
-                            }[item.id as 'good' | 'improve' | 'next']
-                          )}
-                        >
-                          {aiFeedbackToneIcons[item.tone]}
-                        </span>
-                        <span
-                          className={clsx(
-                            'font-bold',
-                            item.id === 'good' && 'text-[14px] text-green-600',
-                            item.id === 'improve' && 'text-[14px] text-amber-600',
-                            item.id === 'next' && 'text-[16px] text-blue-600'
-                          )}
-                        >
-                          {item.title}
-                        </span>
-                      </div>
-                      <ul className="list-disc pl-5 text-[14px] leading-6 text-gray-700">
-                        <li>{item.description}</li>
-                      </ul>
-                    </article>
-                  ))}
-                </div>
-              </section>
+                  <div className="flex items-center gap-2 px-1">
+                    <span role="img" aria-hidden="true" className="text-pink-500">
+                      🧠
+                    </span>
+                    <span className="text-[16px] font-bold text-gray-800">AIフィードバック</span>
+                  </div>
+                  <div
+                    data-testid="ai-feedback-grid"
+                    className="grid grid-cols-1 gap-4 md:grid-cols-3"
+                  >
+                    {detail.aiFeedback.map((item) => (
+                      <article
+                        key={item.id}
+                        data-testid={`ai-card-${item.id}`}
+                        className="flex h-[112px] flex-col gap-2 rounded-md bg-white p-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={clsx(
+                              {
+                                good: 'text-green-600',
+                                improve: 'text-amber-500',
+                                next: 'text-blue-600',
+                              }[item.id as 'good' | 'improve' | 'next']
+                            )}
+                          >
+                            {aiFeedbackToneIcons[item.tone]}
+                          </span>
+                          <span
+                            className={clsx(
+                              'font-bold',
+                              item.id === 'good' && 'text-[14px] text-green-600',
+                              item.id === 'improve' && 'text-[14px] text-amber-600',
+                              item.id === 'next' && 'text-[16px] text-blue-600'
+                            )}
+                          >
+                            {item.title}
+                          </span>
+                        </div>
+                        <ul className="list-disc pl-5 text-[14px] leading-6 text-gray-700">
+                          <li>{item.description}</li>
+                        </ul>
+                      </article>
+                    ))}
+                  </div>
+                </section>
 
-              <section
-                data-testid="trade-plan"
-                className="mt-6 flex w-full flex-col items-start gap-2 rounded-md border border-gray-100 bg-white p-4 shadow-sm"
-              >
-                <h3 className="mb-2 text-[16px] font-bold text-gray-800">トレード計画</h3>
-                <div className="grid w-full gap-4 md:grid-cols-3">
+                <section
+                  data-testid="trade-plan"
+                  className="mt-6 flex w-full flex-col items-start gap-2 rounded-md border border-gray-100 bg-white p-4 shadow-sm"
+                >
+                  <h3 className="mb-2 text-[16px] font-bold text-gray-800">トレード計画</h3>
+                  <div className="grid w-full gap-4 md:grid-cols-3">
                   <div className="rounded-xl border border-gray-200 bg-white p-4">
                     <div className="flex items-center justify-between text-sm text-gray-500">
                       <span>利確目標</span>
@@ -614,71 +615,72 @@ const TradeRecordsPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              </section>
+                </section>
 
-              <section
-                data-testid="executions"
-                className="relative mt-6 flex flex-1 flex-col gap-6 rounded-md border border-gray-200 bg-white p-4 shadow-sm"
-              >
-                <h3 className="text-[16px] font-bold text-gray-800">取引内容</h3>
-                <div
-                  data-testid="tl-rail"
-                  className="pointer-events-none absolute left-[28px] top-6 bottom-6 w-px bg-gray-200"
-                  aria-hidden
-                />
-                <div data-testid="exec-list" className="flex flex-col gap-6">
-                  {detail.timeline.map((entry, index) => (
-                    <article
-                      key={entry.id}
-                      data-testid={`exec-item-${index}`}
-                      className="relative grid grid-cols-[24px_1fr_auto] items-start gap-x-3 gap-y-2"
-                    >
-                      <div className="flex items-center justify-center">
-                        <span
-                          data-testid={`tl-dot-${index}`}
-                          className={clsx(
-                            'h-4 w-4 flex-shrink-0 rounded-full shadow-[0_0_0_2px_#FFF]',
-                            entry.type === 'entry' ? 'bg-green-300' : 'bg-gray-400'
-                          )}
-                        />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[14px] font-semibold text-gray-700">{entry.label}</span>
-                        <div className="mt-1 flex items-baseline text-gray-900">
-                          <span className="text-[20px] font-extrabold">{formatCurrency(entry.price)}</span>
-                          {typeof entry.pnlChange === 'number' && (
-                            <span className={clsx('ml-2 text-[12px] font-bold', pnlColor(entry.pnlChange))}>
-                              {formatSignedCurrency(entry.pnlChange)}
-                              {typeof entry.pnlPercentChange === 'number' && (
-                                <span className="ml-1 text-[12px] font-medium">{formatPercentText(entry.pnlPercentChange)}</span>
-                              )}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-1 text-[12px] text-gray-500">
-                          数量 {entry.quantity.toLocaleString('ja-JP')}株
-                        </div>
-                        <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-[14px] text-gray-700">
-                          {entry.note}
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end text-right">
-                        <span className="mb-1 text-[12px] text-gray-500">{entry.date}</span>
-                        <div
-                          data-testid={`exec-thumb-${index}`}
-                          className="h-[60px] w-[60px] overflow-hidden rounded-md border border-gray-200"
-                        >
-                          <img
-                            src="https://via.placeholder.com/60"
-                            alt="チャート"
-                            className="h-full w-full object-cover"
+                <section
+                  data-testid="executions"
+                  className="relative mt-6 flex flex-col gap-6 rounded-md border border-gray-200 bg-white p-4 shadow-sm"
+                >
+                  <h3 className="text-[16px] font-bold text-gray-800">取引内容</h3>
+                  <div
+                    data-testid="tl-rail"
+                    className="pointer-events-none absolute left-[28px] top-6 bottom-6 w-px bg-gray-200"
+                    aria-hidden
+                  />
+                  <div data-testid="exec-list" className="flex flex-col gap-6">
+                    {detail.timeline.map((entry, index) => (
+                      <article
+                        key={entry.id}
+                        data-testid={`exec-item-${index}`}
+                        className="relative grid grid-cols-[24px_1fr_auto] items-start gap-x-3 gap-y-2"
+                      >
+                        <div className="flex items-center justify-center">
+                          <span
+                            data-testid={`tl-dot-${index}`}
+                            className={clsx(
+                              'h-4 w-4 flex-shrink-0 rounded-full shadow-[0_0_0_2px_#FFF]',
+                              entry.type === 'entry' ? 'bg-green-300' : 'bg-gray-400'
+                            )}
                           />
                         </div>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </section>
+                        <div className="flex flex-col">
+                          <span className="text-[14px] font-semibold text-gray-700">{entry.label}</span>
+                          <div className="mt-1 flex items-baseline text-gray-900">
+                            <span className="text-[20px] font-extrabold">{formatCurrency(entry.price)}</span>
+                            {typeof entry.pnlChange === 'number' && (
+                              <span className={clsx('ml-2 text-[12px] font-bold', pnlColor(entry.pnlChange))}>
+                                {formatSignedCurrency(entry.pnlChange)}
+                                {typeof entry.pnlPercentChange === 'number' && (
+                                  <span className="ml-1 text-[12px] font-medium">{formatPercentText(entry.pnlPercentChange)}</span>
+                                )}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1 text-[12px] text-gray-500">
+                            数量 {entry.quantity.toLocaleString('ja-JP')}株
+                          </div>
+                          <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-[14px] text-gray-700">
+                            {entry.note}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end text-right">
+                          <span className="mb-1 text-[12px] text-gray-500">{entry.date}</span>
+                          <div
+                            data-testid={`exec-thumb-${index}`}
+                            className="h-[60px] w-[60px] overflow-hidden rounded-md border border-gray-200"
+                          >
+                            <img
+                              src="https://via.placeholder.com/60"
+                              alt="チャート"
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              </div>
             </div>
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-gray-500">
