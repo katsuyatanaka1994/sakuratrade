@@ -22,18 +22,29 @@ app/
 
 ---
 
-## 🚀 起動手順
+## 🛠 初期セットアップ
 
-```
-1. 仮想環境を作成
+1. 環境変数ファイルをコピー
+   ```bash
+   cp .env.example .env
+   cp frontend/.env.example frontend/.env
+   ```
+
+2. 仮想環境を作成してアクティベート
+   ```bash
    python -m venv venv
    source venv/bin/activate
+   ```
 
-2. 依存関係をインストール
+3. 依存関係をインストール
+   ```bash
    pip install -r requirements.txt
+   ```
 
-3. 開発サーバー起動
-   uvicorn app.main:app --reload
+## 🚀 開発サーバーの起動
+
+```bash
+uvicorn app.main:app --reload
 ```
 
 ---
@@ -89,9 +100,3 @@ http://localhost:8000/static/uploaded_images/{filename}
 - [x] レスポンスにファイル名と保存パスが含まれる
 - [x] /static 経由で画像のプレビューが確認できる
 - [x] app/routers/static/uploaded_images に保存されている
-
-## Setup
-1. Copy environment file
-   ```bash
-   cp .env.example .env
-   cp frontend/.env.example frontend/.env
