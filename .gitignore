@@ -21,3 +21,4 @@ node_modules/
 CLAUDE.local.md
 # environment configuration
 .env
+frontend/.env
