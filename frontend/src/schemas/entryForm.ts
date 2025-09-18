@@ -1,5 +1,13 @@
 import { z } from 'zod';
 
+const chartPatternEnum = z.enum([
+  'pullback-buy',
+  'retest-short',
+  'breakout',
+  'double-bottom',
+  'trend-follow'
+]);
+
 // Entry form validation schema
 export const entryEditSchema = z.object({
   // 読み取り専用フィールド
@@ -39,6 +47,7 @@ export const entryEditSchema = z.object({
   .min(1, '株数は1株以上である必要があります'),
   
   note: z.string().optional(),
+  chartPattern: chartPatternEnum.optional(),
   
   // メタデータ
   // tradeId は既存データに存在しないケースがあるため任意扱いにする
@@ -60,6 +69,7 @@ export interface ValidationErrors {
   price?: string;
   qty?: string;
   note?: string;
+  chartPattern?: string;
   tradeId?: string;
   executedAt?: string;
   version?: string;
@@ -83,5 +93,6 @@ export const defaultEntryFormData: Partial<EntryEditFormData> = {
   price: 0,
   qty: 0,
   note: '',
+  chartPattern: undefined,
   executedAt: new Date().toISOString().slice(0, 16)
 };

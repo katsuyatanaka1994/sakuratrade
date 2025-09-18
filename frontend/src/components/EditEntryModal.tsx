@@ -25,6 +25,8 @@ import {
 import { reportErrorToSentry, addUserActionBreadcrumb, addAPICallBreadcrumb } from '../lib/sentryIntegration';
 import { telemetryHelpers } from '../lib/telemetry';
 import { regeneratePositionAnalysis } from '../lib/aiRegeneration';
+import ChartImageUploader from './ChartImageUploader';
+import { CHART_PATTERNS, CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
 
 interface EditEntryModalProps {
   isOpen: boolean;
@@ -60,6 +62,8 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
   const [aiRegeneratingStatus, setAiRegeneratingStatus] = useState<'idle' | 'regenerating' | 'error' | 'ready'>('idle');
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [showChartPatternSelect, setShowChartPatternSelect] = useState(false);
+  const [showMemoTextarea, setShowMemoTextarea] = useState(false);
 
   const {
     control,
@@ -80,7 +84,8 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
       note: '',
       tradeId: '',
       executedAt: new Date().toISOString().slice(0, 16),
-      version: 0
+      version: 0,
+      chartPattern: undefined
     }
   });
 
@@ -98,17 +103,22 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
         symbolName = parts.slice(1).join(' ');
       }
       
+      const initialPattern = initialData.chartPattern || undefined;
+      const initialMemo = initialData.note ? initialData.note.trim() : '';
       reset({
         symbolCode,
         symbolName,
         side: initialData.side || 'LONG',
         price: initialData.price || 0,
         qty: initialData.qty || 0,
-        note: initialData.note || '',
+        note: initialMemo,
         tradeId: initialData.tradeId || '',
         executedAt: initialData.executedAt || new Date().toISOString().slice(0, 16),
-        version: initialData.version || 0
+        version: initialData.version || 0,
+        chartPattern: initialPattern
       });
+      setShowChartPatternSelect(Boolean(initialPattern));
+      setShowMemoTextarea(Boolean(initialMemo));
       setSubmitError('');
       setIsConflictMode(false);
 
@@ -461,40 +471,42 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
     }
   };
 
-  // 画像アップロードハンドラー
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    // ファイルサイズチェック（10MB）
-    if (file.size > 10 * 1024 * 1024) {
-      setSubmitError('画像ファイルは10MB以下にしてください');
-      return;
-    }
-
-    // ファイル形式チェック
-    if (!file.type.startsWith('image/')) {
-      setSubmitError('画像ファイル（PNG/JPEG）を選択してください');
+  const handleImageUploaderChange = (file: File | null) => {
+    if (!file) {
+      setUploadedImage(null);
+      setImagePreview(null);
+      setSubmitError('');
       return;
     }
 
     setUploadedImage(file);
-    
-    // プレビュー作成
     const reader = new FileReader();
     reader.onload = (e) => {
       setImagePreview(e.target?.result as string);
     };
+    reader.onerror = () => {
+      setSubmitError('画像の読み込みに失敗しました');
+      setUploadedImage(null);
+      setImagePreview(null);
+    };
     reader.readAsDataURL(file);
-    
-    // エラーをクリア
     setSubmitError('');
+  };
+
+  const handleImageUploaderError = (reason: 'type' | 'size' | 'other') => {
+    const messages: Record<typeof reason, string> = {
+      type: 'png / jpeg 以外のファイルはアップロードできません',
+      size: '画像ファイルは10MB以下にしてください',
+      other: '画像のアップロードに失敗しました',
+    };
+    setSubmitError(messages[reason]);
   };
 
   // 画像削除ハンドラー
   const handleImageRemove = () => {
     setUploadedImage(null);
     setImagePreview(null);
+    setSubmitError('');
   };
 
   const handleClose = () => {
@@ -504,6 +516,9 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
       setIsConflictMode(false);
       setCurrentErrorDetail(null);
       setBannerType('error');
+      setShowChartPatternSelect(false);
+      setValue('chartPattern', undefined, { shouldDirty: false });
+      setShowMemoTextarea(false);
       onClose();
     }
   };
@@ -518,13 +533,19 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
   const watchedSide = watch('side');
   const watchedPrice = watch('price');
   const watchedQty = watch('qty');
+  const watchedChartPattern = watch('chartPattern');
+  const watchedNote = watch('note');
   const initialSide = initialData?.side ?? 'LONG';
   const initialPrice = initialData?.price ?? 0;
   const initialQty = initialData?.qty ?? 0;
+  const initialChartPattern = initialData?.chartPattern;
+  const initialNote = initialData?.note ? initialData.note.trim() : '';
   const hasFieldChanges =
     watchedSide !== initialSide ||
     watchedPrice !== initialPrice ||
     watchedQty !== initialQty ||
+    (watchedChartPattern ?? undefined) !== initialChartPattern ||
+    (watchedNote ?? '') !== initialNote ||
     !!uploadedImage;
 
   return (
@@ -739,14 +760,14 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
                 <Label className="text-sm text-[#374151] font-medium">AI分析（任意）</Label>
               </div>
               
-              {/* 説明文 */}
-              <div className="bg-[#F6FBFF] px-4 py-3 rounded-lg mb-4">
-                <p className="text-sm text-[#374151]">
-                  AIがエントリーの判断を評価し、改善のヒントをお届けします✨
-                </p>
-              </div>
-              
               <div className="space-y-3">
+                <ChartImageUploader
+                  value={uploadedImage}
+                  onChange={handleImageUploaderChange}
+                  onError={handleImageUploaderError}
+                  showPreview={false}
+                />
+
                 {/* 画像プレビュー表示 */}
                 {imagePreview && (
                   <div className="relative">
@@ -765,28 +786,113 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
                     </button>
                   </div>
                 )}
-                
-                {/* アップロード領域（画像がない場合のみ表示） */}
-                {!imagePreview && (
-                  <label className="w-full border-2 border-dashed border-[#D1D5DB] rounded-lg flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#9CA3AF] transition-colors" style={{height: '72px'}}>
-                    <svg className="w-5 h-5 text-[#9CA3AF]" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                      <polyline points="7,10 12,5 17,10"/>
-                      <line x1="12" y1="15" x2="12" y2="5"/>
-                    </svg>
-                    <span className="text-sm text-[#9CA3AF]">
-                      チャート画像をアップロード
-                    </span>
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      className="hidden" 
-                      onChange={handleImageUpload}
-                    />
-                  </label>
+              </div>
+
+              <div className="w-full space-y-2 mt-4">
+                {showChartPatternSelect ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm text-[#374151] font-medium">チャートパターン</Label>
+                        <span className="text-xs text-gray-400">任意</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-sm text-gray-500 ml-2 cursor-pointer"
+                        data-testid="edit-close-chartpattern"
+                        onClick={() => setShowChartPatternSelect(false)}
+                      >
+                        閉じる
+                      </button>
+                    </div>
+                    <Select
+                      value={watchedChartPattern ?? undefined}
+                      onValueChange={(value) => {
+                        setValue('chartPattern', value as EntryEditFormData['chartPattern'], { shouldDirty: true });
+                      }}
+                    >
+                      <SelectTrigger
+                        className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB]"
+                        data-testid="edit-chartpattern-select"
+                        name="chartPattern"
+                      >
+                        <SelectValue placeholder="パターンを選択" />
+                      </SelectTrigger>
+                      <SelectContent className="z-[10000] bg-white border border-gray-200 shadow-lg">
+                        {CHART_PATTERNS.map((pattern) => (
+                          <SelectItem key={pattern.value} value={pattern.value}>
+                            {pattern.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="text-sm text-blue-600 hover:text-blue-700"
+                      data-testid="edit-add-chartpattern"
+                      onClick={() => setShowChartPatternSelect(true)}
+                    >
+                      ＋ チャートパターンを追加
+                    </button>
+                    {watchedChartPattern && (
+                      <span className="text-xs text-gray-500">
+                        選択中: {CHART_PATTERN_LABEL_MAP[watchedChartPattern as keyof typeof CHART_PATTERN_LABEL_MAP]}
+                      </span>
+                    )}
+                  </div>
                 )}
-                
-                <p className="text-xs text-[#9CA3AF] text-left">対応形式：png / jpeg・最大10MB</p>
+              </div>
+
+              <div className="w-full space-y-2 mt-4">
+                {showMemoTextarea ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm text-[#374151] font-medium">メモ</Label>
+                        <span className="text-xs text-gray-400">任意</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-sm text-gray-500 ml-2 cursor-pointer"
+                        data-testid="edit-close-memo"
+                        onClick={() => setShowMemoTextarea(false)}
+                      >
+                        閉じる
+                      </button>
+                    </div>
+                    <textarea
+                      className="w-full rounded-lg border border-[#D1D5DB] focus:border-[#2563EB] p-3 resize-y min-h-[96px]"
+                      placeholder="エントリー理由や感情を入力"
+                      value={watchedNote ?? ''}
+                      onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => {
+                        setValue('note', event.target.value, { shouldDirty: true });
+                      }}
+                      name="memo"
+                      maxLength={500}
+                      data-testid="edit-memo-textarea"
+                    />
+                    <div className="text-xs text-[#6B7280] text-right">最大500文字</div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="text-sm text-blue-600 hover:text-blue-700"
+                      data-testid="edit-add-memo"
+                      onClick={() => setShowMemoTextarea(true)}
+                    >
+                      ＋ メモを追加
+                    </button>
+                    {watchedNote?.trim() && (
+                      <span className="text-xs text-gray-500">
+                        下書きあり
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

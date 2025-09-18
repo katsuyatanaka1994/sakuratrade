@@ -44,6 +44,7 @@ class EntryPayload(BaseModel):
     note: Optional[str] = None
     executedAt: Optional[str] = None
     tradeId: str
+    chartPattern: Optional[str] = None
 
 class ExitPayload(BaseModel):
     tradeId: str

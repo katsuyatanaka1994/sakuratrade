@@ -18,6 +18,7 @@ import Sidebar from './Sidebar';
 import ImageModal from './ImageModal';
 import RightPanePositions from './positions/RightPanePositions';
 import AutocompleteSymbol from './AutocompleteSymbol';
+import ChartImageUploader from './ChartImageUploader';
 import { getLatestSymbolFromChat, loadSymbols } from '../utils/symbols';
 import type { ChatMsg } from '../utils/symbols';
 import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
@@ -26,6 +27,8 @@ import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry,
 import { convertChatMessageToTradeMessage } from '../utils/messageAdapter';
 import { undoChatMessage } from '../services/api';
 import { createChatMessage, generateAIReply } from '../services/api';
+import { CHART_PATTERNS, CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
+import type { ChartPattern } from '../types/chat';
 
 // Helper function to get API URL - hardcoded for now to debug
 const getApiUrl = () => {
@@ -483,6 +486,10 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // Parse message content to extract entry data
     // Format: "📈 建値入力しました！<br/>銘柄: SYMBOL<br/>ポジションタイプ: LONG/SHORT<br/>建値: PRICE円<br/>数量: QTY株"
     const content = message.content;
+    const plainText = content
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .trim();
     
     // Extract symbol
     const symbolMatch = content.match(/銘柄:\s*([^\<\<br/\>]+)/);
@@ -517,6 +524,16 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     const qty = qtyMatch ? qtyMatch[1].replace(/,/g, '') : '';
     console.log('🔧 Quantity extraction:', { qtyMatch, qty });
     
+    // Extract chart pattern label
+    const patternMatch = plainText.match(/チャートパターン[:：]\s*([^\n]+)/);
+    const patternLabel = patternMatch ? patternMatch[1].trim() : '';
+    const patternEntry = CHART_PATTERNS.find((p) => p.label === patternLabel);
+    const chartPatternValue = patternEntry ? patternEntry.value : undefined;
+
+    // Extract optional memo
+    const memoMatch = plainText.match(/(?:📝\s*)?メモ[:：]\s*([^\n]+)/);
+    const memoValue = memoMatch ? memoMatch[1].trim() : '';
+
     console.log('🔧 Setting editingMessageId to:', message.id);
     
     // Use flushSync to ensure state updates are synchronous before opening modal
@@ -536,9 +553,11 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       symbolName: symbolName,
       side: isLong ? 'LONG' : 'SHORT',
       price: parseFloat(price) || 0,
-      qty: parseInt(qty) || 0
+      qty: parseInt(qty) || 0,
+      chartPattern: chartPatternValue,
+      note: memoValue
     };
-    
+
     // 編集モーダルの状態を更新
     setEditEntryModal({
       isOpen: true,
@@ -1228,6 +1247,13 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const [exitImageFile, setExitImageFile] = useState<File | null>(null);
   const [exitImagePreview, setExitImagePreview] = useState<string>('');
   const [imageError, setImageError] = useState<string>('');
+  const [showChartPatternSelect, setShowChartPatternSelect] = useState<boolean>(false);
+  const [entryChartPattern, setEntryChartPattern] = useState<ChartPattern | ''>('');
+  const [showMemoTextarea, setShowMemoTextarea] = useState<boolean>(false);
+  const [entryMemo, setEntryMemo] = useState<string>('');
+  const [showExitMemo, setShowExitMemo] = useState<boolean>(false);
+  const [exitMemo, setExitMemo] = useState<string>('');
+  const exitMemoRef = useRef<HTMLTextAreaElement | null>(null);
   
 
   // 画像クリック時の処理
@@ -1246,7 +1272,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   };
 
   // グローバル関数としてwindowオブジェクトに登録
-  React.useEffect(() => {
+  useEffect(() => {
     (window as any).handleImageClick = handleImageClick;
     return () => {
       delete (window as any).handleImageClick;
@@ -1254,9 +1280,15 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   }, []);
 
   // モーダル状態の変更を監視
-  React.useEffect(() => {
+  useEffect(() => {
     console.log('🖼️ Modal状態が変更されました:', { imageModalOpen, selectedImageUrl });
   }, [imageModalOpen, selectedImageUrl]);
+
+  useEffect(() => {
+    if (showExitMemo && exitMemoRef.current) {
+      exitMemoRef.current.focus();
+    }
+  }, [showExitMemo]);
   
   // 現在の建値を記録する状態（決済時に参照用）
   const [currentEntryPrice, setCurrentEntryPrice] = useState<number>(0);
@@ -1282,6 +1314,33 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     if (url) {
       URL.revokeObjectURL(url);
     }
+  };
+
+  const handleEntryImageChange = (file: File | null) => {
+    if (entryImagePreview) {
+      revokePreviewURL(entryImagePreview);
+    }
+
+    if (!file) {
+      setEntryImageFile(null);
+      setEntryImagePreview('');
+      setImageError('');
+      return;
+    }
+
+    const previewUrl = makePreviewURL(file);
+    setEntryImageFile(file);
+    setEntryImagePreview(previewUrl);
+    setImageError('');
+  };
+
+  const handleEntryImageError = (reason: 'type' | 'size' | 'other') => {
+    const messages: Record<typeof reason, string> = {
+      type: 'png / jpeg 以外はアップロードできません',
+      size: 'ファイルサイズは10MB以下にしてください',
+      other: '画像アップロードに失敗しました',
+    };
+    setImageError(messages[reason]);
   };
   
   // 画像解析と結果投稿関数
@@ -1354,7 +1413,12 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   // Modal open -> auto-fill latest symbol from chat context (但し編集モードでは無効)
   useEffect(() => {
     if (!isEntryModalOpen) return;
-    
+
+    setShowChartPatternSelect(false);
+    setEntryChartPattern('');
+    setShowMemoTextarea(false);
+    setEntryMemo('');
+
     // 編集モードの場合は自動入力をスキップ
     if (editingMessageId) {
       return;
@@ -1989,22 +2053,29 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // 現在の建値を保存（決済時に使用）
     setCurrentEntryPrice(price);
 
+    const memoValue = entryMemo.trim();
+    const memoForPayload = memoValue.length > 0 ? memoValue : undefined;
+    const chartPatternValue = entryChartPattern === '' ? undefined : entryChartPattern;
+    const entryPayload = {
+      symbolCode: entrySymbol,
+      symbolName: entrySymbol, // TODO: 実際の銘柄名を取得
+      side: entryPositionType === 'long' ? 'LONG' : 'SHORT',
+      price: price,
+      qty: qty,
+      executedAt: new Date().toISOString(),
+      tradeId: crypto.randomUUID(),
+      chartPattern: chartPatternValue,
+      ...(memoForPayload ? { note: memoForPayload } : {}),
+    };
+
     // ENTRY メッセージをチャットAPIに送信
     try {
       const apiUrl = getApiUrl();
+
       const entryMessage = {
         type: "ENTRY",
         author_id: "user-1",
-        payload: {
-          symbolCode: entrySymbol,
-          symbolName: entrySymbol, // TODO: 実際の銘柄名を取得
-          side: entryPositionType === 'long' ? 'LONG' : 'SHORT',
-          price: price,
-          qty: qty,
-          note: null,
-          executedAt: new Date().toISOString(),
-          tradeId: crypto.randomUUID()
-        }
+        payload: entryPayload
       };
 
       const response = await fetch(`${apiUrl}/chats/default-chat-123/messages`, {
@@ -2039,30 +2110,40 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       } else {
         console.error('Failed to create ENTRY message:', response.statusText);
         // フォールバックで既存のメッセージ形式を使用
-        setMessages(prev => [
+        setMessages(prev => {
+          const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
+          const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
+          const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
+          return [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              type: 'user' as const,
+              isTradeAction: true,
+              content: `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            }
+          ];
+        });
+      }
+    } catch (error) {
+      console.error('Error creating ENTRY message:', error);
+      // フォールバックで既存のメッセージ形式を使用
+      setMessages(prev => {
+        const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
+        const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
+        const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
+        return [
           ...prev,
           {
             id: crypto.randomUUID(),
             type: 'user' as const,
             isTradeAction: true,
-            content: `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`,
+            content: `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           }
-        ]);
-      }
-    } catch (error) {
-      console.error('Error creating ENTRY message:', error);
-      // フォールバックで既存のメッセージ形式を使用
-      setMessages(prev => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          type: 'user' as const,
-          isTradeAction: true,
-          content: `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        }
-      ]);
+        ];
+      });
     }
     
     // 画像が添付されている場合、統合分析を実行
@@ -2195,6 +2276,10 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     setEntryPrice('');
     setEntryQuantity('');
     setEntryPositionType('long');
+    setEntryChartPattern('');
+    setShowChartPatternSelect(false);
+    setEntryMemo('');
+    setShowMemoTextarea(false);
     
     // モーダル用画像状態をクリア
     if (entryImagePreview) {
@@ -2306,6 +2391,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // 1. EXIT メッセージをチャットAPIに送信
     try {
       const apiUrl = getApiUrl();
+      const memoValue = exitMemo.trim();
+      const exitNote = memoValue.length > 0 ? memoValue : null;
       const exitMessage = {
         type: "EXIT",
         author_id: "user-1",
@@ -2313,7 +2400,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           tradeId: crypto.randomUUID(), // TODO: 実際のtradeIdを使用
           exitPrice: price,
           exitQty: qty,
-          note: exitNote || null,
+          note: exitNote,
           executedAt: new Date().toISOString()
         }
       };
@@ -2337,13 +2424,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         console.error('Failed to create EXIT message:', response.statusText);
         // フォールバックで既存のメッセージ形式を使用
         const localId = crypto.randomUUID();
+        const fallbackMemoLine = exitMemo.trim().length > 0 ? `<br/>メモ: ${exitMemo.trim().replace(/\n/g, '<br/>')}` : '';
         setMessages(prev => [
           ...prev,
           {
             id: localId,
             type: 'user' as const,
             isTradeAction: true,
-            content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`,
+            content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${fallbackMemoLine}`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           }
         ]);
@@ -2366,13 +2454,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       console.error('Error creating EXIT message:', error);
       // フォールバックで既存のメッセージ形式を使用
       const localId = crypto.randomUUID();
+      const fallbackMemoLine = exitMemo.trim().length > 0 ? `<br/>メモ: ${exitMemo.trim().replace(/\n/g, '<br/>')}` : '';
       setMessages(prev => [
         ...prev,
         {
           id: localId,
           type: 'user' as const,
           isTradeAction: true,
-          content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`,
+          content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${fallbackMemoLine}`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         }
       ]);
@@ -2461,6 +2550,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     setExitPrice('');
     setExitQuantity('');
     setExitChatId('');
+    setExitMemo('');
+    setShowExitMemo(false);
     
     // モーダル用画像状態をクリア
     if (exitImagePreview) {
@@ -2918,52 +3009,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
               <Label className="text-sm text-[#374151] font-medium">AI分析（任意）</Label>
             </div>
             
-            {/* 説明文 */}
-            <div className="bg-[#F6FBFF] px-4 py-3 rounded-lg mb-4">
-              <p className="text-sm text-[#374151]">
-                AIがエントリーの判断を評価し、改善のヒントをお届けします✨
-              </p>
-            </div>
-            
-            <div className="space-y-3">
-              {/* アップロード領域 */}
-              <label
-                className="w-full rounded-xl border p-3 flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#9CA3AF] transition-colors"
-                style={{height: '72px'}}
-                data-testid="chart-upload"
-              >
-                <Upload className="w-5 h-5 text-[#9CA3AF]" />
-                <span className="text-sm text-[#9CA3AF]">
-                  チャート画像をアップロード
-                </span>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    
-                    const validation = validateImage(file);
-                    if (!validation.ok) {
-                      setImageError(validation.message || '');
-                      return;
-                    }
-                    
-                    setImageError('');
-                    setEntryImageFile(file);
-                    
-                    // 既存のプレビューURLをクリーンアップ
-                    if (entryImagePreview) {
-                      revokePreviewURL(entryImagePreview);
-                    }
-                    
-                    const previewUrl = makePreviewURL(file);
-                    setEntryImagePreview(previewUrl);
-                  }}
-                />
-              </label>
-              
+            <div className="space-y-3" data-testid="entry-ai-upload">
+              <ChartImageUploader
+                value={entryImageFile}
+                onChange={handleEntryImageChange}
+                onError={handleEntryImageError}
+                showPreview={false}
+              />
+
               {/* プレビュー表示 */}
               {entryImagePreview && (
                 <div className="relative inline-block">
@@ -2990,18 +3043,109 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 </div>
               )}
               
-              {/* エラーメッセージ */}
-              {imageError && (
-                <div className="text-red-600 text-xs" role="alert">
-                  {imageError}
-                </div>
-              )}
-              
-              {/* ヘルプテキスト */}
-              <div className="text-xs text-[#6B7280]">
-                対応形式：png / jpeg・最大10MB
-              </div>
+              {/* エラーメッセージはアップローダー内で表示 */}
             </div>
+          </div>
+          <div className="w-full space-y-2">
+            {showChartPatternSelect ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-[#374151] font-medium">チャートパターン</Label>
+                    <span className="text-xs text-gray-400">任意</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-sm text-gray-500 ml-2 cursor-pointer"
+                    data-testid="close-chartpattern"
+                    onClick={() => setShowChartPatternSelect(false)}
+                  >
+                    閉じる
+                  </button>
+                </div>
+                <Select
+                  value={entryChartPattern || undefined}
+                  onValueChange={(value) => setEntryChartPattern(value as ChartPattern)}
+                >
+                  <SelectTrigger
+                    className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB]"
+                    data-testid="chartpattern-select"
+                    name="chartPattern"
+                  >
+                    <SelectValue placeholder="パターンを選択" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[10000] bg-white border border-gray-200 shadow-lg">
+                    {CHART_PATTERNS.map((pattern) => (
+                      <SelectItem key={pattern.value} value={pattern.value}>
+                        {pattern.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                  data-testid="add-chartpattern"
+                  onClick={() => setShowChartPatternSelect(true)}
+                >
+                  ＋ チャートパターンを追加
+                </button>
+                {entryChartPattern && (
+                  <span className="text-xs text-gray-500">
+                    選択中: {CHART_PATTERN_LABEL_MAP[entryChartPattern]}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="w-full space-y-2">
+            {showMemoTextarea ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-[#374151] font-medium">メモ</Label>
+                    <span className="text-xs text-gray-400">任意</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-sm text-gray-500 ml-2 cursor-pointer"
+                    data-testid="close-memo"
+                    onClick={() => setShowMemoTextarea(false)}
+                  >
+                    閉じる
+                  </button>
+                </div>
+                <textarea
+                  className="w-full rounded-lg border border-[#D1D5DB] focus:border-[#2563EB] p-3 resize-y min-h-[96px]"
+                  placeholder="エントリー理由や感情を入力"
+                  value={entryMemo}
+                  onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setEntryMemo(event.target.value)}
+                  name="memo"
+                  maxLength={500}
+                  data-testid="memo-textarea"
+                />
+                <div className="text-xs text-[#6B7280] text-right">最大500文字</div>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                  data-testid="add-memo"
+                  onClick={() => setShowMemoTextarea(true)}
+                >
+                  ＋ メモを追加
+                </button>
+                {entryMemo.trim().length > 0 && (
+                  <span className="text-xs text-gray-500">
+                    下書きあり
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex justify-end items-center mt-6">
             <div className="flex gap-3">
@@ -3029,12 +3173,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       <ModalBase
         isOpen={isExitModalOpen}
         onClose={() => {
-          if (exitImagePreview) {
+        if (exitImagePreview) {
             revokePreviewURL(exitImagePreview);
           }
           setExitImageFile(null);
           setExitImagePreview('');
           setImageError('');
+          setExitMemo('');
+          setShowExitMemo(false);
           setIsExitModalOpen(false);
           clearEditMode();
         }}
@@ -3145,6 +3291,51 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 対応形式：png / jpeg・最大10MB
               </div>
             </div>
+          </div>
+          <div className="w-full space-y-3">
+            {showExitMemo ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-[#374151] font-medium">メモ</Label>
+                    <span className="text-xs text-gray-400">任意</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-sm text-gray-500 ml-2 cursor-pointer"
+                    data-testid="settle-close-memo"
+                    onClick={() => setShowExitMemo(false)}
+                  >
+                    閉じる
+                  </button>
+                </div>
+                <textarea
+                  ref={exitMemoRef}
+                  className="w-full rounded-lg border border-[#D1D5DB] focus:border-[#2563EB] p-3 resize-y min-h-[96px]"
+                  placeholder="エントリー/クローズ理由や感情を入力"
+                  value={exitMemo}
+                  onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setExitMemo(event.target.value)}
+                  name="memo"
+                  maxLength={1000}
+                  data-testid="settle-memo-textarea"
+                />
+                <div className="text-xs text-gray-400 mt-1 text-right">最大1000文字</div>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                  data-testid="settle-add-memo"
+                  onClick={() => setShowExitMemo(true)}
+                >
+                  ＋ メモを追加
+                </button>
+                {exitMemo.trim().length > 0 && (
+                  <span className="text-xs text-gray-500">下書きあり</span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-3 mt-6">
             <Button

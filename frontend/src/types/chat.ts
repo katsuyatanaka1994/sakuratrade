@@ -8,6 +8,13 @@ export type BaseMessage = {
   updatedAt?: string;
 };
 
+export type ChartPattern =
+  | 'pullback-buy'
+  | 'retest-short'
+  | 'breakout'
+  | 'double-bottom'
+  | 'trend-follow';
+
 export type EntryPayload = {
   symbolCode: string;
   symbolName: string;
@@ -17,6 +24,7 @@ export type EntryPayload = {
   note?: string;
   executedAt?: string;
   tradeId: string;
+  chartPattern?: ChartPattern;
 };
 
 export type ExitPayload = {

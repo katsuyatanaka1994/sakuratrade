@@ -12,6 +12,7 @@ class EntryPayload(BaseModel):
     note: Optional[str] = None
     executedAt: Optional[str] = None
     tradeId: str
+    chartPattern: Optional[Literal['pullback-buy', 'retest-short', 'breakout', 'double-bottom', 'trend-follow']] = None
 
 
 class ExitPayload(BaseModel):

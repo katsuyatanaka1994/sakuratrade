@@ -1,4 +1,5 @@
-import { ChatMessage, LegacyMessage } from '../types/chat';
+import { ChatMessage, LegacyMessage, type ChartPattern } from '../types/chat';
+import { CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
 
 // Trade.tsx の既存Message型
 interface TradeMessage {
@@ -46,8 +47,9 @@ export function convertChatMessageToTradeMessage(chatMessage: ChatMessage): Trad
       content = chatMessage.text;
       break;
     case 'ENTRY':
-      const { symbolCode, symbolName, side, price, qty, note } = chatMessage.payload;
-      content = `📈 建値入力しました！\n銘柄: ${symbolCode} ${symbolName}\nポジションタイプ: ${side === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}\n建値: ${price.toLocaleString()}円\n数量: ${qty}株${note ? `\nメモ: ${note}` : ''}`;
+      const { symbolCode, symbolName, side, price, qty, note, chartPattern } = chatMessage.payload;
+      const patternLabel = chartPattern ? CHART_PATTERN_LABEL_MAP[chartPattern as ChartPattern] : undefined;
+      content = `📈 建値入力しました！\n銘柄: ${symbolCode} ${symbolName}\nポジションタイプ: ${side === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}\n建値: ${price.toLocaleString()}円\n数量: ${qty}株${patternLabel ? `\nチャートパターン: ${patternLabel}` : ''}${note ? `\nメモ: ${note}` : ''}`;
       break;
     case 'EXIT':
       const { tradeId, exitPrice, exitQty, note: exitNote } = chatMessage.payload;
