@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { 
   Upload, 
@@ -19,6 +19,7 @@ import ImageModal from './ImageModal';
 import RightPanePositions from './positions/RightPanePositions';
 import AutocompleteSymbol from './AutocompleteSymbol';
 import ChartImageUploader from './ChartImageUploader';
+import EntryMessageActions from './EntryMessageActions';
 import { getLatestSymbolFromChat, loadSymbols } from '../utils/symbols';
 import type { ChatMsg } from '../utils/symbols';
 import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
@@ -104,6 +105,14 @@ interface Message {
   content: string;
   timestamp: string;
   isTradeAction?: boolean; // 取引アクション（建値入力・決済）メッセージかどうか
+  entryPermissions?: {
+    canEdit?: boolean;
+    canDelete?: boolean;
+    reasons?: {
+      edit?: string;
+      delete?: string;
+    } | string;
+  };
 }
 
 // Chat interface for chat management
@@ -126,19 +135,35 @@ interface ChatImage {
 
 // Feature flag: allow editing from chat bubbles (ENTRY/EXIT/TEXT)
 const ENABLE_CHAT_BUBBLE_EDIT = true;
+const ENTRY_ACTION_DISABLED_REASON = '決済済みのため操作できません';
 
 // MessageBubble Component with improved style & timestamp below bubble
-const MessageBubble: React.FC<{ 
-  message: Message; 
+const MessageBubble: React.FC<{
+  message: Message;
   onImageClick?: (imageUrl: string) => void;
   isHighlighted?: boolean;
   onMessageEdit?: (message: Message) => void;
   onMessageUndo?: (message: Message) => void;
   isEntrySettled?: (message: Message) => boolean;
-}> = ({ message, onImageClick, isHighlighted, onMessageEdit, onMessageUndo, isEntrySettled }) => {
+  entryCanEdit?: boolean;
+  entryCanDelete?: boolean;
+  entryDisabledReason?: string | { edit?: string; delete?: string };
+  onEntryDelete?: (message: Message) => void;
+}> = ({
+  message,
+  onImageClick,
+  isHighlighted,
+  onMessageEdit,
+  onMessageUndo,
+  isEntrySettled,
+  entryCanEdit,
+  entryCanDelete,
+  entryDisabledReason,
+  onEntryDelete,
+}) => {
   const isUser = message.type === 'user';
   const messageRef = React.useRef<HTMLDivElement>(null);
-  const [showEditIcon, setShowEditIcon] = React.useState(false);
+  const [showHoverActions, setShowHoverActions] = React.useState(false);
 
   // 編集対象: ユーザーが自由入力したメッセージのみ
   // 非対象: 取引アクション（ENTRY/EXIT）やユーザー通知（建値更新など）
@@ -157,26 +182,48 @@ const MessageBubble: React.FC<{
     try {
       const ts = new Date(message.timestamp).getTime();
       if (!isFinite(ts)) return true; // fallback: show when timestamp unparsable
-      return (Date.now() - ts) <= 30 * 60 * 1000;
+      return Date.now() - ts <= 30 * 60 * 1000;
     } catch {
       return true;
     }
   })();
   const canShowUndo = isExitBubble && canUndoWindow;
-  
+
+  const isEntryMessage = Boolean(
+    isTradeAction &&
+      typeof message.content === 'string' &&
+      message.content.includes('建値入力しました')
+  );
+
+  const resolvedEntryActions = React.useMemo(() => {
+    if (!isEntryMessage) return null;
+    const settled = isEntrySettled?.(message) ?? false;
+    const canEditFinal = entryCanEdit ?? !settled;
+    const canDeleteFinal = entryCanDelete ?? !settled;
+    const reasons = entryDisabledReason ?? (settled ? { edit: ENTRY_ACTION_DISABLED_REASON, delete: ENTRY_ACTION_DISABLED_REASON } : undefined);
+
+    return {
+      canEdit: canEditFinal,
+      canDelete: canDeleteFinal,
+      reasons,
+    };
+  }, [isEntryMessage, isEntrySettled, message, entryCanEdit, entryCanDelete, entryDisabledReason]);
+
+  const shouldDisplayEntryActions = Boolean(resolvedEntryActions);
+
   // メッセージがレンダリングされた後、画像にクリックイベントを追加
   React.useEffect(() => {
     if (messageRef.current && onImageClick) {
       const images = messageRef.current.querySelectorAll('img[data-image-url]');
       const overlays = messageRef.current.querySelectorAll('.image-overlay');
-      
+
       const handleClick = (event: Event) => {
         event.preventDefault();
         event.stopPropagation();
-        
+
         let imageUrl = null;
         const target = event.target as HTMLElement;
-        
+
         // 画像が直接クリックされた場合
         if (target.tagName === 'IMG') {
           imageUrl = (target as HTMLImageElement).getAttribute('data-image-url');
@@ -191,7 +238,7 @@ const MessageBubble: React.FC<{
             }
           }
         }
-        
+
         if (imageUrl) {
           console.log('画像クリック:', imageUrl);
           onImageClick(imageUrl);
@@ -202,7 +249,7 @@ const MessageBubble: React.FC<{
       images.forEach((img) => {
         img.addEventListener('click', handleClick);
       });
-      
+
       overlays.forEach((overlay) => {
         overlay.addEventListener('click', handleClick);
       });
@@ -219,35 +266,52 @@ const MessageBubble: React.FC<{
     }
   }, [message.content, onImageClick]);
 
+  const handleMouseEnter = () => {
+    if (!ENABLE_CHAT_BUBBLE_EDIT) return;
+    if (isEligibleForEdit || canShowUndo || shouldDisplayEntryActions) {
+      setShowHoverActions(true);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (!ENABLE_CHAT_BUBBLE_EDIT) return;
+    setShowHoverActions(false);
+  };
+
   return (
     <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} mb-4`}>
       <div
         className={`relative max-w-[75%] ${isUser ? 'ml-auto' : 'mr-auto'}`}
-        onMouseEnter={() => {
-          if (!ENABLE_CHAT_BUBBLE_EDIT) return;
-          if (isEligibleForEdit || canShowUndo) setShowEditIcon(true);
-        }}
-        onMouseLeave={() => {
-          if (!ENABLE_CHAT_BUBBLE_EDIT) return;
-          setShowEditIcon(false);
-        }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         <div
           ref={messageRef}
           data-message-id={message.id}
           data-testid={(message as any)['data-testid'] || (message.type === 'bot' ? 'bot-message' : 'user-message')}
           className={`relative w-full px-4 py-3 rounded-2xl text-[13px] leading-relaxed shadow transition-all duration-300 ${
-            isHighlighted 
-              ? 'ring-2 ring-yellow-400 bg-yellow-50' 
+            isHighlighted
+              ? 'ring-2 ring-yellow-400 bg-yellow-50'
               : isUser
                 ? 'bg-blue-100 text-[#1E3A8A]'
                 : 'bg-white border border-[#E5E7EB] text-[#111827]'
           }`}
         >
           <span dangerouslySetInnerHTML={{ __html: message.content }} />
-          
+
+          {shouldDisplayEntryActions && (
+            <EntryMessageActions
+              canEdit={resolvedEntryActions!.canEdit}
+              canDelete={resolvedEntryActions!.canDelete}
+              disabledReason={resolvedEntryActions!.reasons}
+              isVisible={showHoverActions}
+              onEdit={() => onMessageEdit?.(message)}
+              onDelete={() => onEntryDelete?.(message)}
+            />
+          )}
+
           {/* Action Icons */}
-          {(showEditIcon && (isEligibleForEdit || canShowUndo)) && (
+          {showHoverActions && (isEligibleForEdit || canShowUndo) && (
             <div className="absolute bottom-1 right-1 flex gap-1">
               {/* Edit Icon */}
               {isEligibleForEdit && (
@@ -279,7 +343,7 @@ const MessageBubble: React.FC<{
           )}
         </div>
       </div>
-      
+
       {/* Timestamp positioned below bubble - isolated from edit icon */}
       <span className={`mt-1 text-[10px] text-gray-400 ${isUser ? 'self-end' : 'self-start'}`}>
         {message.timestamp}
@@ -294,7 +358,8 @@ const PrimaryButton: React.FC<{
   onClick?: () => void;
   className?: string;
   variant?: 'primary' | 'danger';
-}> = ({ children, onClick, className = '', variant = 'primary' }) => {
+  disabled?: boolean;
+}> = ({ children, onClick, className = '', variant = 'primary', disabled = false }) => {
   const baseClass = "h-12 px-6 rounded-lg text-white font-medium transition-colors";
   const variantClass = variant === 'primary' 
     ? 'bg-[#3B82F6] hover:bg-[#2563EB]' 
@@ -303,7 +368,8 @@ const PrimaryButton: React.FC<{
   return (
     <Button 
       onClick={onClick}
-      className={`${baseClass} ${variantClass} ${className}`}
+      disabled={disabled}
+      className={`${baseClass} ${variantClass} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
     >
       {children}
     </Button>
@@ -452,6 +518,15 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
   // Edit mode tracking for modals
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [entryDeleteState, setEntryDeleteState] = useState<{ isOpen: boolean; target?: Message }>({ isOpen: false });
+  const [isDeletingEntry, setIsDeletingEntry] = useState(false);
+  const entryDeletePreview = useMemo(() => {
+    if (!entryDeleteState.target) return '';
+    return entryDeleteState.target.content
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .trim();
+  }, [entryDeleteState]);
 
   // Message editing handlers
   const handleMessageEdit = (message: Message) => {
@@ -576,6 +651,42 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     
     // Open modal last
     setIsEntryModalOpen(true);
+  };
+
+  const handleEntryDeleteRequest = (message: Message) => {
+    if (!message.content.includes('建値入力しました')) {
+      return;
+    }
+    setEntryDeleteState({ isOpen: true, target: message });
+  };
+
+  const handleConfirmEntryDelete = async () => {
+    if (!entryDeleteState.target) return;
+    const target = entryDeleteState.target;
+
+    setIsDeletingEntry(true);
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/chats/default-chat-123/messages/${target.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete entry message: ${response.status}`);
+      }
+
+      setMessages(prev => prev.filter(msg => msg.id !== target.id));
+      setEntryDeleteState({ isOpen: false });
+      showToast('success', '建値メッセージを削除しました');
+    } catch (error) {
+      console.error('Failed to delete entry message:', error);
+      showToast('error', '建値メッセージの削除に失敗しました', '時間をおいて再度お試しください');
+    } finally {
+      setIsDeletingEntry(false);
+    }
   };
 
   const handleExitEdit = (message: Message) => {
@@ -2729,17 +2840,51 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                     </div>
                   )}
                   {/* Messages Display */}
-                  {messages.map((message) => (
-                    <MessageBubble
-                      key={message.id}
-                      message={message}
-                      onImageClick={handleImageClick}
-                      isHighlighted={highlightedMessageId === message.id}
-                      onMessageEdit={ENABLE_CHAT_BUBBLE_EDIT ? handleMessageEdit : undefined}
-                      isEntrySettled={isEntrySettled}
-                      onMessageUndo={ENABLE_CHAT_BUBBLE_EDIT ? handleMessageUndo : undefined}
-                    />
-                  ))}
+                  {messages.map((message) => {
+                    const isEntryMessage = Boolean(
+                      message.isTradeAction &&
+                      typeof message.content === 'string' &&
+                      message.content.includes('建値入力しました')
+                    );
+
+                    let entryActionProps: {
+                      canEdit: boolean;
+                      canDelete: boolean;
+                      reason?: string | { edit?: string; delete?: string };
+                    } | undefined;
+
+                    if (isEntryMessage) {
+                      const explicit = message.entryPermissions;
+                      const settled = isEntrySettled(message);
+                      const canEdit = explicit?.canEdit ?? !settled;
+                      const canDelete = explicit?.canDelete ?? !settled;
+                      const reason = explicit?.reasons ?? (settled
+                        ? { edit: ENTRY_ACTION_DISABLED_REASON, delete: ENTRY_ACTION_DISABLED_REASON }
+                        : undefined);
+
+                      entryActionProps = {
+                        canEdit,
+                        canDelete,
+                        reason,
+                      };
+                    }
+
+                    return (
+                      <MessageBubble
+                        key={message.id}
+                        message={message}
+                        onImageClick={handleImageClick}
+                        isHighlighted={highlightedMessageId === message.id}
+                        onMessageEdit={ENABLE_CHAT_BUBBLE_EDIT ? handleMessageEdit : undefined}
+                        isEntrySettled={isEntrySettled}
+                        onMessageUndo={ENABLE_CHAT_BUBBLE_EDIT ? handleMessageUndo : undefined}
+                        entryCanEdit={entryActionProps?.canEdit}
+                        entryCanDelete={entryActionProps?.canDelete}
+                        entryDisabledReason={entryActionProps?.reason}
+                        onEntryDelete={ENABLE_CHAT_BUBBLE_EDIT ? handleEntryDeleteRequest : undefined}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -3165,6 +3310,47 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 {isAnalyzing ? '🔄 分析中...' : '送信'}
               </PrimaryButton>
             </div>
+          </div>
+        </div>
+      </ModalBase>
+
+      {/* Delete Entry Modal */}
+      <ModalBase
+        isOpen={entryDeleteState.isOpen}
+        onClose={() => {
+          if (isDeletingEntry) return;
+          setEntryDeleteState({ isOpen: false });
+        }}
+        title="建値メッセージを削除"
+      >
+        <div className="mt-4 space-y-4">
+          <div className="text-sm text-gray-600">
+            この建値メッセージを削除すると、チャットから完全に削除されます。よろしいですか？
+          </div>
+          {entryDeletePreview && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap">
+              {entryDeletePreview}
+            </div>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (isDeletingEntry) return;
+                setEntryDeleteState({ isOpen: false });
+              }}
+              disabled={isDeletingEntry}
+              className="text-[#6B7280] hover:text-[#374151]"
+            >
+              キャンセル
+            </Button>
+            <PrimaryButton
+              onClick={handleConfirmEntryDelete}
+              variant="danger"
+              disabled={isDeletingEntry}
+            >
+              {isDeletingEntry ? '削除中...' : '削除する'}
+            </PrimaryButton>
           </div>
         </div>
       </ModalBase>
