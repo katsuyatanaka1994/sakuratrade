@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from './UI/button';
 import { Input } from './UI/input';
 import { DateRangeOverlay } from './DateRangeOverlay';
-import { TradeFilterRuntime, TradeType, DateRange } from '../types/trades';
+import type { TradeFilterRuntime, TradeType, DateRange } from '../types/trades';
 
 interface FilterDialogProps {
   open: boolean;

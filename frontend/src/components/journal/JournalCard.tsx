@@ -1,6 +1,6 @@
 import React from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
-import { JournalEntry } from '../../services/journal';
+import type { JournalEntry } from '../../services/journal';
 import { useSymbolSuggest } from '../../hooks/useSymbolSuggest';
 
 interface JournalCardProps {

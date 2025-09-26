@@ -1,11 +1,27 @@
-import React, { useState, useCallback } from 'react';
-import { ChatMessage, LegacyMessage, EntryPayload, ExitPayload } from '../types/chat';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import type { ChatMessage, LegacyMessage, EntryPayload, ExitPayload } from '../types/chat';
 import { updateChatMessage, undoChatMessage, generateAIReply } from '../services/api';
 import { canUndoMessage } from '../utils/messageUtils';
 import MessageItem from './MessageItem';
 import EditEntryModal from './EditEntryModal';
 import EditExitModal from './EditExitModal';
 import ChatInputCard from './ChatInputCard';
+import { showToast } from './UI/Toast';
+import { recordEntryEdited } from '../lib/auditLogger';
+import type { EntryAuditSnapshot } from '../lib/auditLogger';
+
+const cloneChatMessage = (message: ChatMessage): ChatMessage => {
+  switch (message.type) {
+    case 'TEXT':
+      return { ...message };
+    case 'ENTRY':
+      return { ...message, payload: { ...message.payload } };
+    case 'EXIT':
+      return { ...message, payload: { ...message.payload } };
+    default:
+      return { ...message };
+  }
+};
 
 interface MessageEditIntegrationProps {
   messages: (ChatMessage | LegacyMessage)[];
@@ -20,6 +36,25 @@ interface MessageEditIntegrationProps {
   onMessagesUpdate?: (messages: (ChatMessage | LegacyMessage)[]) => void;
 }
 
+const sanitizeNote = (note?: string) => (note ? note.slice(0, 120) : undefined);
+
+const createEntrySnapshotFromMessage = (message: ChatMessage | null | undefined): EntryAuditSnapshot | null => {
+  if (!message || message.type !== 'ENTRY') {
+    return null;
+  }
+
+  const { payload } = message;
+  return {
+    symbolCode: payload.symbolCode,
+    side: payload.side,
+    price: payload.price,
+    qty: payload.qty,
+    note: sanitizeNote(payload.note),
+    tradeId: payload.tradeId,
+    chartPattern: payload.chartPattern,
+  };
+};
+
 const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
   messages,
   currentUserId = 'user', // Default user ID for now
@@ -32,6 +67,146 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
   isLoading = false,
   onMessagesUpdate
 }) => {
+  const latestMessagesRef = useRef(messages);
+  useEffect(() => {
+    latestMessagesRef.current = messages;
+  }, [messages]);
+
+  const messageSnapshots = useRef(new Map<string, ChatMessage>());
+  const [pendingMessageIds, setPendingMessageIds] = useState<Set<string>>(new Set());
+
+  const addPendingMessage = useCallback((messageId: string) => {
+    setPendingMessageIds(prev => {
+      if (prev.has(messageId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.add(messageId);
+      return next;
+    });
+  }, []);
+
+  const removePendingMessage = useCallback((messageId: string) => {
+    setPendingMessageIds(prev => {
+      if (!prev.has(messageId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(messageId);
+      return next;
+    });
+  }, []);
+
+  const applyOptimisticUpdate = useCallback(
+    (messageId: string, updater: (message: ChatMessage) => ChatMessage | null) => {
+      if (!onMessagesUpdate) {
+        return null;
+      }
+
+      const currentMessages = latestMessagesRef.current;
+      const index = currentMessages.findIndex(msg => msg.id === messageId);
+      if (index === -1) {
+        return null;
+      }
+
+      const target = currentMessages[index];
+      if ('content' in target) {
+        return null;
+      }
+
+      const snapshot = cloneChatMessage(target as ChatMessage);
+      const optimisticBase = cloneChatMessage(target as ChatMessage);
+      const optimisticMessage = updater(optimisticBase);
+      if (!optimisticMessage) {
+        return null;
+      }
+
+      const nextMessages = [...currentMessages];
+      nextMessages[index] = optimisticMessage;
+      messageSnapshots.current.set(messageId, snapshot);
+      addPendingMessage(messageId);
+      onMessagesUpdate(nextMessages);
+      return { snapshot, optimisticMessage };
+    },
+    [addPendingMessage, onMessagesUpdate]
+  );
+
+  const finalizeMessageUpdate = useCallback(
+    (messageId: string, updatedMessage: ChatMessage) => {
+      const cloned = cloneChatMessage(updatedMessage);
+
+      if (!onMessagesUpdate) {
+        messageSnapshots.current.delete(messageId);
+        removePendingMessage(messageId);
+        return;
+      }
+
+      const currentMessages = latestMessagesRef.current;
+      const index = currentMessages.findIndex(msg => msg.id === messageId);
+      if (index === -1) {
+        messageSnapshots.current.delete(messageId);
+        removePendingMessage(messageId);
+        return;
+      }
+
+      const nextMessages = [...currentMessages];
+      nextMessages[index] = cloned;
+      onMessagesUpdate(nextMessages);
+      messageSnapshots.current.delete(messageId);
+      removePendingMessage(messageId);
+    },
+    [onMessagesUpdate, removePendingMessage]
+  );
+
+  useEffect(() => {
+    setPendingMessageIds((prev) => {
+      if (prev.size === 0) {
+        return prev;
+      }
+      const existingIds = new Set(messages.map(msg => msg.id));
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (existingIds.has(id)) {
+          next.add(id);
+        } else {
+          messageSnapshots.current.delete(id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [messages]);
+
+  const revertOptimisticUpdate = useCallback(
+    (messageId: string) => {
+      const snapshot = messageSnapshots.current.get(messageId);
+
+      if (!onMessagesUpdate || !snapshot) {
+        if (snapshot) {
+          messageSnapshots.current.delete(messageId);
+        }
+        removePendingMessage(messageId);
+        return;
+      }
+
+      const currentMessages = latestMessagesRef.current;
+      const index = currentMessages.findIndex(msg => msg.id === messageId);
+      if (index === -1) {
+        messageSnapshots.current.delete(messageId);
+        removePendingMessage(messageId);
+        return;
+      }
+
+      const restored = cloneChatMessage(snapshot);
+      const nextMessages = [...currentMessages];
+      nextMessages[index] = restored;
+      onMessagesUpdate(nextMessages);
+      messageSnapshots.current.delete(messageId);
+      removePendingMessage(messageId);
+    },
+    [onMessagesUpdate, removePendingMessage]
+  );
   // Edit modal states
   const [editEntryModal, setEditEntryModal] = useState<{
     isOpen: boolean;
@@ -101,127 +276,221 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
 
   const handleTextMessageSubmit = useCallback(async (text: string) => {
     if (!editingTextMessage) {
-      // Regular message submission
       onMessageSubmit(text);
       return;
     }
 
+    const messageId = editingTextMessage.messageId;
+    const optimisticUpdatedAt = new Date().toISOString();
+    const optimisticResult = applyOptimisticUpdate(messageId, (message) => ({
+      ...message,
+      text,
+      updatedAt: optimisticUpdatedAt,
+    }));
+
     try {
       setIsUpdating(true);
-      
-      // Update the message
-      await updateChatMessage(editingTextMessage.messageId, {
+
+      const updated = await updateChatMessage(messageId, {
         type: 'TEXT',
-        text: text
+        text,
       });
-      
-      // Update local message list
-      if (onMessagesUpdate) {
-        const updatedMessages = messages.map(msg => {
-          if (msg.id === editingTextMessage.messageId) {
-            if ('content' in msg) {
-              // Legacy message
-              return { ...msg, content: text };
-            } else {
-              // ChatMessage
-              return { ...msg, text: text, updatedAt: new Date().toISOString() };
-            }
-          }
-          return msg;
-        });
-        onMessagesUpdate(updatedMessages);
+
+      let finalMessage: ChatMessage;
+      if (updated.type === 'TEXT') {
+        finalMessage = {
+          ...updated,
+          updatedAt: updated.updatedAt ?? optimisticUpdatedAt,
+        };
+      } else {
+        const base = optimisticResult?.optimisticMessage ?? cloneChatMessage(updated as ChatMessage);
+        finalMessage = {
+          ...base,
+          text,
+          updatedAt: (updated as ChatMessage).updatedAt ?? optimisticUpdatedAt,
+        };
       }
-      
-      // Clear edit mode
+
+      finalizeMessageUpdate(messageId, finalMessage);
+
       setEditingTextMessage(null);
       onChatInputChange('');
-      
-      // Generate AI reply after update
+
       if (chatId) {
         try {
-          await generateAIReply(chatId, editingTextMessage.messageId);
+          await generateAIReply(chatId, messageId);
         } catch (error) {
           console.error('Failed to generate AI reply:', error);
         }
       }
-      
     } catch (error) {
+      revertOptimisticUpdate(messageId);
+      const errorMessage = error instanceof Error ? error.message : 'メッセージの更新に失敗しました';
+      if (/409/.test(errorMessage) || /conflict/i.test(errorMessage)) {
+        showToast.warning('他のユーザーが先に更新しました。最新の内容を確認してください。');
+      } else {
+        showToast.error('メッセージの更新に失敗しました', { description: errorMessage });
+      }
+      onChatInputChange(editingTextMessage.originalText);
       console.error('Failed to update text message:', error);
-      // Handle error - could show toast notification
     } finally {
       setIsUpdating(false);
     }
-  }, [editingTextMessage, messages, onMessagesUpdate, onMessageSubmit, onChatInputChange]);
+  }, [
+    editingTextMessage,
+    applyOptimisticUpdate,
+    finalizeMessageUpdate,
+    revertOptimisticUpdate,
+    onMessageSubmit,
+    onChatInputChange,
+    chatId,
+  ]);
 
-  const handleEntryModalSave = useCallback(async (data: EntryPayload) => {
+  const handleEntryModalSave = useCallback(async (
+    data: EntryPayload,
+    context?: { regenerateEnabled: boolean; planRegenerated: boolean }
+  ) => {
     if (!editEntryModal.messageId) return;
 
+    const messageId = editEntryModal.messageId;
+    const optimisticUpdatedAt = new Date().toISOString();
+    const optimisticResult = applyOptimisticUpdate(messageId, (message) => ({
+      ...message,
+      payload: { ...data },
+      updatedAt: optimisticUpdatedAt,
+    }));
+
     try {
-      await updateChatMessage(editEntryModal.messageId, {
+      setIsUpdating(true);
+
+      const updated = await updateChatMessage(messageId, {
         type: 'ENTRY',
-        payload: data
+        payload: data,
       });
-      
-      // Update local message list
-      if (onMessagesUpdate) {
-        const updatedMessages = messages.map(msg => {
-          if (msg.id === editEntryModal.messageId && !('content' in msg)) {
-            return { ...msg, payload: data, updatedAt: new Date().toISOString() };
-          }
-          return msg;
-        });
-        onMessagesUpdate(updatedMessages);
+
+      let finalMessage: ChatMessage;
+      if (updated.type === 'ENTRY') {
+        finalMessage = {
+          ...updated,
+          updatedAt: updated.updatedAt ?? optimisticUpdatedAt,
+        };
+      } else {
+        const base = optimisticResult?.optimisticMessage ?? cloneChatMessage(updated as ChatMessage);
+        finalMessage = {
+          ...base,
+          payload: { ...data },
+          updatedAt: (updated as ChatMessage).updatedAt ?? optimisticUpdatedAt,
+        };
       }
-      
-      // Generate AI reply after update
+
+      finalizeMessageUpdate(messageId, finalMessage);
+
       if (chatId) {
         try {
-          await generateAIReply(chatId, editEntryModal.messageId);
+          await generateAIReply(chatId, messageId);
         } catch (error) {
           console.error('Failed to generate AI reply:', error);
         }
       }
-      
+
+      const beforeSnapshot = optimisticResult?.snapshot
+        ? createEntrySnapshotFromMessage(optimisticResult.snapshot)
+        : createEntrySnapshotFromMessage(latestMessagesRef.current.find(msg => msg.id === messageId) as ChatMessage | undefined);
+      const afterSnapshot = createEntrySnapshotFromMessage(finalMessage);
+
+      recordEntryEdited({
+        entryId: messageId,
+        before: beforeSnapshot,
+        after: afterSnapshot,
+        actorId: currentUserId,
+        timestamp: finalMessage.updatedAt ?? new Date().toISOString(),
+        regenerateFlag: !!(context?.regenerateEnabled && context?.planRegenerated),
+      });
     } catch (error) {
+      revertOptimisticUpdate(messageId);
+      const errorMessage = error instanceof Error ? error.message : '建値メッセージの更新に失敗しました';
+      if (/409/.test(errorMessage) || /conflict/i.test(errorMessage)) {
+        showToast.warning('他のユーザーが先に建値を更新しました。最新の内容を再確認してください。');
+      } else {
+        showToast.error('建値メッセージの更新に失敗しました', { description: errorMessage });
+      }
       console.error('Failed to update entry message:', error);
-      throw error; // Re-throw to let modal handle the error
+      throw error;
+    } finally {
+      setIsUpdating(false);
     }
-  }, [editEntryModal.messageId, messages, onMessagesUpdate]);
+  }, [
+    editEntryModal.messageId,
+    applyOptimisticUpdate,
+    finalizeMessageUpdate,
+    revertOptimisticUpdate,
+    chatId,
+    currentUserId,
+  ]);
 
   const handleExitModalSave = useCallback(async (data: ExitPayload) => {
     if (!editExitModal.messageId) return;
 
+    const messageId = editExitModal.messageId;
+    const optimisticUpdatedAt = new Date().toISOString();
+    const optimisticResult = applyOptimisticUpdate(messageId, (message) => ({
+      ...message,
+      payload: { ...data },
+      updatedAt: optimisticUpdatedAt,
+    }));
+
     try {
-      await updateChatMessage(editExitModal.messageId, {
+      setIsUpdating(true);
+
+      const updated = await updateChatMessage(messageId, {
         type: 'EXIT',
-        payload: data
+        payload: data,
       });
-      
-      // Update local message list
-      if (onMessagesUpdate) {
-        const updatedMessages = messages.map(msg => {
-          if (msg.id === editExitModal.messageId && !('content' in msg)) {
-            return { ...msg, payload: data, updatedAt: new Date().toISOString() };
-          }
-          return msg;
-        });
-        onMessagesUpdate(updatedMessages);
+
+      let finalMessage: ChatMessage;
+      if (updated.type === 'EXIT') {
+        finalMessage = {
+          ...updated,
+          updatedAt: updated.updatedAt ?? optimisticUpdatedAt,
+        };
+      } else {
+        const base = optimisticResult?.optimisticMessage ?? cloneChatMessage(updated as ChatMessage);
+        finalMessage = {
+          ...base,
+          payload: { ...data },
+          updatedAt: (updated as ChatMessage).updatedAt ?? optimisticUpdatedAt,
+        };
       }
-      
-      // Generate AI reply after update
+
+      finalizeMessageUpdate(messageId, finalMessage);
+
       if (chatId) {
         try {
-          await generateAIReply(chatId, editExitModal.messageId);
+          await generateAIReply(chatId, messageId);
         } catch (error) {
           console.error('Failed to generate AI reply:', error);
         }
       }
-      
     } catch (error) {
+      revertOptimisticUpdate(messageId);
+      const errorMessage = error instanceof Error ? error.message : '決済メッセージの更新に失敗しました';
+      if (/409/.test(errorMessage) || /conflict/i.test(errorMessage)) {
+        showToast.warning('他のユーザーが先に決済内容を更新しました。最新の内容を再確認してください。');
+      } else {
+        showToast.error('決済メッセージの更新に失敗しました', { description: errorMessage });
+      }
       console.error('Failed to update exit message:', error);
-      throw error; // Re-throw to let modal handle the error
+      throw error;
+    } finally {
+      setIsUpdating(false);
     }
-  }, [editExitModal.messageId, messages, onMessagesUpdate, chatId]);
+  }, [
+    editExitModal.messageId,
+    applyOptimisticUpdate,
+    finalizeMessageUpdate,
+    revertOptimisticUpdate,
+    chatId,
+  ]);
 
   const handleMessageUndo = useCallback(async (message: ChatMessage | LegacyMessage) => {
     // Only allow undo for ChatMessage (not legacy) and EXIT type
@@ -238,14 +507,14 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
       
       // Remove message from local list
       if (onMessagesUpdate) {
-        const updatedMessages = messages.filter(msg => msg.id !== chatMessage.id);
+        const updatedMessages = latestMessagesRef.current.filter(msg => msg.id !== chatMessage.id);
         onMessagesUpdate(updatedMessages);
       }
       
       // Generate AI reply after undo
       if (chatId) {
         // Find the last user message to use as context for AI reply
-        const lastUserMessage = messages
+        const lastUserMessage = latestMessagesRef.current
           .filter(msg => {
             if ('content' in msg) return msg.type === 'user';
             return msg.authorId === currentUserId;
@@ -267,7 +536,7 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
     } finally {
       setIsUpdating(false);
     }
-  }, [messages, onMessagesUpdate, currentUserId, chatId]);
+  }, [onMessagesUpdate, currentUserId, chatId]);
 
   return (
     <div className="flex flex-col h-full">
@@ -282,6 +551,7 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
             onUndo={handleMessageUndo}
             onImageClick={onImageClick}
             canUndo={'content' in message ? false : canUndoMessage(message as ChatMessage)}
+            isSaving={pendingMessageIds.has(message.id)}
           />
         ))}
       </div>
@@ -309,6 +579,7 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
         initialData={editEntryModal.data}
         onSave={handleEntryModalSave}
         isLoading={isUpdating}
+        chatId={chatId}
       />
       
       <EditExitModal

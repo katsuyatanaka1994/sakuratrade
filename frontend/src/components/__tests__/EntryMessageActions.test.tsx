@@ -2,13 +2,14 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import userEvent from '@testing-library/user-event';
+import { vi } from 'vitest';
 import EntryMessageActions from '../EntryMessageActions';
 
 describe('EntryMessageActions', () => {
   test('renders active buttons when permitted', async () => {
     const user = userEvent.setup();
-    const handleEdit = jest.fn();
-    const handleDelete = jest.fn();
+    const handleEdit = vi.fn();
+    const handleDelete = vi.fn();
 
     render(
       <EntryMessageActions

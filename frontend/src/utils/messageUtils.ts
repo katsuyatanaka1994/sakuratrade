@@ -1,4 +1,4 @@
-import { ChatMessage } from '../types/chat';
+import type { ChatMessage } from '../types/chat';
 
 const UNDO_TIME_LIMIT_MINUTES = 30;
 

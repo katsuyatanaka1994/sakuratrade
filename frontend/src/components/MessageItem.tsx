@@ -1,6 +1,6 @@
 import React from 'react';
 import { Edit3, Undo2 } from 'lucide-react';
-import { ChatMessage, LegacyMessage } from '../types/chat';
+import type { ChatMessage, LegacyMessage } from '../types/chat';
 
 interface MessageItemProps {
   message: ChatMessage | LegacyMessage;
@@ -10,6 +10,7 @@ interface MessageItemProps {
   onImageClick?: (imageUrl: string) => void;
   isHighlighted?: boolean;
   canUndo?: boolean;
+  isSaving?: boolean;
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({ 
@@ -19,35 +20,45 @@ const MessageItem: React.FC<MessageItemProps> = ({
   onUndo,
   onImageClick,
   isHighlighted,
-  canUndo = false
+  canUndo = false,
+  isSaving = false
 }) => {
   const messageRef = React.useRef<HTMLDivElement>(null);
   
   // Legacy message compatibility
   const isLegacyMessage = 'type' in message && (message.type === 'user' || message.type === 'bot');
-  const isUser = isLegacyMessage ? 
-    (message as LegacyMessage).type === 'user' : 
-    (message as ChatMessage).authorId === currentUserId;
+  const chatMessage = isLegacyMessage ? null : (message as ChatMessage);
+  const isUser = isLegacyMessage
+    ? (message as LegacyMessage).type === 'user'
+    : chatMessage?.authorId === currentUserId;
   
   // Check if message is editable (only user's own messages)
-  const isEditable = isLegacyMessage ? 
-    (message as LegacyMessage).type === 'user' :
-    (message as ChatMessage).authorId === currentUserId;
+  const isEditable = isLegacyMessage
+    ? (message as LegacyMessage).type === 'user'
+    : chatMessage?.authorId === currentUserId;
+
+  // Consider a message edited only when updatedAt exists and changed from createdAt
+  const isEdited = Boolean(
+    chatMessage?.updatedAt && chatMessage.updatedAt !== chatMessage.createdAt
+  );
 
   const getMessageContent = () => {
     if (isLegacyMessage) {
       return (message as LegacyMessage).content;
     }
 
-    const chatMessage = message as ChatMessage;
-    switch (chatMessage.type) {
+    const nonLegacyMessage = message as ChatMessage;
+    switch (nonLegacyMessage.type) {
       case 'TEXT':
-        return chatMessage.text;
+        return nonLegacyMessage.text;
       case 'ENTRY':
-        const { symbolCode, symbolName, side, price, qty, note } = chatMessage.payload;
-        return `📈 建値入力しました！<br/>銘柄: ${symbolCode} ${symbolName}<br/>ポジションタイプ: ${side === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty}株${note ? `<br/>📝 ${note}` : ''}`;
+        const { symbolCode, symbolName, side, price, qty, note } = nonLegacyMessage.payload;
+        const entryHeadline = isEdited
+          ? '📈 建値を入力しました！（編集済み）'
+          : '📈 建値を入力しました！';
+        return `${entryHeadline}<br/>銘柄: ${symbolCode} ${symbolName}<br/>ポジションタイプ: ${side === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty}株${note ? `<br/>📝 ${note}` : ''}`;
       case 'EXIT':
-        const { tradeId, exitPrice, exitQty, note: exitNote } = chatMessage.payload;
+        const { tradeId, exitPrice, exitQty, note: exitNote } = nonLegacyMessage.payload;
         return `✅ 決済しました！<br/>銘柄: ${tradeId}<br/>ポジションタイプ: ロング（買い）<br/>決済価格: ${exitPrice.toLocaleString()}円<br/>数量: ${exitQty}株${exitNote ? `<br/>📝 ${exitNote}` : ''}`;
       default:
         return '';
@@ -59,10 +70,26 @@ const MessageItem: React.FC<MessageItemProps> = ({
       return (message as LegacyMessage).timestamp;
     }
     
-    const chatMessage = message as ChatMessage;
+    if (!chatMessage) {
+      return '';
+    }
+
     return new Date(chatMessage.createdAt).toLocaleTimeString('ja-JP', {
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      timeZone: 'Asia/Tokyo'
+    });
+  };
+
+  const getUpdatedTimestamp = () => {
+    if (!isEdited || !chatMessage?.updatedAt) {
+      return '';
+    }
+
+    return new Date(chatMessage.updatedAt).toLocaleTimeString('ja-JP', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Asia/Tokyo'
     });
   };
 
@@ -144,6 +171,11 @@ const MessageItem: React.FC<MessageItemProps> = ({
   return (
     <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} mb-4 group`}>
       <div className="relative">
+        {isSaving && (
+          <div className="absolute inset-0 z-10 rounded-2xl bg-white/80 backdrop-blur-sm flex items-center justify-center">
+            <span className="text-xs text-gray-500" aria-live="polite">保存中…</span>
+          </div>
+        )}
         <div
           ref={messageRef}
           data-message-id={message.id}
@@ -198,14 +230,16 @@ const MessageItem: React.FC<MessageItemProps> = ({
         )}
       </div>
       
-      <span className="mt-1 text-[10px] text-gray-400 px-1">
-        {getTimestamp()}
-        {!isLegacyMessage && (message as ChatMessage).updatedAt && (
-          <span className="ml-1 text-gray-300">
-            (編集済み)
+      <div className="mt-1 flex flex-wrap items-center gap-2 px-1">
+        <span className="text-[10px] text-gray-400">
+          {getTimestamp()}
+        </span>
+        {isEdited && (
+          <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+            (編集済) 最終更新 {getUpdatedTimestamp()}
           </span>
         )}
-      </span>
+      </div>
     </div>
   );
 };

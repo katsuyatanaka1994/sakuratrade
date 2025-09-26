@@ -67,7 +67,9 @@ function notify() {
 }
 export function subscribe(fn: Listener) { listeners.add(fn); return () => listeners.delete(fn); }
 
-const key = (symbol: string, side: Side, chatId?: string) => `${symbol}:${side}:${chatId || 'default'}`;
+export const makePositionKey = (symbol: string, side: Side, chatId?: string | null) => `${symbol}:${side}:${chatId || 'default'}`;
+
+const key = makePositionKey;
 
 // localStorage keys for persistence
 const POSITIONS_STORAGE_KEY = 'positions_data';
@@ -268,6 +270,54 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   return p;
 }
 
+export function removeEntryLot(symbol: string, side: Side, price: number, qty: number, chatId?: string): boolean {
+  if (qty <= 0) return false;
+  const k = key(symbol, side, chatId);
+  const position = state.positions.get(k);
+  if (!position) {
+    console.warn('[positions.store] removeEntryLot: position not found', { symbol, side, chatId });
+    return false;
+  }
+
+  const totalQtyBefore = position.qtyTotal;
+  if (totalQtyBefore <= 0) {
+    console.warn('[positions.store] removeEntryLot: no quantity to remove', { symbol, side, chatId });
+    return false;
+  }
+
+  const qtyToRemove = Math.min(qty, totalQtyBefore);
+
+  // Update lots starting from the latest entry
+  let remaining = qtyToRemove;
+  for (let i = position.lots.length - 1; i >= 0 && remaining > 0; i -= 1) {
+    const lot = position.lots[i];
+    if (lot.qtyRemaining <= 0) continue;
+    const removable = Math.min(lot.qtyRemaining, remaining);
+    lot.qtyRemaining -= removable;
+    remaining -= removable;
+    if (lot.qtyRemaining <= 0) {
+      position.lots.splice(i, 1);
+    }
+  }
+
+  const totalValueBefore = position.avgPrice * totalQtyBefore;
+  const totalValueAfter = Math.max(0, totalValueBefore - price * qtyToRemove);
+  const totalQtyAfter = totalQtyBefore - qtyToRemove;
+
+  if (totalQtyAfter <= 0) {
+    state.positions.delete(k);
+  } else {
+    position.qtyTotal = totalQtyAfter;
+    position.avgPrice = totalQtyAfter > 0 ? totalValueAfter / totalQtyAfter : 0;
+    position.updatedAt = new Date().toISOString();
+    position.status = 'OPEN';
+    state.positions.set(k, position);
+  }
+
+  notify();
+  return true;
+}
+
 export function updatePosition(symbol: string, side: Side, updates: Partial<Position>, chatId?: string): Position | null {
   const k = key(symbol, side, chatId);
   const p = state.positions.get(k);
@@ -291,6 +341,28 @@ export function updatePosition(symbol: string, side: Side, updates: Partial<Posi
   state.positions.set(k, updatedPosition);
   notify();
   return updatedPosition;
+}
+
+export function syncPositionFromServer(position: Position): Position | null {
+  const identifierKey = makePositionKey(position.symbol, position.side, position.chatId);
+
+  if (position.qtyTotal <= 0) {
+    const existed = state.positions.delete(identifierKey);
+    if (existed) {
+      notify();
+    }
+    return null;
+  }
+
+  const normalisedPosition: Position = {
+    ...position,
+    updatedAt: position.updatedAt || new Date().toISOString(),
+    status: position.status ?? 'OPEN',
+  };
+
+  state.positions.set(identifierKey, normalisedPosition);
+  notify();
+  return normalisedPosition;
 }
 
 export function settle(symbol: string, side: Side, price: number, qty: number, chatId?: string) {

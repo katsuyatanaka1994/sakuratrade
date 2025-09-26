@@ -1,12 +1,15 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import { vi } from 'vitest';
 import Trade from '../Trade';
+import { renderWithProviders } from '@/test-utils/renderWithProviders';
 
 // Mock alert for Vitest
 global.alert = vi.fn();
 
 test('コンポーネントが正常にレンダリングされる', () => {
-  render(<Trade isFileListVisible={false} selectedFile="テスト" setSelectedFile={() => {}} />);
+  renderWithProviders(
+    <Trade isFileListVisible={false} selectedFile="テスト" setSelectedFile={() => {}} />
+  );
   
   // Check if main buttons are rendered
   expect(screen.getByText("建値入力")).toBeInTheDocument();
@@ -15,7 +18,9 @@ test('コンポーネントが正常にレンダリングされる', () => {
 });
 
 test('建値入力モーダルが開く', () => {
-  render(<Trade isFileListVisible={false} selectedFile="テスト" setSelectedFile={() => {}} />);
+  renderWithProviders(
+    <Trade isFileListVisible={false} selectedFile="テスト" setSelectedFile={() => {}} />
+  );
   
   fireEvent.click(screen.getByText("建値入力"));
   
@@ -24,7 +29,9 @@ test('建値入力モーダルが開く', () => {
 });
 
 test('約定入力モーダルが開く', () => {
-  render(<Trade isFileListVisible={false} selectedFile="テスト" setSelectedFile={() => {}} />);
+  renderWithProviders(
+    <Trade isFileListVisible={false} selectedFile="テスト" setSelectedFile={() => {}} />
+  );
   
   fireEvent.click(screen.getByText("約定入力"));
   

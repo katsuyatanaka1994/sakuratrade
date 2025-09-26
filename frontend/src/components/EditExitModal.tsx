@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from './UI/button';
 import { Input } from './UI/input';
 import { Label } from './UI/label';
-import { ExitPayload } from '../types/chat';
+import type { ExitPayload } from '../types/chat';
 
 interface EditExitModalProps {
   isOpen: boolean;

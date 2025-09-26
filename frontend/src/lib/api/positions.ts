@@ -21,6 +21,7 @@ export interface UpdatePositionEntryPayload {
   qty: number;
   note: string;
   version: number;
+  chartPattern?: string;
 }
 
 export interface UpdatePositionEntryResponse {

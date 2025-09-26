@@ -1,4 +1,4 @@
-import { ChatMessage, LegacyMessage, type ChartPattern } from '../types/chat';
+import type { ChatMessage, LegacyMessage, ChartPattern } from '../types/chat';
 import { CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
 
 // Trade.tsx の既存Message型

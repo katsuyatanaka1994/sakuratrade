@@ -1,10 +1,11 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { FilterDialog } from '../FilterDialog';
-import { TradeFilterRuntime } from '../../types/trades';
+import type { TradeFilterRuntime } from '../../types/trades';
 
 // Mock DateRangeOverlay
-jest.mock('../DateRangeOverlay', () => ({
+vi.mock('../DateRangeOverlay', () => ({
   DateRangeOverlay: ({ open, onOpenChange, value, onChange }: any) => (
     open ? (
       <div data-testid="date-range-overlay">
@@ -30,11 +31,11 @@ describe('FilterDialog', () => {
     to: null,
   };
 
-  const mockOnSubmit = jest.fn();
-  const mockOnOpenChange = jest.fn();
+  const mockOnSubmit = vi.fn();
+  const mockOnOpenChange = vi.fn();
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   it('フィルターダイアログが正常に表示される', () => {
@@ -127,7 +128,7 @@ describe('FilterDialog', () => {
     expect(mockOnOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('閉じるボタンでダイアログが閉じる', () => {
+  it('閉じるボタンでダイアログが閉じる', async () => {
     render(
       <FilterDialog
         open={true}
@@ -137,8 +138,9 @@ describe('FilterDialog', () => {
       />
     );
 
-    const closeButton = screen.getByText('閉じる');
-    fireEvent.click(closeButton);
+    const dialog = screen.getByRole('dialog');
+    const closeButton = within(dialog).getByRole('button', { name: /閉じる/ });
+    await userEvent.click(closeButton);
 
     expect(mockOnOpenChange).toHaveBeenCalledWith(false);
   });

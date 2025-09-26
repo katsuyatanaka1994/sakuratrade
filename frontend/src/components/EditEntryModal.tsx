@@ -1,43 +1,237 @@
-import React, { useState, useEffect } from 'react';
-
-// Global gtag types
-declare global {
-  interface Window {
-    gtag?: (...args: any[]) => void;
-  }
-}
-import { useForm, Controller } from 'react-hook-form';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { z } from 'zod';
+import { useForm, Controller, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogOverlay, DialogPortal } from './UI/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from './UI/dialog';
 import { Button } from './UI/button';
 import { Input } from './UI/input';
 import { Label } from './UI/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './UI/select';
-import { entryEditSchema, type EntryEditFormData, type ValidationErrors } from '../schemas/entryForm';
-import { EntryPayload } from '../types/chat';
-import { updatePositionEntry, fetchPositionById, PositionsApiError } from '../lib/api/positions';
-import { Position, updatePosition } from '../store/positions';
-import { 
-  classifyError, 
-  generateUserFriendlyMessage, 
-  type ErrorDetail 
-} from '../lib/errorHandling';
-import { reportErrorToSentry, addUserActionBreadcrumb, addAPICallBreadcrumb } from '../lib/sentryIntegration';
-import { telemetryHelpers } from '../lib/telemetry';
-import { regeneratePositionAnalysis } from '../lib/aiRegeneration';
-import ChartImageUploader from './ChartImageUploader';
-import { CHART_PATTERNS, CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './UI/select';
+import { Switch } from './UI/switch';
+import type { EntryPayload, ChartPattern } from '../types/chat';
+import type { Position } from '../store/positions';
+import { syncPositionFromServer, makePositionKey } from '../store/positions';
+import {
+  fetchPositionById,
+  updatePositionEntry,
+  PositionsApiError,
+} from '../lib/api/positions';
+import {
+  regeneratePositionAnalysis,
+  handleAIRegenerationFailure,
+} from '../lib/aiRegeneration';
+import { CHART_PATTERNS } from '../constants/chartPatterns';
+import { showToast } from './UI/Toast';
+
+interface RiskSettings {
+  takeProfitRate: number;
+  stopLossRate: number;
+}
+
+interface PlanInputs {
+  price: number;
+  qty: number;
+  side: 'LONG' | 'SHORT';
+}
+
+interface TradePlanPreview {
+  takeProfitPrice: number;
+  stopLossPrice: number;
+  expectedProfit: number;
+  expectedLoss: number;
+  riskReward: number | null;
+}
+
+const DEFAULT_RISK_SETTINGS: RiskSettings = {
+  takeProfitRate: 0.05,
+  stopLossRate: 0.02,
+};
+
+const PRICE_PRECISION = 2;
+
+const getNumberFromStorage = (key: string): number | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getRiskSettings = (): RiskSettings => {
+  const takeProfitPercent = getNumberFromStorage('takeProfitPercent');
+  const stopLossPercent = getNumberFromStorage('stopLossPercent');
+
+  const takeProfitRate = takeProfitPercent && takeProfitPercent > 0
+    ? takeProfitPercent / 100
+    : DEFAULT_RISK_SETTINGS.takeProfitRate;
+  const stopLossRate = stopLossPercent && stopLossPercent > 0
+    ? stopLossPercent / 100
+    : DEFAULT_RISK_SETTINGS.stopLossRate;
+
+  return {
+    takeProfitRate,
+    stopLossRate,
+  };
+};
+
+const toPlanInputs = (
+  price: number | undefined,
+  qty: number | undefined,
+  side: 'LONG' | 'SHORT' | undefined
+): PlanInputs | null => {
+  if (!side) return null;
+  if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) return null;
+  if (typeof qty !== 'number' || !Number.isFinite(qty) || qty <= 0) return null;
+  return { price, qty, side };
+};
+
+const computeTradePlanPreview = (
+  inputs: PlanInputs | null,
+  settings: RiskSettings
+): TradePlanPreview | null => {
+  if (!inputs) return null;
+
+  const { price, qty, side } = inputs;
+  const { takeProfitRate, stopLossRate } = settings;
+
+  const takeProfitPrice = side === 'LONG'
+    ? price * (1 + takeProfitRate)
+    : price * (1 - takeProfitRate);
+  const stopLossPrice = side === 'LONG'
+    ? price * (1 - stopLossRate)
+    : price * (1 + stopLossRate);
+
+  const expectedProfit = Math.abs(takeProfitPrice - price) * qty;
+  const expectedLoss = Math.abs(price - stopLossPrice) * qty;
+  const riskReward = expectedLoss === 0 ? null : expectedProfit / expectedLoss;
+
+  return {
+    takeProfitPrice,
+    stopLossPrice,
+    expectedProfit,
+    expectedLoss,
+    riskReward,
+  };
+};
+
+const arePlanInputsEqual = (a: PlanInputs, b: PlanInputs): boolean => {
+  const normalizePrice = (value: number) => Number(value.toFixed(PRICE_PRECISION));
+  return (
+    normalizePrice(a.price) === normalizePrice(b.price) &&
+    a.qty === b.qty &&
+    a.side === b.side
+  );
+};
+
+const formatCurrency = (value: number): string => {
+  return `¥${new Intl.NumberFormat('ja-JP', { maximumFractionDigits: PRICE_PRECISION }).format(value)}`;
+};
+
+const formatAmount = (value: number): string => {
+  return `¥${new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 0 }).format(Math.round(value))}`;
+};
+
+const MAX_PRICE = 99999999.99;
+const MAX_QTY = 100000000;
+
+const chartPatternValues = CHART_PATTERNS.map(pattern => pattern.value);
+
+const formSchema = z.object({
+  symbolCode: z.string().min(1, '銘柄コードが不正です'),
+  symbolName: z.string().optional().default(''),
+  side: z.enum(['LONG', 'SHORT'], {
+    errorMap: () => ({ message: 'ポジションタイプを選択してください' }),
+  }),
+  price: z
+    .number({
+      required_error: '価格を入力してください',
+      invalid_type_error: '価格は数値で入力してください',
+    })
+    .min(0.01, '価格は0.01円以上である必要があります')
+    .max(MAX_PRICE, '価格が大きすぎます')
+    .refine((value) => {
+      const decimal = value.toString().split('.')[1];
+      return !decimal || decimal.length <= 2;
+    }, '価格は小数点以下2桁までです'),
+  qty: z
+    .number({
+      required_error: '株数を入力してください',
+      invalid_type_error: '株数は数値で入力してください',
+    })
+    .int('株数は整数である必要があります')
+    .min(1, '株数は1株以上である必要があります')
+    .max(MAX_QTY, '株数が大きすぎます'),
+  note: z
+    .string()
+    .max(500, 'メモは500文字以内で入力してください')
+    .optional()
+    .default(''),
+  chartPattern: z
+    .string()
+    .optional()
+    .default('')
+    .refine(
+      (value) => value === '' || chartPatternValues.includes(value as ChartPattern),
+      'チャートパターンが不正です'
+    ),
+  version: z
+    .number({
+      required_error: 'バージョン情報が不正です',
+      invalid_type_error: 'バージョン情報が不正です',
+    })
+    .nonnegative('バージョン情報が不正です'),
+  tradeId: z.string().optional(),
+});
+
+export type EditEntryFormValues = z.infer<typeof formSchema>;
 
 interface EditEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialData?: EntryPayload & { positionId?: string; version?: number; chartImageId?: string | null; aiFeedbacked?: boolean };
-  onSave: (data: EntryPayload) => Promise<void>;
+  initialData?: (EntryPayload & { positionId?: string; version?: number; chatId?: string | null }) | null;
+  onSave?: (data: EntryPayload, context: EditEntrySaveContext) => Promise<void> | void;
   onUpdateSuccess?: (position: Position) => void;
-  onAddBotMessage?: (message: { id: string; type: 'bot'; content: string; timestamp: string; testId?: string }) => void;
-  isLoading?: boolean;
   chatId?: string | null;
+  isLoading?: boolean;
+  onAddBotMessage?: (message: {
+    id: string;
+    type: 'bot';
+    content: string;
+    timestamp: string;
+    testId?: string;
+  }) => void;
 }
+
+interface EditEntrySaveContext {
+  regenerateEnabled: boolean;
+  planRegenerated: boolean;
+}
+
+const defaultValues: EditEntryFormValues = {
+  symbolCode: '',
+  symbolName: '',
+  side: 'LONG',
+  price: 0,
+  qty: 0,
+  note: '',
+  chartPattern: '',
+  version: 0,
+  tradeId: '',
+};
 
 const EditEntryModal: React.FC<EditEntryModalProps> = ({
   isOpen,
@@ -45,939 +239,648 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
   initialData,
   onSave,
   onUpdateSuccess,
-  onAddBotMessage,
+  chatId,
   isLoading = false,
-  chatId: modalChatId = null
+  onAddBotMessage: _onAddBotMessage,
 }) => {
-  // API base URL resolver (align with Trade.tsx/services)
-  const getApiUrl = () => {
-    return (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8000';
-  };
-  const [submitError, setSubmitError] = useState<string>('');
+  const [prefillLoading, setPrefillLoading] = useState(false);
+  const [serverError, setServerError] = useState<string>('');
+  const [regenerateEnabled, setRegenerateEnabled] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isConflictMode, setIsConflictMode] = useState(false);
-  const [isRefetching, setIsRefetching] = useState(false);
-  const [currentErrorDetail, setCurrentErrorDetail] = useState<ErrorDetail | null>(null);
-  const [bannerType, setBannerType] = useState<'error' | 'info'>('error');
-  const [aiRegeneratingStatus, setAiRegeneratingStatus] = useState<'idle' | 'regenerating' | 'error' | 'ready'>('idle');
-  const [uploadedImage, setUploadedImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [showChartPatternSelect, setShowChartPatternSelect] = useState(false);
-  const [showMemoTextarea, setShowMemoTextarea] = useState(false);
+  const [isPlanDirty, setIsPlanDirty] = useState(false);
+
+  const positionId = initialData?.positionId;
+  const riskSettings = useMemo(() => getRiskSettings(), []);
+  const lastSavedPlanInputsRef = useRef<PlanInputs | null>(null);
+
+  const emitPositionEvent = (eventName: string, detail: Record<string, unknown>) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.dispatchEvent(new CustomEvent(eventName, { detail }));
+  };
 
   const {
     control,
     handleSubmit,
-    formState: { errors, isValid },
     reset,
-    setValue,
-    watch
-  } = useForm<EntryEditFormData>({
-    resolver: zodResolver(entryEditSchema),
+    setError,
+    formState: { errors, isDirty, isValid },
+  } = useForm<EditEntryFormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues,
     mode: 'onChange',
-    defaultValues: {
-      symbolCode: '',
-      symbolName: '',
-      side: 'LONG',
-      price: 0,
-      qty: 0,
-      note: '',
-      tradeId: '',
-      executedAt: new Date().toISOString().slice(0, 16),
-      version: 0,
-      chartPattern: undefined
-    }
   });
 
-  // プレフィル処理
+  const watchedSide = useWatch({ control, name: 'side' });
+  const watchedPrice = useWatch({ control, name: 'price' });
+  const watchedQty = useWatch({ control, name: 'qty' });
+
+  const watchedPlanInputs = useMemo(
+    () => toPlanInputs(watchedPrice, watchedQty, watchedSide),
+    [watchedPrice, watchedQty, watchedSide]
+  );
+
+  const planPreview = useMemo(
+    () => computeTradePlanPreview(watchedPlanInputs, riskSettings),
+    [watchedPlanInputs, riskSettings]
+  );
+
   useEffect(() => {
-    if (isOpen && initialData) {
-      // symbolCodeから銘柄コードと銘柄名を分離
-      let symbolCode = initialData.symbolCode || '';
-      let symbolName = initialData.symbolName || '';
-      
-      // もしsymbolCodeに銘柄名も含まれている場合（"4661 銘柄名"形式）
-      if (symbolCode && !symbolName && symbolCode.includes(' ')) {
-        const parts = symbolCode.split(' ');
-        symbolCode = parts[0];
-        symbolName = parts.slice(1).join(' ');
-      }
-      
-      const initialPattern = initialData.chartPattern || undefined;
-      const initialMemo = initialData.note ? initialData.note.trim() : '';
-      reset({
-        symbolCode,
-        symbolName,
-        side: initialData.side || 'LONG',
-        price: initialData.price || 0,
-        qty: initialData.qty || 0,
-        note: initialMemo,
-        tradeId: initialData.tradeId || '',
-        executedAt: initialData.executedAt || new Date().toISOString().slice(0, 16),
-        version: initialData.version || 0,
-        chartPattern: initialPattern
-      });
-      setShowChartPatternSelect(Boolean(initialPattern));
-      setShowMemoTextarea(Boolean(initialMemo));
-      setSubmitError('');
-      setIsConflictMode(false);
-
-      // 画像プレビューの初期化（Positionに保持されている場合は表示）
-      // chartImageId には DataURL/URL を格納しているため、そのままプレビューとして表示可能
-      if (initialData.chartImageId) {
-        setImagePreview(initialData.chartImageId as unknown as string);
-      }
-
-      // 保存済みチャート画像のプレビュー表示（chartImageId -> dataURL）
-      try {
-        const imageId = initialData.chartImageId;
-        if (imageId) {
-          const raw = localStorage.getItem('chart_images');
-          if (raw) {
-            const map: Record<string, string> = JSON.parse(raw);
-            const dataUrl = map[imageId];
-            if (dataUrl) {
-              setImagePreview(dataUrl);
-            }
-          }
-        } else {
-          setImagePreview(null);
-        }
-      } catch (e) {
-        console.warn('保存済みチャート画像の読み込みに失敗しました', e);
-      }
-      
-      // TODO: テレメトリ記録: エントリ編集モーダル表示 (API未実装のため一時無効化)
-      // const currentPosition: Position = {
-      //   id: initialData?.positionId || '',
-      //   symbol: initialData.symbolCode || '',
-      //   side: initialData.side || 'LONG',
-      //   avgPrice: initialData.price || 0,
-      //   qtyTotal: initialData.qty || 0,
-      //   status: 'OPEN' as const,
-      //   ownerId: 'current_user',
-      //   version: initialData?.version || 1,
-      //   updatedAt: new Date().toISOString(),
-      //   chatId: 'default'
-      // };
-      // 
-      // telemetryHelpers.trackEditOpened(
-      //   currentPosition,
-      //   'menu', // トリガー - メニューから開かれることが多い
-      //   Boolean(initialData.symbolCode) // 既存データありか
-      // );
+    const previous = lastSavedPlanInputsRef.current;
+    if (!watchedPlanInputs || !previous) {
+      setIsPlanDirty(false);
+      return;
     }
-  }, [isOpen, initialData, reset]);
+    setIsPlanDirty(!arePlanInputsEqual(previous, watchedPlanInputs));
+  }, [watchedPlanInputs]);
 
-  // 409エラー後の再取得処理
-  const handleRefetch = async () => {
-    if (!initialData?.positionId || isRefetching) return;
-    
-    setIsRefetching(true);
-    
-    // ユーザー操作パンくず記録
-    addUserActionBreadcrumb('refetch_position', {
-      position_id: initialData.positionId
-    });
-    
-    try {
-      const startTime = Date.now();
-      const updatedPosition = await fetchPositionById(initialData.positionId);
-      const responseTime = Date.now() - startTime;
-      
-      // API呼び出しパンくず記録
-      addAPICallBreadcrumb(
-        'GET',
-        `/api/positions/${initialData.positionId}`,
-        200,
-        responseTime
-      );
-      
-      // 既存のユーザー入力を保持したまま、versionのみ更新
-      const currentFormData = watch();
-      setValue('version', updatedPosition.version);
-      
-      setIsConflictMode(false);
-      setSubmitError('');
-      setCurrentErrorDetail(null);
-      setBannerType('error');
-      
-      // テレメトリ記録
-      if (window.gtag) {
-        window.gtag('event', 'entry_edit_refetch', {
-          event_category: 'position_management',
-          position_id: initialData.positionId
-        });
-      }
-    } catch (error) {
-      console.error('Failed to refetch position:', error);
-      
-      // エラー分類・整形
-      const errorDetail = classifyError(error as Error, {
-        operation: 'position_refetch',
-        statusCode: error instanceof PositionsApiError ? error.status : undefined
-      });
-      
-      const userMessage = generateUserFriendlyMessage(errorDetail);
-      setSubmitError(userMessage);
-      setCurrentErrorDetail(errorDetail);
-      
-      // Sentryエラー送信
-      reportErrorToSentry(errorDetail, {
-        operation: 'position_refetch',
-        position_id: initialData.positionId
-      });
-      
-    } finally {
-      setIsRefetching(false);
-    }
-  };
-
-  const onSubmit = async (data: EntryEditFormData) => {
-    if (isSubmitting || !isValid) return;
-    
-    setIsSubmitting(true);
-    setSubmitError('');
-    setIsConflictMode(false);
-    
-    try {
-      // Position Store直接更新ロジック
-      const updatedPosition: Position = {
-        symbol: data.symbolCode,
-        side: data.side,
-        qtyTotal: data.qty,
-        avgPrice: data.price,
-        lots: [], // 既存のlots構造は保持されるはず
-        realizedPnl: 0, // 既存の値は保持されるはず
-        updatedAt: new Date().toISOString(),
-        name: data.symbolName,
-        chatId: initialData?.positionId?.split(':')[2] || 'default',
-        version: data.version + 1,
-        status: 'OPEN',
-        ownerId: 'current_user'
-      };
-      
-      console.log('🔧 Updated position data:', updatedPosition);
-      
-      // テレメトリ記録: エントリ保存成功  
-      const changeFields = Object.keys(data).filter(key => {
-        return key !== 'version' && initialData && (initialData as any)[key] !== (data as any)[key];
-      });
-      
-      const validationErrors = Object.keys(errors).length;
-      
-      // TODO: テレメトリ記録: 編集保存成功 (API未実装のため一時無効化)
-      // telemetryHelpers.trackEditSaved(
-      //   updatedPosition,
-      //   changeFields,
-      //   validationErrors,
-      //   0 // 初回成功時はretryCount = 0
-      // );
-      
-      // 成功イベント発行
-      if (onUpdateSuccess) {
-        onUpdateSuccess(updatedPosition);
-      }
-      
-      // ユーザーメッセージ追加: 建値更新通知
-      if (onAddBotMessage) {
-        const symbolDisplayName = updatedPosition.name 
-          ? `${updatedPosition.symbol} ${updatedPosition.name}`
-          : updatedPosition.symbol;
-          
-        const sideText = updatedPosition.side === 'LONG' ? 'ロング（買い）' : 'ショート（売り）';
-        
-        const userMessageContent = `📈 建値を更新しました！<br/>銘柄: ${symbolDisplayName}<br/>ポジションタイプ: ${sideText}<br/>建値: ${updatedPosition.avgPrice.toLocaleString()}円<br/>数量: ${updatedPosition.qtyTotal.toLocaleString()}株`;
-        
-        onAddBotMessage({
-          id: crypto.randomUUID(),
-          type: 'user',
-          content: userMessageContent,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          testId: 'user-msg-price-updated'
-        });
-
-        // 取引プラン設定ボットメッセージを追加（建値更新用）
-        setTimeout(() => {
-          if (onAddBotMessage) {
-            const entryPrice = updatedPosition.avgPrice;
-            const profitTarget5Pct = Math.round(entryPrice * (updatedPosition.side === 'LONG' ? 1.05 : 0.95));
-            const stopLoss2Pct = Math.round(entryPrice * (updatedPosition.side === 'LONG' ? 0.98 : 1.02));
-            const predictedProfit = Math.round((profitTarget5Pct - entryPrice) * updatedPosition.qtyTotal);
-            const predictedLoss = Math.round((entryPrice - stopLoss2Pct) * updatedPosition.qtyTotal) * -1;
-
-            const tradingPlanContent = 
-              `🎯 取引プラン設定<br/>` +
-              `📋 リスク管理ルール<br/>` +
-              `• 利確目標: +5% → <span style="color: #10b981;">${profitTarget5Pct.toLocaleString()}円</span><br/>` +
-              `• 損切り目標: -2% → <span style="color: #ef4444;">${stopLoss2Pct.toLocaleString()}円</span><br/><br/>` +
-              `💰 予想損益<br/>` +
-              `• 利確時: <span style="color: #10b981;">+${predictedProfit.toLocaleString()}円</span><br/>` +
-              `• 損切り時: <span style="color: #ef4444;">${predictedLoss.toLocaleString()}円</span><br/><br/>` +
-              `⚠️ 重要: 必ず逆指値注文を設定して、感情に左右されない取引を心がけましょう`;
-
-            onAddBotMessage({
-              id: crypto.randomUUID(),
-              type: 'bot',
-              content: tradingPlanContent,
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              testId: 'bot-msg-trading-plan-updated'
-            });
-          }
-        }, 500);
-
-        // 画像が変更/新規アップロードされた場合のみ、統合分析APIを実行（新規建値と同じ仕様）
-        setTimeout(async () => {
-          if (!uploadedImage) {
-            return; // 画像変更なし: 再生成しない
-          }
-          try {
-            setAiRegeneratingStatus('regenerating');
-            const apiUrl = getApiUrl();
-            const formData = new FormData();
-            formData.append('file', uploadedImage);
-            formData.append('symbol', updatedPosition.symbol || '');
-            formData.append('entry_price', String(updatedPosition.avgPrice));
-            formData.append('position_type', updatedPosition.side === 'LONG' ? 'long' : 'short');
-            formData.append('analysis_context', `建値編集: ${updatedPosition.symbol} ${updatedPosition.side} ${updatedPosition.avgPrice}円 ${updatedPosition.qtyTotal}株`);
-            const effectiveChatId = (modalChatId || initialData?.positionId?.split(':')[2] || 'default') as string;
-            formData.append('chat_id', effectiveChatId);
-
-            const response = await fetch(`${apiUrl}/api/v1/integrated-analysis`, {
-              method: 'POST',
-              body: formData
-            });
-
-            if (response.ok) {
-              const analysisData = await response.json();
-              if (analysisData.success && analysisData.natural_feedback && onAddBotMessage) {
-                onAddBotMessage({
-                  id: crypto.randomUUID(),
-                  type: 'bot',
-                  content: analysisData.natural_feedback,
-                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                  testId: 'bot-msg-integrated-analysis-updated'
-                });
-              }
-
-              // 分析成功時: アップロード画像をPositionに保持（再度モーダルを開いた際に表示するため）
-              const persistChatId = effectiveChatId;
-              const imageToPersist = imagePreview; // DataURL / プレビューURL
-              if (imageToPersist) {
-                updatePosition(
-                  updatedPosition.symbol,
-                  updatedPosition.side,
-                  { chartImageId: imageToPersist, aiFeedbacked: true },
-                  persistChatId
-                );
-              }
-              setAiRegeneratingStatus('ready');
-            } else {
-              console.warn('統合分析APIエラー:', response.status);
-              setAiRegeneratingStatus('idle');
-            }
-          } catch (error) {
-            console.error('統合分析実行エラー:', error);
-            setAiRegeneratingStatus('error');
-          }
-        }, 1000); // 取引プランメッセージの後に実行
-      }
-      
-      // 既存のgtag記録も維持
-      if (window.gtag) {
-        window.gtag('event', 'entry_edit_success', {
-          event_category: 'position_management',
-          position_id: initialData?.positionId || 'unknown'
-        });
-      }
-      
-      onClose();
-    } catch (error) {
-      console.error('Failed to save entry:', error);
-      
-      // API呼び出しエラーのパンくず記録
-      addAPICallBreadcrumb(
-        'PATCH',
-        `/api/positions/${initialData?.positionId}/entry`,
-        error instanceof PositionsApiError ? error.status : undefined
-      );
-      
-      // エラー分類・整形
-      const errorDetail = classifyError(error as Error, {
-        operation: 'position_update',
-        statusCode: error instanceof PositionsApiError ? error.status : undefined,
-        originalError: error
-      });
-      
-      const userMessage = generateUserFriendlyMessage(errorDetail);
-      setSubmitError(userMessage);
-      setCurrentErrorDetail(errorDetail);
-      
-      // UI状態設定
-      if (errorDetail.type === 'PATCH_CONFLICT_409') {
-        setIsConflictMode(true);
-        setBannerType('info'); // 409は情報レベル
-        
-        // テレメトリ記録: 409競合エラー
-        const currentPosition: Position = {
-          id: initialData?.positionId || '',
-          symbol: data.symbolCode,
-          side: data.side,
-          avgPrice: data.price,
-          qtyTotal: data.qty,
-          status: 'OPEN',
-          ownerId: 'current_user',
-          version: data.version || 1,
-          updatedAt: new Date().toISOString(),
-          chatId: 'default'
-        };
-        
-        const conflictFields = (error instanceof PositionsApiError && error.details?.conflictFields) || [];
-        const versionDiff = (error instanceof PositionsApiError && error.details?.currentVersion || 1) - (data.version || 1);
-        
-        // TODO: テレメトリ記録: 409競合エラー (API未実装のため一時無効化)
-        // telemetryHelpers.trackConflict409(
-        //   currentPosition,
-        //   conflictFields,
-        //   versionDiff,
-        //   'refresh' // デフォルトは再取得アクション
-        // );
-        
-        // 既存のgtag記録も維持
-        if (window.gtag) {
-          window.gtag('event', 'entry_edit_conflict_409', {
-            event_category: 'position_management',
-            position_id: initialData?.positionId || 'unknown'
-          });
-        }
-      } else {
-        setIsConflictMode(false);
-        setBannerType('error');
-      }
-      
-      // Sentryエラー送信
-      reportErrorToSentry(errorDetail, {
-        operation: 'position_update',
-        position_id: initialData?.positionId || 'unknown',
-        form_data: {
-          symbol: data.symbolCode,
-          side: data.side,
-          price: data.price,
-          qty: data.qty
-        }
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleImageUploaderChange = (file: File | null) => {
-    if (!file) {
-      setUploadedImage(null);
-      setImagePreview(null);
-      setSubmitError('');
+  useEffect(() => {
+    if (!isOpen) {
+      reset(defaultValues);
+      setServerError('');
+      setRegenerateEnabled(true);
+      setIsPlanDirty(false);
+      lastSavedPlanInputsRef.current = null;
       return;
     }
 
-    setUploadedImage(file);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setImagePreview(e.target?.result as string);
-    };
-    reader.onerror = () => {
-      setSubmitError('画像の読み込みに失敗しました');
-      setUploadedImage(null);
-      setImagePreview(null);
-    };
-    reader.readAsDataURL(file);
-    setSubmitError('');
-  };
+    let isCancelled = false;
+    async function prefill() {
+      if (!initialData) {
+        reset(defaultValues);
+        lastSavedPlanInputsRef.current = toPlanInputs(
+          defaultValues.price,
+          defaultValues.qty,
+          defaultValues.side
+        );
+        setIsPlanDirty(false);
+        return;
+      }
 
-  const handleImageUploaderError = (reason: 'type' | 'size' | 'other') => {
-    const messages: Record<typeof reason, string> = {
-      type: 'png / jpeg 以外のファイルはアップロードできません',
-      size: '画像ファイルは10MB以下にしてください',
-      other: '画像のアップロードに失敗しました',
-    };
-    setSubmitError(messages[reason]);
-  };
+      setPrefillLoading(true);
+      setServerError('');
+      setRegenerateEnabled(true);
 
-  // 画像削除ハンドラー
-  const handleImageRemove = () => {
-    setUploadedImage(null);
-    setImagePreview(null);
-    setSubmitError('');
-  };
+      try {
+        let latestSymbolName = initialData.symbolName ?? '';
+        let latestValues: EditEntryFormValues = {
+          symbolCode: initialData.symbolCode,
+          symbolName: latestSymbolName,
+          side: initialData.side,
+          price: initialData.price,
+          qty: initialData.qty,
+          note: initialData.note ?? '',
+          chartPattern: initialData.chartPattern ?? '',
+          version: initialData.version ?? 0,
+          tradeId: initialData.tradeId ?? '',
+        };
+
+        if (positionId) {
+          const latest = await fetchPositionById(positionId);
+          latestSymbolName = latest.name ?? latestSymbolName;
+          latestValues = {
+            symbolCode: latest.symbol,
+            symbolName: latestSymbolName,
+            side: latest.side,
+            price: latest.avgPrice,
+            qty: latest.qtyTotal,
+            note: initialData.note ?? '',
+            chartPattern: initialData.chartPattern ?? '',
+            version: latest.version,
+            tradeId: initialData.tradeId ?? latest.currentTradeId ?? '',
+          };
+        }
+
+        if (!isCancelled) {
+          reset(latestValues, { keepDefaultValues: false });
+          lastSavedPlanInputsRef.current = toPlanInputs(
+            latestValues.price,
+            latestValues.qty,
+            latestValues.side
+          );
+          setIsPlanDirty(false);
+        }
+      } catch (error) {
+        console.error('Failed to fetch latest position:', error);
+        if (!isCancelled) {
+          const message =
+            error instanceof PositionsApiError
+              ? error.message
+              : '最新の建値情報の取得に失敗しました';
+          setServerError(message);
+          reset({
+            symbolCode: initialData.symbolCode,
+            symbolName: initialData.symbolName ?? '',
+            side: initialData.side,
+            price: initialData.price,
+            qty: initialData.qty,
+            note: initialData.note ?? '',
+            chartPattern: initialData.chartPattern ?? '',
+            version: initialData.version ?? 0,
+            tradeId: initialData.tradeId ?? '',
+          });
+          lastSavedPlanInputsRef.current = toPlanInputs(
+            initialData.price,
+            initialData.qty,
+            initialData.side
+          );
+          setIsPlanDirty(false);
+        }
+      } finally {
+        if (!isCancelled) {
+          setPrefillLoading(false);
+        }
+      }
+    }
+
+    prefill();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOpen, initialData, positionId, reset]);
+
+  const isSubmitDisabled =
+    prefillLoading ||
+    isSubmitting ||
+    isLoading ||
+    !isValid ||
+    !isDirty;
 
   const handleClose = () => {
-    if (!isSubmitting && !isLoading && !isRefetching) {
-      reset();
-      setSubmitError('');
-      setIsConflictMode(false);
-      setCurrentErrorDetail(null);
-      setBannerType('error');
-      setShowChartPatternSelect(false);
-      setValue('chartPattern', undefined, { shouldDirty: false });
-      setShowMemoTextarea(false);
+    if (isSubmitting) return;
+    onClose();
+  };
+
+  const submitHandler = handleSubmit(async (values) => {
+    if (!initialData) {
+      setServerError('編集対象が見つかりません');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setServerError('');
+
+    try {
+      const nextPlanInputs: PlanInputs = {
+        price: values.price,
+        qty: values.qty,
+        side: values.side,
+      };
+      const previousPlanInputs = lastSavedPlanInputsRef.current;
+      const planInputsChanged =
+        !previousPlanInputs || !arePlanInputsEqual(previousPlanInputs, nextPlanInputs);
+
+      const entryPayload: EntryPayload = {
+        symbolCode: values.symbolCode,
+        symbolName: values.symbolName,
+        side: values.side,
+        price: values.price,
+        qty: values.qty,
+        note: values.note,
+        tradeId:
+          values.tradeId && values.tradeId.length > 0
+            ? values.tradeId
+            : initialData.tradeId ?? '',
+        executedAt: initialData.executedAt,
+        chartPattern:
+          values.chartPattern && values.chartPattern.length > 0
+            ? (values.chartPattern as ChartPattern)
+            : undefined,
+      };
+
+      if (!positionId) {
+        if (onSave) {
+          await onSave(entryPayload, {
+            regenerateEnabled,
+            planRegenerated: planInputsChanged,
+          });
+        }
+        lastSavedPlanInputsRef.current = nextPlanInputs;
+        setIsPlanDirty(false);
+        onClose();
+        return;
+      }
+
+      const payload = {
+        symbolCode: values.symbolCode,
+        symbolName: values.symbolName,
+        side: values.side,
+        price: values.price,
+        qty: values.qty,
+        note: values.note ?? '',
+        version: values.version,
+        chartPattern:
+          values.chartPattern && values.chartPattern.length > 0
+            ? (values.chartPattern as ChartPattern)
+            : undefined,
+      };
+
+      let dispatchedStart = false;
+      let mutationContext: { symbol: string; side: 'LONG' | 'SHORT'; chatId: string | null } | null = null;
+
+      if (positionId) {
+        mutationContext = {
+          symbol: values.symbolCode,
+          side: values.side,
+          chatId: initialData?.chatId ?? chatId ?? null,
+        };
+
+        emitPositionEvent('position-update-start', {
+          ...mutationContext,
+          key: makePositionKey(
+            mutationContext.symbol,
+            mutationContext.side,
+            mutationContext.chatId
+          ),
+        });
+        dispatchedStart = true;
+      }
+
+      const response = await updatePositionEntry(positionId, payload);
+      const position = response.position;
+
+      const effectiveChatId = position.chatId ?? mutationContext?.chatId ?? undefined;
+      const positionForSync: Position = effectiveChatId === position.chatId
+        ? position
+        : { ...position, chatId: effectiveChatId };
+
+      const syncedPosition = syncPositionFromServer(positionForSync);
+      const positionForEvent = syncedPosition ?? positionForSync;
+
+      if (dispatchedStart) {
+        emitPositionEvent('position-update-complete', {
+          position: positionForEvent,
+          key: makePositionKey(
+            positionForEvent.symbol,
+            positionForEvent.side,
+            positionForEvent.chatId ?? mutationContext?.chatId ?? null
+          ),
+        });
+      }
+
+      const resolvedTradeId =
+        entryPayload.tradeId && entryPayload.tradeId.length > 0
+          ? entryPayload.tradeId
+          : position.currentTradeId ?? '';
+
+      const payloadForSave: EntryPayload = {
+        ...entryPayload,
+        tradeId: resolvedTradeId,
+      };
+
+      if (onSave) {
+        await onSave(payloadForSave, {
+          regenerateEnabled,
+          planRegenerated: planInputsChanged,
+        });
+      }
+
+      if (onUpdateSuccess) {
+        onUpdateSuccess(positionForEvent);
+      }
+
+      lastSavedPlanInputsRef.current = nextPlanInputs;
+      setIsPlanDirty(false);
+
+      if (regenerateEnabled && chatId && planInputsChanged) {
+        try {
+          const result = await regeneratePositionAnalysis(chatId, position);
+          if (!result.success && chatId) {
+            handleAIRegenerationFailure(
+              chatId,
+              position,
+              result.error ?? '再生成に失敗しました'
+            );
+          }
+        } catch (error) {
+          if (chatId) {
+            handleAIRegenerationFailure(
+              chatId,
+              position,
+              error instanceof Error ? error.message : 'unknown error'
+            );
+          }
+        }
+      }
+
       onClose();
-    }
-  };
+    } catch (error) {
+      console.error('Failed to update entry:', error);
+      if (positionId) {
+        const chatContext = initialData?.chatId ?? chatId ?? null;
+        emitPositionEvent('position-update-error', {
+          symbol: values.symbolCode,
+          side: values.side,
+          chatId: chatContext,
+          key: makePositionKey(values.symbolCode, values.side, chatContext),
+          error: error instanceof Error ? error.message : 'unknown error',
+        });
+      }
+      if (error instanceof PositionsApiError) {
+        if (error.status === 400) {
+          const message = error.message || '入力内容を確認してください';
+          if (/株数|qty/i.test(message)) {
+            setError('qty', { message });
+          } else if (/価格|price/i.test(message)) {
+            setError('price', { message });
+          } else {
+            setServerError(message);
+          }
+        } else if (error.status === 409) {
+          setServerError('他のユーザーが先に更新しました。再度開き直してください。');
+        } else {
+          setServerError(error.message || '更新に失敗しました');
+        }
+      } else {
+        setServerError('建値の更新に失敗しました');
+      }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape' && !isSubmitting && !isLoading && !isRefetching) {
-      handleClose();
+      const toastDescription =
+        error instanceof PositionsApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : undefined;
+      showToast.error('建値の更新に失敗しました', toastDescription ? { description: toastDescription } : undefined);
+    } finally {
+      setIsSubmitting(false);
     }
-  };
+  });
 
-  const watchedValues = watch();
-  const watchedSide = watch('side');
-  const watchedPrice = watch('price');
-  const watchedQty = watch('qty');
-  const watchedChartPattern = watch('chartPattern');
-  const watchedNote = watch('note');
-  const initialSide = initialData?.side ?? 'LONG';
-  const initialPrice = initialData?.price ?? 0;
-  const initialQty = initialData?.qty ?? 0;
-  const initialChartPattern = initialData?.chartPattern;
-  const initialNote = initialData?.note ? initialData.note.trim() : '';
-  const hasFieldChanges =
-    watchedSide !== initialSide ||
-    watchedPrice !== initialPrice ||
-    watchedQty !== initialQty ||
-    (watchedChartPattern ?? undefined) !== initialChartPattern ||
-    (watchedNote ?? '') !== initialNote ||
-    !!uploadedImage;
+  const priceError = errors.price?.message;
+  const qtyError = errors.qty?.message;
+
+  const helperText = useMemo(() => {
+    if (!regenerateEnabled) {
+      return '再生成をオフにすると、AIによる取引プランは更新されません。';
+    }
+    if (!isPlanDirty) {
+      return '値に変更がない場合はAI取引プランの再生成をスキップします。';
+    }
+    return '建値更新後にAI取引プランを自動で再生成します。';
+  }, [regenerateEnabled, isPlanDirty]);
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogPortal>
-        <DialogOverlay className="fixed inset-0 z-50 bg-[rgba(51,51,51,0.8)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogContent 
-          className="w-[400px] rounded-[24px] p-6 bg-white shadow-[0_8px_24px_0_rgba(0,0,0,0.1)] z-[9999]"
-          onKeyDown={handleKeyDown}
-          data-testid="entry-edit-modal"
-        >
-          <DialogHeader className="flex items-center justify-between mb-6">
-            <DialogTitle 
-              className="font-bold text-[16px] text-[#333333]"
-              data-testid="entry-edit-title"
-            >
-              建値を編集
-            </DialogTitle>
-            <DialogDescription className="sr-only">
-              建値入力の編集フォームです。
-            </DialogDescription>
-          </DialogHeader>
+      <DialogContent
+        className="w-full max-w-lg"
+        data-testid="modal-edit-entry"
+      >
+        <DialogHeader>
+          <DialogTitle className="text-lg font-semibold text-gray-900">
+            建値を編集
+          </DialogTitle>
+          <DialogDescription>
+            最新の建値情報に更新し、必要に応じてAI分析を再生成します。
+          </DialogDescription>
+        </DialogHeader>
 
-          {/* エラーバナー */}
-          {submitError && (
-            <div 
-              className={`
-                mb-4 p-3 rounded-md border
-                ${
-                  bannerType === 'info' 
-                    ? 'bg-blue-50 border-blue-200'
-                    : 'bg-red-50 border-red-200'
-                }
-              `}
-              data-testid={isConflictMode ? "entry-edit-conflict" : "entry-edit-banner"}
-              data-banner-type={bannerType}
-              role="alert"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-start">
-                    {/* アイコン */}
-                    <div className="flex-shrink-0">
-                      <svg 
-                        className={`w-4 h-4 mt-0.5 ${
-                          bannerType === 'info' ? 'text-blue-600' : 'text-red-600'
-                        }`}
-                        fill="none" 
-                        strokeLinecap="round" 
-                        strokeLinejoin="round" 
-                        strokeWidth="2" 
-                        viewBox="0 0 24 24" 
-                        stroke="currentColor"
-                      >
-                        {bannerType === 'info' ? (
-                          <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        ) : (
-                          <path d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        )}
-                      </svg>
-                    </div>
-                    <div className="ml-2">
-                      <p className={`text-sm font-medium ${
-                        bannerType === 'info' ? 'text-blue-800' : 'text-red-800'
-                      }`}>
-                        {submitError}
-                      </p>
-                      {currentErrorDetail?.technicalMessage && process.env.NODE_ENV === 'development' && (
-                        <p className={`mt-1 text-xs opacity-75 ${
-                          bannerType === 'info' ? 'text-blue-700' : 'text-red-700'
-                        }`}>
-                          {currentErrorDetail.technicalMessage}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                {isConflictMode && (
-                  <div className="ml-3 flex-shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleRefetch}
-                      disabled={isRefetching || isSubmitting}
-                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      data-testid="entry-edit-refetch"
-                    >
-                      {isRefetching && (
-                        <svg className="animate-spin -ml-1 mr-2 h-3 w-3" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                      )}
-                      {isRefetching ? '取得中...' : '最新を取得'}
-                    </button>
-                  </div>
-                )}
-              </div>
+        <form className="mt-6 grid gap-4" onSubmit={submitHandler}>
+          {serverError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {serverError}
             </div>
           )}
 
-          <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-4">
-            {/* 銘柄 - 表示のみ（編集不可） */}
-            <div className="space-y-2">
-              <Label className="text-sm text-[#374151] mb-2 block">
-                銘柄
-              </Label>
-              <div className="text-[#111827] font-bold" data-testid="entry-symbol">
-                {`${watchedValues.symbolCode || ''} ${watchedValues.symbolName || ''}`.trim()}
-              </div>
-            </div>
-
-            {/* ポジションタイプ */}
-            <div className="space-y-2">
-              <Label className="text-sm text-[#374151] mb-2 block">
-                ポジションタイプ
-              </Label>
-              <Controller
-                name="side"
-                control={control}
-                render={({ field }) => (
-                  <Select
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    disabled={isSubmitting || isLoading}
-                  >
-                    <SelectTrigger 
-                      className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB]"
-                      data-testid="entry-side"
-                    >
-                      <SelectValue placeholder="選択してください" />
-                    </SelectTrigger>
-                    <SelectContent className="z-[10000] bg-white border border-gray-200 shadow-lg">
-                      <SelectItem value="LONG">
-                        <div className="flex items-center gap-2">
-                          <svg className="w-4 h-4 text-green-600" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M16 6L18.29 8.29 13.41 13.17 9.41 9.17 2 16.59 3.41 18 9.41 12 13.41 16 19.71 9.71 22 12V6Z"/>
-                          </svg>
-                          <span>ロング（買い）</span>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="SHORT">
-                        <div className="flex items-center gap-2">
-                          <svg className="w-4 h-4 text-red-600" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M16 18L18.29 15.71 13.41 10.83 9.41 14.83 2 7.41 3.41 6 9.41 12 13.41 8 19.71 14.29 22 12V18Z"/>
-                          </svg>
-                          <span>ショート（売り）</span>
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              {errors.side && (
-                <p className="text-xs text-red-600" role="alert">
-                  {errors.side.message}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <Label className="text-sm text-[#374151] mb-2 block">価格</Label>
-              <Controller
-                name="price"
-                control={control}
-                render={({ field }) => (
-                  <Input
-                    {...field}
-                    placeholder="円"
-                    value={field.value?.toString() || ''}
-                    onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                    className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB] bg-[#F6F6F6]"
-                    disabled={isSubmitting || isLoading || isRefetching}
-                    data-testid="entry-price"
-                  />
-                )}
-              />
-              {errors.price && (
-                <p className="text-xs text-red-600" role="alert">
-                  {errors.price.message}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <Label className="text-sm text-[#374151] mb-2 block">数量</Label>
-              <Controller
-                name="qty"
-                control={control}
-                render={({ field }) => (
-                  <Input
-                    {...field}
-                    placeholder="株"
-                    value={field.value?.toString() || ''}
-                    onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                    className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB] bg-[#F6F6F6]"
-                    disabled={isSubmitting || isLoading || isRefetching}
-                    data-testid="entry-qty"
-                  />
-                )}
-              />
-              {errors.qty && (
-                <p className="text-xs text-red-600" role="alert">
-                  {errors.qty.message}
-                </p>
-              )}
-            </div>
-
-            {/* AI分析（任意） */}
-            <div className="border-t border-[#E5E7EB] pt-4">
-
-              <div className="mb-3">
-                <Label className="text-sm text-[#374151] font-medium">AI分析（任意）</Label>
-              </div>
-              
-              <div className="space-y-3">
-                <ChartImageUploader
-                  value={uploadedImage}
-                  onChange={handleImageUploaderChange}
-                  onError={handleImageUploaderError}
-                  showPreview={false}
-                />
-
-                {/* 画像プレビュー表示 */}
-                {imagePreview && (
-                  <div className="relative">
-                    <img 
-                      src={imagePreview} 
-                      alt="アップロードされた画像" 
-                      className="w-full max-h-48 object-contain rounded-lg border border-gray-200"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleImageRemove}
-                      className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold"
-                      title="画像を削除"
-                    >
-                      ×
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="w-full space-y-2 mt-4">
-                {showChartPatternSelect ? (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Label className="text-sm text-[#374151] font-medium">チャートパターン</Label>
-                        <span className="text-xs text-gray-400">任意</span>
-                      </div>
-                      <button
-                        type="button"
-                        className="text-sm text-gray-500 ml-2 cursor-pointer"
-                        data-testid="edit-close-chartpattern"
-                        onClick={() => setShowChartPatternSelect(false)}
-                      >
-                        閉じる
-                      </button>
-                    </div>
-                    <Select
-                      value={watchedChartPattern ?? undefined}
-                      onValueChange={(value) => {
-                        setValue('chartPattern', value as EntryEditFormData['chartPattern'], { shouldDirty: true });
-                      }}
-                    >
-                      <SelectTrigger
-                        className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB]"
-                        data-testid="edit-chartpattern-select"
-                        name="chartPattern"
-                      >
-                        <SelectValue placeholder="パターンを選択" />
-                      </SelectTrigger>
-                      <SelectContent className="z-[10000] bg-white border border-gray-200 shadow-lg">
-                        {CHART_PATTERNS.map((pattern) => (
-                          <SelectItem key={pattern.value} value={pattern.value}>
-                            {pattern.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="text-sm text-blue-600 hover:text-blue-700"
-                      data-testid="edit-add-chartpattern"
-                      onClick={() => setShowChartPatternSelect(true)}
-                    >
-                      ＋ チャートパターンを追加
-                    </button>
-                    {watchedChartPattern && (
-                      <span className="text-xs text-gray-500">
-                        選択中: {CHART_PATTERN_LABEL_MAP[watchedChartPattern as keyof typeof CHART_PATTERN_LABEL_MAP]}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="w-full space-y-2 mt-4">
-                {showMemoTextarea ? (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Label className="text-sm text-[#374151] font-medium">メモ</Label>
-                        <span className="text-xs text-gray-400">任意</span>
-                      </div>
-                      <button
-                        type="button"
-                        className="text-sm text-gray-500 ml-2 cursor-pointer"
-                        data-testid="edit-close-memo"
-                        onClick={() => setShowMemoTextarea(false)}
-                      >
-                        閉じる
-                      </button>
-                    </div>
-                    <textarea
-                      className="w-full rounded-lg border border-[#D1D5DB] focus:border-[#2563EB] p-3 resize-y min-h-[96px]"
-                      placeholder="エントリー理由や感情を入力"
-                      value={watchedNote ?? ''}
-                      onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => {
-                        setValue('note', event.target.value, { shouldDirty: true });
-                      }}
-                      name="memo"
-                      maxLength={500}
-                      data-testid="edit-memo-textarea"
-                    />
-                    <div className="text-xs text-[#6B7280] text-right">最大500文字</div>
-                  </>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="text-sm text-blue-600 hover:text-blue-700"
-                      data-testid="edit-add-memo"
-                      onClick={() => setShowMemoTextarea(true)}
-                    >
-                      ＋ メモを追加
-                    </button>
-                    {watchedNote?.trim() && (
-                      <span className="text-xs text-gray-500">
-                        下書きあり
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-
-            {/* AI再生成状態表示 */}
-            {aiRegeneratingStatus === 'regenerating' && (
-              <div className="flex items-center gap-2 mb-4 p-3 bg-blue-50 rounded-lg" data-testid="ai-regenerating">
-                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm text-blue-700">AI分析を再生成しています...</span>
-              </div>
-            )}
-            
-            {aiRegeneratingStatus === 'error' && (
-              <div className="flex items-center justify-between gap-2 mb-4 p-3 bg-red-50 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-red-700">AI分析の再生成に失敗しました</span>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      setAiRegeneratingStatus('regenerating');
-                      const chatId = 'default';
-                      const result = await regeneratePositionAnalysis(chatId, {
-                        id: initialData?.positionId || '',
-                        symbol: watch('symbolCode'),
-                        side: watch('side'),
-                        avgPrice: watch('price'),
-                        qtyTotal: watch('qty'),
-                        status: 'OPEN',
-                        ownerId: 'current_user',
-                        version: watch('version') || 1,
-                        updatedAt: new Date().toISOString(),
-                        chatId: 'default'
-                      });
-                      
-                      if (result.success) {
-                        setAiRegeneratingStatus('ready');
-                      } else {
-                        setAiRegeneratingStatus('idle');
-                      }
-                    } catch (error) {
-                      setAiRegeneratingStatus('error');
-                    }
+          <div className="grid gap-2">
+            <Label htmlFor="price" className="text-sm font-medium text-gray-700">
+              建値（円）
+            </Label>
+            <Controller
+              name="price"
+              control={control}
+              render={({ field }) => (
+                <Input
+                  id="price"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  disabled={prefillLoading || isSubmitting || isLoading}
+                  data-testid="input-price"
+                  value={Number.isNaN(field.value) ? '' : field.value}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    field.onChange(value === '' ? 0 : Number(value));
                   }}
-                  className="text-red-600 hover:text-red-800"
-                >
-                  再試行
-                </Button>
-              </div>
+                />
+              )}
+            />
+            {priceError && (
+              <p className="text-xs text-red-600" data-testid="error-price">
+                {priceError}
+              </p>
             )}
+          </div>
 
-            {/* アクションボタン */}
-            <div className="flex justify-end gap-8 pt-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleClose}
-                disabled={isSubmitting || isLoading}
-                className="text-[16px] font-medium text-[#8b9198] hover:text-[#333333]"
-                data-testid="entry-edit-cancel"
+          <div className="grid gap-2">
+            <Label htmlFor="qty" className="text-sm font-medium text-gray-700">
+              株数
+            </Label>
+            <Controller
+              name="qty"
+              control={control}
+              render={({ field }) => (
+                <Input
+                  id="qty"
+                  type="number"
+                  min={1}
+                  step={1}
+                  disabled={prefillLoading || isSubmitting || isLoading}
+                  data-testid="input-size"
+                  value={Number.isNaN(field.value) ? '' : field.value}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    field.onChange(value === '' ? 0 : Number(value));
+                  }}
+                />
+              )}
+            />
+            {qtyError && (
+              <p className="text-xs text-red-600" data-testid="error-size">
+                {qtyError}
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="text-sm font-medium text-gray-700" htmlFor="side">
+              ポジションタイプ
+            </Label>
+            <Controller
+              name="side"
+              control={control}
+              render={({ field }) => (
+                <Select
+                  defaultValue={field.value}
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={prefillLoading || isSubmitting || isLoading}
+                >
+                  <SelectTrigger id="side" data-testid="select-side">
+                    <SelectValue placeholder="選択してください" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LONG">ロング（買い）</SelectItem>
+                    <SelectItem value="SHORT">ショート（売り）</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="chartPattern" className="text-sm font-medium text-gray-700">
+              チャートパターン（任意）
+            </Label>
+            <Controller
+              name="chartPattern"
+              control={control}
+              render={({ field }) => (
+                <Select
+                  value={field.value ?? ''}
+                  defaultValue={field.value ?? ''}
+                  onValueChange={(value) => field.onChange(value)}
+                  disabled={prefillLoading || isSubmitting || isLoading}
+                >
+                  <SelectTrigger id="chartPattern" data-testid="select-chart-pattern">
+                    <SelectValue placeholder="選択しない" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">選択しない</SelectItem>
+                    {CHART_PATTERNS.map((pattern) => (
+                      <SelectItem key={pattern.value} value={pattern.value}>
+                        {pattern.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="note" className="text-sm font-medium text-gray-700">
+              メモ（任意）
+            </Label>
+            <Controller
+              name="note"
+              control={control}
+              render={({ field }) => (
+                <textarea
+                  id="note"
+                  rows={3}
+                  className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  maxLength={500}
+                  placeholder="取引の理由や背景を入力してください"
+                  disabled={prefillLoading || isSubmitting || isLoading}
+                  data-testid="input-note"
+                  value={field.value ?? ''}
+                  onChange={(event) => field.onChange(event.target.value)}
+                />
+              )}
+            />
+          </div>
+
+          <div
+            className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-4"
+            data-testid="trade-plan-preview"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-900">取引プランプレビュー</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                  isPlanDirty
+                    ? 'bg-blue-100 text-blue-600'
+                    : 'bg-gray-100 text-gray-500'
+                }`}
+                data-testid="plan-status"
               >
-                キャンセル
-              </Button>
-              <Button
-                type="submit"
-                disabled={isSubmitting || isLoading || isRefetching || !isValid || !hasFieldChanges}
-                className="bg-[#1e77f0] hover:bg-[#1557b0] text-white text-[16px] font-bold px-4 py-3 rounded-lg w-[83px] disabled:opacity-50 disabled:cursor-not-allowed"
-                data-testid="entry-edit-save"
-              >
-                {isSubmitting ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>送信中</span>
-                  </div>
-                ) : (
-                  '送信'
-                )}
-              </Button>
+                {isPlanDirty ? '再生成予定' : '変更なし'}
+              </span>
             </div>
-          </form>
-        </DialogContent>
-      </DialogPortal>
+            {planPreview ? (
+              <div className="mt-3 space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">利確目標</span>
+                  <span className="text-green-600" data-testid="plan-take-profit">
+                    {formatCurrency(planPreview.takeProfitPrice)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">損切り目標</span>
+                  <span className="text-red-600" data-testid="plan-stop-loss">
+                    {formatCurrency(planPreview.stopLossPrice)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">想定利益</span>
+                  <span className="text-gray-900" data-testid="plan-expected-profit">
+                    {formatAmount(planPreview.expectedProfit)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">想定損失</span>
+                  <span className="text-gray-900" data-testid="plan-expected-loss">
+                    {formatAmount(planPreview.expectedLoss)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">リスクリワード</span>
+                  <span className="text-gray-900" data-testid="plan-risk-reward">
+                    {planPreview.riskReward ? `1:${planPreview.riskReward.toFixed(2)}` : '—'}
+                  </span>
+                </div>
+                {isPlanDirty && (
+                  <p className="mt-2 text-xs text-blue-600" data-testid="plan-dirty-hint">
+                    保存すると新しい取引プランが適用されます。
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-gray-500" data-testid="plan-empty">
+                建値と株数を入力すると、利確・損切り目標が表示されます。
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-3">
+            <div className="space-y-1">
+              <span className="text-sm font-medium text-gray-900">
+                AI取引プランを再生成
+              </span>
+              <p className="text-xs text-gray-500" data-testid="toggle-helper">
+                {helperText}
+              </p>
+            </div>
+            <Switch
+              checked={regenerateEnabled}
+              onCheckedChange={setRegenerateEnabled}
+              data-testid="toggle-regenerate"
+              disabled={prefillLoading || isSubmitting || isLoading}
+            />
+          </div>
+
+          <div className="mt-2 flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleClose}
+              disabled={isSubmitting || isLoading}
+              data-testid="btn-cancel-update"
+            >
+              キャンセル
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSubmitDisabled}
+              data-testid="btn-submit-update"
+            >
+              {isSubmitting ? '更新中...' : '更新する'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
     </Dialog>
   );
 };

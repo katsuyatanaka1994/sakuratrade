@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { FilterButton } from '../components/FilterButton';
 import { FilterDialog } from '../components/FilterDialog';
 import { fetchTrades, formatDateToISO, TradesApiError } from '../lib/api/trades';
-import { TradeFilter, TradeFilterRuntime, TradeListResp, TradeListItem } from '../types/trades';
+import type { TradeFilter, TradeFilterRuntime, TradeListResp, TradeListItem } from '../types/trades';
 
 export const TradesPage: React.FC = () => {
   const [trades, setTrades] = useState<TradeListItem[]>([]);

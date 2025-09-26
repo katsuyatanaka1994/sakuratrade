@@ -1,4 +1,4 @@
-import { TradeFilter, TradeListResp } from '../../types/trades';
+import type { TradeFilter, TradeListResp } from '../../types/trades';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 

@@ -1,4 +1,4 @@
-import { ChatMessage, UpdateMessageRequest, EntryPayload, ExitPayload } from '../types/chat';
+import type { ChatMessage, UpdateMessageRequest, EntryPayload, ExitPayload } from '../types/chat';
 
 // API base URL (robust across environments)
 const getApiUrl = () => {

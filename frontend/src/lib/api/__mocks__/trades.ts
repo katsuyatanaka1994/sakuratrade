@@ -1,4 +1,4 @@
-import { TradeFilter, TradeListResp, TradeListItem } from '../../../types/trades';
+import type { TradeFilter, TradeListResp, TradeListItem } from '../../../types/trades';
 
 // サンプルデータ
 const mockTrades: TradeListItem[] = [

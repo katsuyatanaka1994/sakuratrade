@@ -2,15 +2,34 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import MessageEditIntegration from '../MessageEditIntegration';
-import { ChatMessage, LegacyMessage } from '../../types/chat';
+import type { ChatMessage, LegacyMessage } from '../../types/chat';
 import * as api from '../../services/api';
+import { showToast } from '../UI/Toast';
+import { recordEntryEdited } from '../../lib/auditLogger';
 
 // Mock the API functions
 vi.mock('../../services/api', () => ({
   updateChatMessage: vi.fn(),
 }));
 
+vi.mock('../UI/Toast', () => ({
+  showToast: {
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+    success: vi.fn(),
+  },
+}));
+
+vi.mock('../../lib/auditLogger', () => ({
+  recordEntryEdited: vi.fn(),
+  recordEntryDeleted: vi.fn(),
+  logAuditEvent: vi.fn(),
+}));
+
 const mockUpdateChatMessage = vi.mocked(api.updateChatMessage);
+const mockShowToast = vi.mocked(showToast);
+const mockRecordEntryEdited = vi.mocked(recordEntryEdited);
 
 describe('MessageEdit E2E Tests', () => {
   const mockMessages: (ChatMessage | LegacyMessage)[] = [
@@ -38,7 +57,8 @@ describe('MessageEdit E2E Tests', () => {
         price: 4000,
         qty: 100,
         tradeId: 't_123',
-        note: 'Initial entry'
+        note: 'Initial entry',
+        chartPattern: 'pullback-buy'
       },
       createdAt: '2024-01-01T10:01:00Z'
     } as ChatMessage,
@@ -56,21 +76,41 @@ describe('MessageEdit E2E Tests', () => {
     } as ChatMessage,
   ];
 
-  const defaultProps = {
-    messages: mockMessages,
+  const cloneMessages = () =>
+    mockMessages.map((msg) => {
+      if ('content' in msg) {
+        return { ...msg } as LegacyMessage;
+      }
+      if (msg.type === 'ENTRY') {
+        return { ...msg, payload: { ...msg.payload } } as ChatMessage;
+      }
+      if (msg.type === 'EXIT') {
+        return { ...msg, payload: { ...msg.payload } } as ChatMessage;
+      }
+      return { ...msg } as ChatMessage;
+    });
+
+  const createDefaultProps = () => ({
+    messages: cloneMessages(),
     currentUserId: 'user',
     chatInput: '',
     onChatInputChange: vi.fn(),
     onMessageSubmit: vi.fn(),
     onMessagesUpdate: vi.fn(),
-  };
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockShowToast.error.mockClear();
+    mockShowToast.warning.mockClear();
+    mockShowToast.info.mockClear();
+    mockShowToast.success.mockClear();
+    mockRecordEntryEdited.mockClear();
   });
 
   it('自分のメッセージにのみ編集アイコンを表示する', () => {
-    render(<MessageEditIntegration {...defaultProps} />);
+    const props = createDefaultProps();
+    render(<MessageEditIntegration {...props} />);
     
     // Should show edit icons for user messages
     const editButtons = screen.getAllByLabelText('メッセージを編集');
@@ -94,9 +134,10 @@ describe('MessageEdit E2E Tests', () => {
       } as ChatMessage
     ];
 
+    const props = createDefaultProps();
     render(
       <MessageEditIntegration 
-        {...defaultProps} 
+        {...props} 
         messages={messagesWithOtherUser}
       />
     );
@@ -115,7 +156,8 @@ describe('MessageEdit E2E Tests', () => {
       updatedAt: '2024-01-01T10:05:00Z'
     } as any);
 
-    render(<MessageEditIntegration {...defaultProps} />);
+    const props = createDefaultProps();
+    render(<MessageEditIntegration {...props} />);
     
     // Click edit button for text message
     const editButtons = screen.getAllByLabelText('メッセージを編集');
@@ -143,7 +185,11 @@ describe('MessageEdit E2E Tests', () => {
     });
     
     // Verify local state update
-    expect(defaultProps.onMessagesUpdate).toHaveBeenCalled();
+    expect(props.onMessagesUpdate).toHaveBeenCalled();
+    const finalCall = props.onMessagesUpdate.mock.calls.at(-1)?.[0] as (ChatMessage | LegacyMessage)[] | undefined;
+    const finalMessage = finalCall?.find(msg => !('content' in msg) && msg.id === 'msg-2') as ChatMessage | undefined;
+    expect(finalMessage?.updatedAt).toBe('2024-01-01T10:05:00Z');
+    expect(mockRecordEntryEdited).not.toHaveBeenCalled();
   });
 
   it('ENTRYメッセージの編集モーダルが正常に動作する', async () => {
@@ -158,11 +204,13 @@ describe('MessageEdit E2E Tests', () => {
         price: 4050,
         qty: 200,
         tradeId: 't_123',
-        note: 'Updated entry'
+        note: 'Updated entry',
+        chartPattern: 'double-bottom'
       }
     } as any);
 
-    render(<MessageEditIntegration {...defaultProps} />);
+    const props = createDefaultProps();
+    render(<MessageEditIntegration {...props} />);
     
     // Click edit button for ENTRY message
     const editButtons = screen.getAllByLabelText('メッセージを編集');
@@ -172,24 +220,27 @@ describe('MessageEdit E2E Tests', () => {
     expect(screen.getByText('📈 建値（ENTRY）を編集')).toBeInTheDocument();
     expect(screen.getByDisplayValue('6501')).toBeInTheDocument();
     expect(screen.getByDisplayValue('日立製作所')).toBeInTheDocument();
+    expect(screen.getByTestId('select-chart-pattern')).toHaveTextContent('押し目買い');
     
     // Edit form values
-    const sideSelect = screen.getByRole('combobox');
-    await user.click(sideSelect);
+    await user.click(screen.getByTestId('select-side'));
     await user.click(screen.getByText('SHORT (売り)'));
-    
+
     const priceInput = screen.getByDisplayValue('4000');
     await user.clear(priceInput);
     await user.type(priceInput, '4050');
-    
+
     const qtyInput = screen.getByDisplayValue('100');
     await user.clear(qtyInput);
     await user.type(qtyInput, '200');
-    
+
+    await user.click(screen.getByTestId('select-chart-pattern'));
+    await user.click(screen.getByText('ダブルボトム'));
+
     // Submit the update
     const saveButton = screen.getByText('保存');
     await user.click(saveButton);
-    
+
     // Verify API call
     await waitFor(() => {
       expect(mockUpdateChatMessage).toHaveBeenCalledWith('msg-3', {
@@ -200,10 +251,30 @@ describe('MessageEdit E2E Tests', () => {
           side: 'SHORT',
           price: 4050,
           qty: 200,
-          tradeId: 't_123'
+          tradeId: 't_123',
+          chartPattern: 'double-bottom'
         })
       });
     });
+
+    const finalCall = props.onMessagesUpdate.mock.calls.at(-1)?.[0] as (ChatMessage | LegacyMessage)[] | undefined;
+    const finalMessage = finalCall?.find(msg => !('content' in msg) && msg.id === 'msg-3') as ChatMessage | undefined;
+    expect(finalMessage?.payload).toMatchObject({
+      symbolCode: '6501',
+      side: 'SHORT',
+      price: 4050,
+      qty: 200,
+      chartPattern: 'double-bottom',
+    });
+
+    expect(mockRecordEntryEdited).toHaveBeenCalledTimes(1);
+    expect(mockRecordEntryEdited).toHaveBeenCalledWith(expect.objectContaining({
+      entryId: 'msg-3',
+      actorId: 'user',
+      before: expect.objectContaining({ chartPattern: 'pullback-buy' }),
+      after: expect.objectContaining({ chartPattern: 'double-bottom' }),
+      regenerateFlag: true,
+    }));
   });
 
   it('EXITメッセージの編集モーダルが正常に動作する', async () => {
@@ -219,7 +290,8 @@ describe('MessageEdit E2E Tests', () => {
       }
     } as any);
 
-    render(<MessageEditIntegration {...defaultProps} />);
+    const props = createDefaultProps();
+    render(<MessageEditIntegration {...props} />);
     
     // Click edit button for EXIT message
     const editButtons = screen.getAllByLabelText('メッセージを編集');
@@ -259,7 +331,8 @@ describe('MessageEdit E2E Tests', () => {
   it('編集中のキャンセル機能が正常に動作する', async () => {
     const user = userEvent.setup();
     
-    render(<MessageEditIntegration {...defaultProps} />);
+    const props = createDefaultProps();
+    render(<MessageEditIntegration {...props} />);
     
     // Start editing text message
     const editButtons = screen.getAllByLabelText('メッセージを編集');
@@ -274,13 +347,14 @@ describe('MessageEdit E2E Tests', () => {
     
     // Verify edit mode exited
     expect(screen.queryByText('メッセージを編集中')).not.toBeInTheDocument();
-    expect(defaultProps.onChatInputChange).toHaveBeenCalledWith('');
+    expect(props.onChatInputChange).toHaveBeenCalledWith('');
   });
 
   it('編集中にEscapeキーでキャンセルできる', async () => {
     const user = userEvent.setup();
     
-    render(<MessageEditIntegration {...defaultProps} />);
+    const props = createDefaultProps();
+    render(<MessageEditIntegration {...props} />);
     
     // Start editing text message
     const editButtons = screen.getAllByLabelText('メッセージを編集');
@@ -304,11 +378,16 @@ describe('MessageEdit E2E Tests', () => {
     // Mock API error
     mockUpdateChatMessage.mockRejectedValue(new Error('API Error'));
 
-    render(<MessageEditIntegration {...defaultProps} />);
+    const props = createDefaultProps();
+    render(<MessageEditIntegration {...props} />);
     
     // Start editing and submit
     const editButtons = screen.getAllByLabelText('メッセージを編集');
     await user.click(editButtons[1]);
+
+    const textarea = screen.getByDisplayValue('Test text message');
+    await user.clear(textarea);
+    await user.type(textarea, 'Failure text');
     
     const updateButton = screen.getByText('更新');
     await user.click(updateButton);
@@ -317,14 +396,59 @@ describe('MessageEdit E2E Tests', () => {
     await waitFor(() => {
       expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to update text message:', expect.any(Error));
     });
-    
+
+    expect(props.onMessagesUpdate).toHaveBeenCalledTimes(2);
+    expect(mockShowToast.error).toHaveBeenCalledWith('メッセージの更新に失敗しました', { description: 'API Error' });
+
+    const firstCall = props.onMessagesUpdate.mock.calls[0]?.[0] as (ChatMessage | LegacyMessage)[] | undefined;
+    const optimisticMessage = firstCall?.find(msg => !('content' in msg) && msg.id === 'msg-2') as ChatMessage | undefined;
+    expect(optimisticMessage?.text).toBe('Failure text');
+
+    const revertedCall = props.onMessagesUpdate.mock.calls[1]?.[0] as (ChatMessage | LegacyMessage)[] | undefined;
+    const revertedMessage = revertedCall?.find(msg => !('content' in msg) && msg.id === 'msg-2') as ChatMessage | undefined;
+    expect(revertedMessage?.text).toBe('Test text message');
+
+    expect(props.onChatInputChange).toHaveBeenCalledWith('Test text message');
+    expect(mockRecordEntryEdited).not.toHaveBeenCalled();
+
     consoleErrorSpy.mockRestore();
+  });
+
+  it('競合時にはサーバ内容を優先し警告を表示する', async () => {
+    const user = userEvent.setup();
+    mockUpdateChatMessage.mockRejectedValue(new Error('HTTP 409'));
+
+    const props = createDefaultProps();
+    render(<MessageEditIntegration {...props} />);
+
+    const editButtons = screen.getAllByLabelText('メッセージを編集');
+    await user.click(editButtons[1]);
+
+    const textarea = screen.getByDisplayValue('Test text message');
+    await user.clear(textarea);
+    await user.type(textarea, 'Conflict text');
+
+    await user.click(screen.getByText('更新'));
+
+    await waitFor(() => {
+      expect(mockShowToast.warning).toHaveBeenCalledWith('他のユーザーが先に更新しました。最新の内容を確認してください。');
+    });
+
+    expect(props.onMessagesUpdate).toHaveBeenCalledTimes(2);
+
+    const conflictFinalCall = props.onMessagesUpdate.mock.calls[1]?.[0] as (ChatMessage | LegacyMessage)[] | undefined;
+    const revertedMessage = conflictFinalCall?.find(msg => !('content' in msg) && msg.id === 'msg-2') as ChatMessage | undefined;
+    expect(revertedMessage?.text).toBe('Test text message');
+
+    expect(props.onChatInputChange).toHaveBeenCalledWith('Test text message');
+    expect(mockRecordEntryEdited).not.toHaveBeenCalled();
   });
 
   it('キーボードナビゲーションで編集アイコンにアクセスできる', async () => {
     const user = userEvent.setup();
     
-    render(<MessageEditIntegration {...defaultProps} />);
+    const props = createDefaultProps();
+    render(<MessageEditIntegration {...props} />);
     
     // Tab to first edit button and press Enter
     await user.tab();
@@ -334,7 +458,7 @@ describe('MessageEdit E2E Tests', () => {
     await user.keyboard('{Enter}');
     
     // Verify edit mode started
-    expect(defaultProps.onChatInputChange).toHaveBeenCalled();
+    expect(props.onChatInputChange).toHaveBeenCalled();
   });
 });
 

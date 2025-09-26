@@ -1,15 +1,16 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { vi, type MockedFunction } from 'vitest';
 import MessageEditContainer from '../MessageEditContainer';
-import { ChatMessage } from '../../types/chat';
+import type { ChatMessage } from '../../types/chat';
 import * as api from '../../services/api';
 
 // Mock the API functions
-jest.mock('../../services/api', () => ({
-  updateChatMessage: jest.fn(),
-  undoChatMessage: jest.fn(),
-  generateAIReply: jest.fn()
+vi.mock('../../services/api', () => ({
+  updateChatMessage: vi.fn(),
+  undoChatMessage: vi.fn(),
+  generateAIReply: vi.fn()
 }));
 
 const mockMessages: ChatMessage[] = [
@@ -51,12 +52,12 @@ const mockProps = {
   messages: mockMessages,
   currentUserId: 'user1',
   chatId: 'chat1',
-  onMessagesUpdate: jest.fn()
+  onMessagesUpdate: vi.fn()
 };
 
 describe('MessageEditFeature', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   test('renders messages with edit icons for user messages', () => {
@@ -114,7 +115,7 @@ describe('MessageEditFeature', () => {
   });
 
   test('calls undo API when clicking undo button', async () => {
-    const mockUndoChatMessage = api.undoChatMessage as jest.MockedFunction<typeof api.undoChatMessage>;
+    const mockUndoChatMessage = api.undoChatMessage as MockedFunction<typeof api.undoChatMessage>;
     mockUndoChatMessage.mockResolvedValueOnce();
 
     render(<MessageEditContainer {...mockProps} />);
@@ -128,8 +129,8 @@ describe('MessageEditFeature', () => {
   });
 
   test('updates message when submitting text edit', async () => {
-    const mockUpdateChatMessage = api.updateChatMessage as jest.MockedFunction<typeof api.updateChatMessage>;
-    const mockGenerateAIReply = api.generateAIReply as jest.MockedFunction<typeof api.generateAIReply>;
+    const mockUpdateChatMessage = api.updateChatMessage as MockedFunction<typeof api.updateChatMessage>;
+    const mockGenerateAIReply = api.generateAIReply as MockedFunction<typeof api.generateAIReply>;
     
     mockUpdateChatMessage.mockResolvedValueOnce({
       ...mockMessages[0],

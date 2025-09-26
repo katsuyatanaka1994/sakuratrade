@@ -3,9 +3,11 @@ import MessageItem from './MessageItem';
 import ChatInputCard from './ChatInputCard';
 import EditEntryModal from './EditEntryModal';
 import EditExitModal from './EditExitModal';
-import { ChatMessage, EntryPayload, ExitPayload } from '../types/chat';
+import type { ChatMessage, EntryPayload, ExitPayload } from '../types/chat';
 import { updateChatMessage, undoChatMessage, generateAIReply } from '../services/api';
 import { canUndoMessage } from '../utils/messageUtils';
+import { recordEntryEdited } from '../lib/auditLogger';
+import type { EntryAuditSnapshot } from '../lib/auditLogger';
 
 interface MessageEditContainerProps {
   messages: ChatMessage[];
@@ -89,24 +91,65 @@ const MessageEditContainer: React.FC<MessageEditContainerProps> = ({
     }
   }, [editState, messages, onMessagesUpdate, chatId]);
 
-  const handleEntryUpdate = useCallback(async (data: EntryPayload) => {
+  const sanitizeNote = (note?: string) => (note ? note.slice(0, 120) : undefined);
+
+  const handleEntryUpdate = useCallback(async (
+    data: EntryPayload,
+    context?: { regenerateEnabled: boolean; planRegenerated: boolean }
+  ) => {
     if (!editState.messageId || editState.messageType !== 'ENTRY') return;
 
     setIsLoading(true);
     try {
-      const updatedMessage = await updateChatMessage(editState.messageId, {
+      const messageId = editState.messageId;
+      const originalMessage = messages.find(msg => msg.id === messageId);
+
+      const updatedMessage = await updateChatMessage(messageId, {
         type: 'ENTRY',
         payload: data
       });
 
       const updatedMessages = messages.map(msg =>
-        msg.id === editState.messageId ? updatedMessage : msg
+        msg.id === messageId ? updatedMessage : msg
       );
 
       onMessagesUpdate(updatedMessages);
       
       await generateAIReply(chatId, updatedMessage.id);
       
+      const beforeSnapshot: EntryAuditSnapshot | null = originalMessage && originalMessage.type === 'ENTRY'
+        ? {
+            symbolCode: originalMessage.payload.symbolCode,
+            side: originalMessage.payload.side,
+            price: originalMessage.payload.price,
+            qty: originalMessage.payload.qty,
+            note: sanitizeNote(originalMessage.payload.note),
+            tradeId: originalMessage.payload.tradeId,
+            chartPattern: originalMessage.payload.chartPattern,
+          }
+        : null;
+
+      const afterSnapshot: EntryAuditSnapshot | null = updatedMessage.type === 'ENTRY'
+        ? {
+            symbolCode: updatedMessage.payload.symbolCode,
+            side: updatedMessage.payload.side,
+            price: updatedMessage.payload.price,
+            qty: updatedMessage.payload.qty,
+            note: sanitizeNote(updatedMessage.payload.note),
+            tradeId: updatedMessage.payload.tradeId,
+            chartPattern: updatedMessage.payload.chartPattern,
+          }
+        : null;
+
+      recordEntryEdited({
+        entryId: messageId,
+        before: beforeSnapshot,
+        after: afterSnapshot,
+        actorId: currentUserId,
+        timestamp: updatedMessage.updatedAt ?? new Date().toISOString(),
+        regenerateFlag: !!(context?.regenerateEnabled && context?.planRegenerated),
+      });
+
       handleCancelEdit();
     } catch (error) {
       console.error('Failed to update entry message:', error);
@@ -114,7 +157,7 @@ const MessageEditContainer: React.FC<MessageEditContainerProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [editState, messages, onMessagesUpdate, chatId]);
+  }, [editState, messages, onMessagesUpdate, chatId, currentUserId, handleCancelEdit]);
 
   const handleExitUpdate = useCallback(async (data: ExitPayload) => {
     if (!editState.messageId || editState.messageType !== 'EXIT') return;
