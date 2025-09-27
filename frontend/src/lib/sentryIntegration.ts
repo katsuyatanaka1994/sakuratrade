@@ -3,12 +3,13 @@
  * 個人情報マスク処理付きエラー報告
  */
 
-import { 
-  ErrorDetail, 
-  sanitizeErrorForReporting, 
+import {
+  ErrorDetail,
+  sanitizeErrorForReporting,
   generateErrorHash,
   incrementErrorCount
 } from './errorHandling';
+import { getEnvironmentName, isDevelopmentEnv } from './env';
 
 // Sentryの簡易インターフェース（実際のSentryライブラリ使用時は置換）
 interface SentryLike {
@@ -22,36 +23,39 @@ interface SentryLike {
 }
 
 // モック実装（実環境では実際のSentryを使用）
+const IS_DEV = isDevelopmentEnv();
+const ENVIRONMENT = getEnvironmentName();
+
 const MockSentry: SentryLike = {
   captureException: (error: Error, context?: any) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (IS_DEV) {
       console.error('[Sentry Mock] Exception:', error, context);
     }
     return `mock-${Date.now()}`;
   },
   captureMessage: (message: string, level?: string, context?: any) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (IS_DEV) {
       console.warn(`[Sentry Mock] ${level?.toUpperCase()}: ${message}`, context);
     }
     return `mock-msg-${Date.now()}`;
   },
   setContext: (key: string, context: any) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (IS_DEV) {
       console.log(`[Sentry Mock] Context [${key}]:`, context);
     }
   },
   setTag: (key: string, value: string) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (IS_DEV) {
       console.log(`[Sentry Mock] Tag: ${key} = ${value}`);
     }
   },
   setUser: (user: any) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (IS_DEV) {
       console.log('[Sentry Mock] User:', user);
     }
   },
   addBreadcrumb: (breadcrumb: any) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (IS_DEV) {
       console.log('[Sentry Mock] Breadcrumb:', breadcrumb);
     }
   },
@@ -79,8 +83,8 @@ interface ErrorReportingConfig {
 }
 
 const defaultConfig: ErrorReportingConfig = {
-  enableReporting: process.env.NODE_ENV === 'production',
-  environment: process.env.NODE_ENV || 'development',
+  enableReporting: ENVIRONMENT === 'production',
+  environment: ENVIRONMENT || 'development',
   sampleRate: 1.0,
   beforeSend: (event) => {
     // 開発環境では送信しない
@@ -329,7 +333,7 @@ export function getErrorReportingStats(): {
  * エラー送信のテスト（開発用）
  */
 export function testErrorReporting(): void {
-  if (process.env.NODE_ENV === 'development') {
+  if (IS_DEV) {
     const testError: ErrorDetail = {
       type: 'UNKNOWN_ERROR',
       uiType: 'toast',

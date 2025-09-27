@@ -17,6 +17,7 @@ import {
   logError
 } from './errorHandling';
 import { showToast, createToastFromError } from '../components/UI/Toast';
+import { calculatePositionMetrics } from '../utils/positionCalculations';
 
 // 再試行の状態管理
 interface RetryState {
@@ -160,10 +161,13 @@ export async function retryBotMessages(
       throw new Error('UpdateDiff is required for bot message retry');
     }
     
+    const metrics = calculatePositionMetrics(context.position);
     const positionMetrics = {
-      stopLossTarget: context.position.avgPrice * 0.95,
-      profitTarget: context.position.avgPrice * 1.10,
-      riskRatio: 1.0
+      stopLossTarget: metrics.stopLossTarget,
+      profitTarget: metrics.profitTarget,
+      riskRatio: metrics.riskRatio,
+      expectedProfitAmount: metrics.expectedProfitAmount,
+      expectedLossAmount: metrics.expectedLossAmount,
     };
     
     const result = await sendPositionUpdateMessages(

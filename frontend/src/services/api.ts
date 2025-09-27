@@ -1,32 +1,8 @@
 import type { ChatMessage, UpdateMessageRequest, EntryPayload, ExitPayload } from '../types/chat';
+import { resolveApiBaseUrl } from '../lib/env';
 
 // API base URL (robust across environments)
-const getApiUrl = () => {
-  try {
-    // Vite (if available)
-    const viteUrl = (import.meta as any)?.env?.VITE_API_BASE_URL;
-    if (viteUrl) return viteUrl as string;
-  } catch (_) {
-    // ignore — import.meta may not exist
-  }
-
-  // Meta tag override: <meta name="api-base-url" content="http://..." />
-  if (typeof document !== 'undefined') {
-    const meta = document.querySelector('meta[name="api-base-url"]') as HTMLMetaElement | null;
-    const metaUrl = meta?.getAttribute('content');
-    if (metaUrl) return metaUrl;
-  }
-
-  // Window global override: window.API_BASE_URL or window.ENV.VITE_API_BASE_URL
-  if (typeof window !== 'undefined') {
-    const w = window as any;
-    const globalUrl = w.API_BASE_URL || w?.ENV?.VITE_API_BASE_URL;
-    if (globalUrl) return globalUrl as string;
-  }
-
-  // Fallback
-  return "http://localhost:8000";
-};
+const getApiUrl = () => resolveApiBaseUrl('http://localhost:8000');
 
 // Chat Message API functions
 

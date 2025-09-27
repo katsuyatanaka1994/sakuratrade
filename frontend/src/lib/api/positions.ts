@@ -1,6 +1,7 @@
 import { Position, Side } from '../../store/positions';
+import { resolveApiBaseUrl } from '../env';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
+const API_BASE_URL = resolveApiBaseUrl('/api');
 
 export class PositionsApiError extends Error {
   constructor(

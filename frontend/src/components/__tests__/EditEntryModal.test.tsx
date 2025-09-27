@@ -7,6 +7,7 @@ import type { Position } from '../../store/positions';
 import type { EntryPayload } from '../../types/chat';
 import * as positionsApi from '../../lib/api/positions';
 import * as aiRegeneration from '../../lib/aiRegeneration';
+import * as botMessaging from '../../lib/botMessaging';
 
 vi.mock('../../store/positions', async () => {
   const actual = await vi.importActual<typeof import('../../store/positions')>('../../store/positions');
@@ -28,6 +29,15 @@ vi.mock('../../lib/api/positions', async () => {
 vi.mock('../../lib/aiRegeneration', () => ({
   regeneratePositionAnalysis: vi.fn(),
   handleAIRegenerationFailure: vi.fn(),
+}));
+
+vi.mock('../../lib/botMessaging', () => ({
+  sendPositionUpdateMessages: vi.fn().mockResolvedValue({
+    userMessageResult: { success: true },
+    systemMessageResult: { success: true },
+    allSuccess: true,
+  }),
+  logBotMessageFailure: vi.fn(),
 }));
 
 describe('EditEntryModal', () => {
@@ -57,6 +67,9 @@ describe('EditEntryModal', () => {
     chatId: 'default',
     version: 5,
   };
+
+  const sendPositionUpdateMessagesMock = botMessaging
+    .sendPositionUpdateMessages as Mock;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -141,6 +154,7 @@ describe('EditEntryModal', () => {
       }), expect.objectContaining({ regenerateEnabled: true, planRegenerated: true }));
       expect(aiRegeneration.regeneratePositionAnalysis).toHaveBeenCalled();
       expect(onClose).toHaveBeenCalled();
+      expect(sendPositionUpdateMessagesMock).toHaveBeenCalled();
     });
   });
 
@@ -174,6 +188,7 @@ describe('EditEntryModal', () => {
         expect.objectContaining({ chartPattern: 'pullback-buy' }),
         expect.objectContaining({ regenerateEnabled: false, planRegenerated: true })
       );
+      expect(sendPositionUpdateMessagesMock).toHaveBeenCalled();
     });
   });
 
@@ -200,6 +215,7 @@ describe('EditEntryModal', () => {
         expect.objectContaining({ planRegenerated: true })
       );
       expect(positionsApi.updatePositionEntry).not.toHaveBeenCalled();
+      expect(sendPositionUpdateMessagesMock).not.toHaveBeenCalled();
     });
   });
 
@@ -256,6 +272,37 @@ describe('EditEntryModal', () => {
         expect.objectContaining({ chartPattern: 'pullback-buy' }),
         expect.objectContaining({ regenerateEnabled: true, planRegenerated: false })
       );
+      expect(screen.getByTestId('plan-status')).toHaveTextContent('変更なし');
+      expect(sendPositionUpdateMessagesMock).not.toHaveBeenCalled();
+    });
+  });
+
+  test('does not resend plan when only quantity changes', async () => {
+    (positionsApi.fetchPositionById as Mock).mockResolvedValue(mockPosition);
+    (positionsApi.updatePositionEntry as Mock).mockResolvedValue({ position: mockPosition });
+
+    const onSave = vi.fn();
+
+    render(
+      <EditEntryModal
+        isOpen
+        onClose={vi.fn()}
+        initialData={defaultEntry}
+        onSave={onSave}
+        chatId="chat-1"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('input-size')).toHaveValue(120);
+    });
+
+    fireEvent.change(screen.getByTestId('input-size'), { target: { value: '150' } });
+    fireEvent.click(screen.getByTestId('btn-submit-update'));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalled();
+      expect(sendPositionUpdateMessagesMock).not.toHaveBeenCalled();
       expect(screen.getByTestId('plan-status')).toHaveTextContent('変更なし');
     });
   });

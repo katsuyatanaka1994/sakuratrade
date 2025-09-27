@@ -1,3 +1,5 @@
+import { isDevelopmentEnv, resolveApiBaseUrl } from '../lib/env';
+
 // Using crypto.randomUUID() for cross-browser compatibility
 // import * as ULID from 'ulid';
 
@@ -596,7 +598,8 @@ export function debugPositions() {
 
 // Journal API functions
 const getApiUrl = () => {
-  return process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '';
+  const fallback = isDevelopmentEnv() ? 'http://localhost:8000' : '';
+  return resolveApiBaseUrl(fallback);
 };
 
 // ===== Settlement (EXIT) history for accurate Undo =====

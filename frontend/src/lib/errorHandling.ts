@@ -1,3 +1,5 @@
+import { isDevelopmentEnv } from './env';
+
 /**
  * エラーハンドリング・メッセージ管理システム
  * i18n対応とユーザー向けエラーメッセージ変換
@@ -298,7 +300,7 @@ export function calculateRetryDelay(attemptNumber: number, baseDelay: number = 1
  * エラーログ出力（開発環境での詳細ログ）
  */
 export function logError(errorDetail: ErrorDetail, context?: string): void {
-  if (process.env.NODE_ENV === 'development') {
+  if (isDevelopmentEnv()) {
     console.group(`🚨 Error [${errorDetail.type}] ${context || ''}`);
     console.error('Message:', errorDetail.message);
     console.error('Technical:', errorDetail.technicalMessage);

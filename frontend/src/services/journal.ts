@@ -1,3 +1,5 @@
+import { isDevelopmentEnv, resolveApiBaseUrl } from '../lib/env';
+
 interface JournalEntry {
   trade_id: string;
   chat_id: string;
@@ -35,7 +37,7 @@ interface FeedbackResponse {
   message_id?: string;
 }
 
-const API_BASE = process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '';
+const API_BASE = resolveApiBaseUrl(isDevelopmentEnv() ? 'http://localhost:8000' : '');
 
 export const journalApi = {
   async getEntries(filters: JournalFilters = {}): Promise<JournalEntry[]> {

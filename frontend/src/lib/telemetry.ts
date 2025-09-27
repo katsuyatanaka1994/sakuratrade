@@ -4,6 +4,7 @@
  */
 
 import type { Position } from '../store/positions';
+import { isDevelopmentEnv, resolveTelemetryEndpoint } from './env';
 
 // テレメトリイベント名の定義
 export type TelemetryEvent = 
@@ -67,10 +68,10 @@ interface TelemetryConfig {
 
 const defaultConfig: TelemetryConfig = {
   enabled: true,
-  endpoint: process.env.REACT_APP_TELEMETRY_ENDPOINT || '/api/telemetry',
+  endpoint: resolveTelemetryEndpoint('/api/telemetry'),
   batchSize: 10,
   flushInterval: 5000, // 5秒
-  debug: process.env.NODE_ENV === 'development'
+  debug: isDevelopmentEnv()
 };
 
 let currentConfig = { ...defaultConfig };

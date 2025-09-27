@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ErrorDetail, ErrorSeverity } from '../../lib/errorHandling';
+import type { ErrorDetail } from '../../lib/errorHandling';
 
 // トースト表示タイプ
 export type ToastType = 'error' | 'warning' | 'info' | 'success';

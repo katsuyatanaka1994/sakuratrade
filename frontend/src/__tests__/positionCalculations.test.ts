@@ -83,6 +83,8 @@ describe('positionCalculations', () => {
 
       expect(metrics.stopLossTarget).toBe(14550); // 15000 * 0.97
       expect(metrics.profitTarget).toBe(17250); // 15000 * 1.15
+      expect(metrics.expectedProfitAmount).toBeCloseTo((17250 - 15000) * 100);
+      expect(metrics.expectedLossAmount).toBeCloseTo((15000 - 14550) * 100);
     });
 
     it('should handle edge case with zero quantity', () => {
@@ -91,6 +93,8 @@ describe('positionCalculations', () => {
 
       expect(metrics.totalValue).toBe(0);
       expect(metrics.unrealizedPnl).toBe(0);
+      expect(metrics.expectedProfitAmount).toBe(0);
+      expect(metrics.expectedLossAmount).toBe(0);
     });
 
     it('should handle edge case with very low price', () => {
@@ -100,6 +104,8 @@ describe('positionCalculations', () => {
       expect(metrics.stopLossTarget).toBe(0.95); // 1 * 0.95
       expect(metrics.profitTarget).toBe(1.10); // 1 * 1.10
       expect(metrics.totalValue).toBe(100); // 1 * 100
+      expect(metrics.expectedProfitAmount).toBeCloseTo((1.10 - 1) * 100);
+      expect(metrics.expectedLossAmount).toBeCloseTo((1 - 0.95) * 100);
     });
   });
 

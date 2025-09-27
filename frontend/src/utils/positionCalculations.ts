@@ -11,6 +11,8 @@ export interface PositionMetrics {
   riskRatio: number;          // リスク比率 (損失:利益)
   totalValue: number;         // 総評価額
   breakEvenPrice: number;     // 損益分岐点
+  expectedProfitAmount: number; // 利確時の想定利益額
+  expectedLossAmount: number;   // 損切時の想定損失額
 }
 
 /**
@@ -92,7 +94,9 @@ export function calculatePositionMetrics(
     profitTarget,
     riskRatio,
     totalValue,
-    breakEvenPrice
+    breakEvenPrice,
+    expectedProfitAmount: potentialProfit,
+    expectedLossAmount: potentialLoss,
   };
 }
 

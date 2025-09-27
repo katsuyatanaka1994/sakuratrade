@@ -34,15 +34,30 @@ import {
 } from '../lib/aiRegeneration';
 import { CHART_PATTERNS } from '../constants/chartPatterns';
 import { showToast } from './UI/Toast';
-
-interface RiskSettings {
-  takeProfitRate: number;
-  stopLossRate: number;
-}
+import {
+  calculatePositionMetrics,
+  calculateUpdateDiff,
+} from '../utils/positionCalculations';
+import {
+  sendPositionUpdateMessages,
+  logBotMessageFailure,
+} from '../lib/botMessaging';
+import {
+  loadTradePlanConfig,
+  computeTradePlanTargets,
+  buildPlanMessageContent,
+  createPlanLegacyMessage,
+  type TradePlanConfig,
+} from '../utils/tradePlanMessage';
 
 interface PlanInputs {
   price: number;
   qty: number;
+  side: 'LONG' | 'SHORT';
+}
+
+interface PlanTriggerInputs {
+  price: number;
   side: 'LONG' | 'SHORT';
 }
 
@@ -54,39 +69,7 @@ interface TradePlanPreview {
   riskReward: number | null;
 }
 
-const DEFAULT_RISK_SETTINGS: RiskSettings = {
-  takeProfitRate: 0.05,
-  stopLossRate: 0.02,
-};
-
 const PRICE_PRECISION = 2;
-
-const getNumberFromStorage = (key: string): number | null => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const raw = window.localStorage.getItem(key);
-  if (!raw) return null;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const getRiskSettings = (): RiskSettings => {
-  const takeProfitPercent = getNumberFromStorage('takeProfitPercent');
-  const stopLossPercent = getNumberFromStorage('stopLossPercent');
-
-  const takeProfitRate = takeProfitPercent && takeProfitPercent > 0
-    ? takeProfitPercent / 100
-    : DEFAULT_RISK_SETTINGS.takeProfitRate;
-  const stopLossRate = stopLossPercent && stopLossPercent > 0
-    ? stopLossPercent / 100
-    : DEFAULT_RISK_SETTINGS.stopLossRate;
-
-  return {
-    takeProfitRate,
-    stopLossRate,
-  };
-};
 
 const toPlanInputs = (
   price: number | undefined,
@@ -99,42 +82,43 @@ const toPlanInputs = (
   return { price, qty, side };
 };
 
+const toPlanTriggerInputs = (
+  price: number | undefined,
+  side: 'LONG' | 'SHORT' | undefined
+): PlanTriggerInputs | null => {
+  if (!side) return null;
+  if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) return null;
+  return { price, side };
+};
+
 const computeTradePlanPreview = (
   inputs: PlanInputs | null,
-  settings: RiskSettings
+  config: TradePlanConfig
 ): TradePlanPreview | null => {
   if (!inputs) return null;
 
   const { price, qty, side } = inputs;
-  const { takeProfitRate, stopLossRate } = settings;
+  const {
+    takeProfitPrice,
+    stopLossPrice,
+    expectedProfitAmount,
+    expectedLossAmount,
+  } = computeTradePlanTargets(price, qty, side, config);
 
-  const takeProfitPrice = side === 'LONG'
-    ? price * (1 + takeProfitRate)
-    : price * (1 - takeProfitRate);
-  const stopLossPrice = side === 'LONG'
-    ? price * (1 - stopLossRate)
-    : price * (1 + stopLossRate);
-
-  const expectedProfit = Math.abs(takeProfitPrice - price) * qty;
-  const expectedLoss = Math.abs(price - stopLossPrice) * qty;
-  const riskReward = expectedLoss === 0 ? null : expectedProfit / expectedLoss;
+  const riskReward = expectedLossAmount === 0 ? null : expectedProfitAmount / expectedLossAmount;
 
   return {
     takeProfitPrice,
     stopLossPrice,
-    expectedProfit,
-    expectedLoss,
+    expectedProfit: expectedProfitAmount,
+    expectedLoss: expectedLossAmount,
     riskReward,
   };
 };
 
-const arePlanInputsEqual = (a: PlanInputs, b: PlanInputs): boolean => {
+const arePlanTriggersEqual = (a: PlanTriggerInputs, b: PlanTriggerInputs): boolean => {
   const normalizePrice = (value: number) => Number(value.toFixed(PRICE_PRECISION));
-  return (
-    normalizePrice(a.price) === normalizePrice(b.price) &&
-    a.qty === b.qty &&
-    a.side === b.side
-  );
+  return normalizePrice(a.price) === normalizePrice(b.price) && a.side === b.side;
 };
 
 const formatCurrency = (value: number): string => {
@@ -233,6 +217,26 @@ const defaultValues: EditEntryFormValues = {
   tradeId: '',
 };
 
+const toPositionFromEntryPayload = (
+  entry: EntryPayload & { version?: number; chatId?: string | null }
+): Position => {
+  const chatId = entry.chatId ?? undefined;
+  return {
+    symbol: entry.symbolCode,
+    name: entry.symbolName,
+    side: entry.side,
+    avgPrice: entry.price,
+    qtyTotal: entry.qty,
+    lots: [],
+    realizedPnl: 0,
+    updatedAt: new Date().toISOString(),
+    status: 'OPEN',
+    ...(chatId ? { chatId } : {}),
+    version: entry.version ?? 0,
+    currentTradeId: entry.tradeId,
+  };
+};
+
 const EditEntryModal: React.FC<EditEntryModalProps> = ({
   isOpen,
   onClose,
@@ -241,17 +245,18 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
   onUpdateSuccess,
   chatId,
   isLoading = false,
-  onAddBotMessage: _onAddBotMessage,
+  onAddBotMessage,
 }) => {
   const [prefillLoading, setPrefillLoading] = useState(false);
   const [serverError, setServerError] = useState<string>('');
   const [regenerateEnabled, setRegenerateEnabled] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isPlanDirty, setIsPlanDirty] = useState(false);
+  const [isPlanTriggerDirty, setIsPlanTriggerDirty] = useState(false);
 
   const positionId = initialData?.positionId;
-  const riskSettings = useMemo(() => getRiskSettings(), []);
-  const lastSavedPlanInputsRef = useRef<PlanInputs | null>(null);
+  const planConfig = useMemo(() => loadTradePlanConfig(), []);
+  const lastKnownPositionRef = useRef<Position | null>(null);
+  const lastPlanTriggerInputsRef = useRef<PlanTriggerInputs | null>(null);
 
   const emitPositionEvent = (eventName: string, detail: Record<string, unknown>) => {
     if (typeof window === 'undefined') {
@@ -281,27 +286,33 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
     [watchedPrice, watchedQty, watchedSide]
   );
 
+  const watchedPlanTriggerInputs = useMemo(
+    () => toPlanTriggerInputs(watchedPrice, watchedSide),
+    [watchedPrice, watchedSide]
+  );
+
   const planPreview = useMemo(
-    () => computeTradePlanPreview(watchedPlanInputs, riskSettings),
-    [watchedPlanInputs, riskSettings]
+    () => computeTradePlanPreview(watchedPlanInputs, planConfig),
+    [watchedPlanInputs, planConfig]
   );
 
   useEffect(() => {
-    const previous = lastSavedPlanInputsRef.current;
-    if (!watchedPlanInputs || !previous) {
-      setIsPlanDirty(false);
+    const previous = lastPlanTriggerInputsRef.current;
+    if (!watchedPlanTriggerInputs || !previous) {
+      setIsPlanTriggerDirty(false);
       return;
     }
-    setIsPlanDirty(!arePlanInputsEqual(previous, watchedPlanInputs));
-  }, [watchedPlanInputs]);
+    setIsPlanTriggerDirty(!arePlanTriggersEqual(previous, watchedPlanTriggerInputs));
+  }, [watchedPlanTriggerInputs]);
 
   useEffect(() => {
     if (!isOpen) {
       reset(defaultValues);
       setServerError('');
       setRegenerateEnabled(true);
-      setIsPlanDirty(false);
-      lastSavedPlanInputsRef.current = null;
+      setIsPlanTriggerDirty(false);
+      lastPlanTriggerInputsRef.current = null;
+      lastKnownPositionRef.current = null;
       return;
     }
 
@@ -309,12 +320,12 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
     async function prefill() {
       if (!initialData) {
         reset(defaultValues);
-        lastSavedPlanInputsRef.current = toPlanInputs(
+        lastPlanTriggerInputsRef.current = toPlanTriggerInputs(
           defaultValues.price,
-          defaultValues.qty,
           defaultValues.side
         );
-        setIsPlanDirty(false);
+        setIsPlanTriggerDirty(false);
+        lastKnownPositionRef.current = null;
         return;
       }
 
@@ -350,16 +361,32 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
             version: latest.version,
             tradeId: initialData.tradeId ?? latest.currentTradeId ?? '',
           };
+
+          const effectiveChatId = latest.chatId ?? initialData.chatId ?? chatId ?? null;
+          lastKnownPositionRef.current = {
+            ...latest,
+            chatId: effectiveChatId ?? undefined,
+          };
         }
 
         if (!isCancelled) {
           reset(latestValues, { keepDefaultValues: false });
-          lastSavedPlanInputsRef.current = toPlanInputs(
+          lastPlanTriggerInputsRef.current = toPlanTriggerInputs(
             latestValues.price,
-            latestValues.qty,
             latestValues.side
           );
-          setIsPlanDirty(false);
+          setIsPlanTriggerDirty(false);
+          if (!positionId) {
+            lastKnownPositionRef.current = toPositionFromEntryPayload({
+              ...initialData,
+              price: latestValues.price,
+              qty: latestValues.qty,
+              side: latestValues.side,
+              symbolName: latestValues.symbolName,
+              version: latestValues.version,
+              chatId: initialData.chatId ?? chatId ?? null,
+            });
+          }
         }
       } catch (error) {
         console.error('Failed to fetch latest position:', error);
@@ -380,12 +407,15 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
             version: initialData.version ?? 0,
             tradeId: initialData.tradeId ?? '',
           });
-          lastSavedPlanInputsRef.current = toPlanInputs(
+          lastPlanTriggerInputsRef.current = toPlanTriggerInputs(
             initialData.price,
-            initialData.qty,
             initialData.side
           );
-          setIsPlanDirty(false);
+          setIsPlanTriggerDirty(false);
+          lastKnownPositionRef.current = toPositionFromEntryPayload({
+            ...initialData,
+            chatId: initialData.chatId ?? chatId ?? null,
+          });
         }
       } finally {
         if (!isCancelled) {
@@ -422,14 +452,21 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
     setServerError('');
 
     try {
-      const nextPlanInputs: PlanInputs = {
+      const nextPlanTriggerInputs: PlanTriggerInputs = {
         price: values.price,
-        qty: values.qty,
         side: values.side,
       };
-      const previousPlanInputs = lastSavedPlanInputsRef.current;
-      const planInputsChanged =
-        !previousPlanInputs || !arePlanInputsEqual(previousPlanInputs, nextPlanInputs);
+      const previousPlanTriggerInputs = lastPlanTriggerInputsRef.current;
+      const planTriggerChanged =
+        !previousPlanTriggerInputs ||
+        !arePlanTriggersEqual(previousPlanTriggerInputs, nextPlanTriggerInputs);
+
+      const planBotMessage = planTriggerChanged && values.price > 0 && values.qty > 0
+        ? {
+            ...createPlanLegacyMessage(values.price, values.qty, values.side, planConfig),
+            type: 'bot' as const,
+          }
+        : null;
 
       const entryPayload: EntryPayload = {
         symbolCode: values.symbolCode,
@@ -453,11 +490,16 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
         if (onSave) {
           await onSave(entryPayload, {
             regenerateEnabled,
-            planRegenerated: planInputsChanged,
+            planRegenerated: planTriggerChanged,
           });
         }
-        lastSavedPlanInputsRef.current = nextPlanInputs;
-        setIsPlanDirty(false);
+        lastPlanTriggerInputsRef.current = nextPlanTriggerInputs;
+        setIsPlanTriggerDirty(false);
+        lastKnownPositionRef.current = toPositionFromEntryPayload({
+          ...entryPayload,
+          version: initialData.version,
+          chatId: initialData.chatId ?? chatId ?? null,
+        });
         onClose();
         return;
       }
@@ -532,7 +574,7 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
       if (onSave) {
         await onSave(payloadForSave, {
           regenerateEnabled,
-          planRegenerated: planInputsChanged,
+          planRegenerated: planTriggerChanged,
         });
       }
 
@@ -540,27 +582,74 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
         onUpdateSuccess(positionForEvent);
       }
 
-      lastSavedPlanInputsRef.current = nextPlanInputs;
-      setIsPlanDirty(false);
+      const resolvedChatId = positionForEvent.chatId ?? mutationContext?.chatId ?? chatId ?? null;
 
-      if (regenerateEnabled && chatId && planInputsChanged) {
+      if (planTriggerChanged && resolvedChatId && lastKnownPositionRef.current) {
         try {
-          const result = await regeneratePositionAnalysis(chatId, position);
-          if (!result.success && chatId) {
+          const baselinePosition = lastKnownPositionRef.current;
+          const updateDiff = calculateUpdateDiff(baselinePosition, positionForEvent);
+          const metrics = calculatePositionMetrics(positionForEvent, undefined, {
+            stopLossPercent: planConfig.stopLossRate,
+            profitTargetPercent: planConfig.takeProfitRate,
+          });
+          const result = await sendPositionUpdateMessages(resolvedChatId, positionForEvent, updateDiff, {
+            stopLossTarget: metrics.stopLossTarget,
+            profitTarget: metrics.profitTarget,
+            riskRatio: metrics.riskRatio,
+            expectedProfitAmount: metrics.expectedProfitAmount,
+            expectedLossAmount: metrics.expectedLossAmount,
+          });
+
+          if (!result.allSuccess) {
+            const errorMessage =
+              result.systemMessageResult.error ||
+              result.userMessageResult.error ||
+              'メッセージ送信に失敗しました';
+            logBotMessageFailure('system_plan', errorMessage, {
+              chatId: resolvedChatId,
+              positionSymbol: positionForEvent.symbol,
+            });
+            showToast.warning('取引プランの更新通知に失敗しました', {
+              description: errorMessage,
+            });
+          } else if (planBotMessage && typeof onAddBotMessage === 'function') {
+            onAddBotMessage(planBotMessage);
+          }
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : '取引プラン通知の送信に失敗しました';
+          logBotMessageFailure('system_plan', errorMessage, {
+            chatId: resolvedChatId,
+            positionSymbol: positionForEvent.symbol,
+          });
+          showToast.error('取引プランの更新通知に失敗しました', {
+            description: errorMessage,
+          });
+        }
+      } else if (planBotMessage && typeof onAddBotMessage === 'function') {
+        onAddBotMessage(planBotMessage);
+      }
+
+      lastKnownPositionRef.current = positionForEvent;
+      lastPlanTriggerInputsRef.current = nextPlanTriggerInputs;
+      setIsPlanTriggerDirty(false);
+
+      if (regenerateEnabled && resolvedChatId && planTriggerChanged) {
+        try {
+          const result = await regeneratePositionAnalysis(resolvedChatId, position);
+          if (!result.success) {
             handleAIRegenerationFailure(
-              chatId,
+              resolvedChatId,
               position,
               result.error ?? '再生成に失敗しました'
             );
           }
         } catch (error) {
-          if (chatId) {
-            handleAIRegenerationFailure(
-              chatId,
-              position,
-              error instanceof Error ? error.message : 'unknown error'
-            );
-          }
+          handleAIRegenerationFailure(
+            resolvedChatId,
+            position,
+            error instanceof Error ? error.message : 'unknown error'
+          );
         }
       }
 
@@ -615,11 +704,11 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
     if (!regenerateEnabled) {
       return '再生成をオフにすると、AIによる取引プランは更新されません。';
     }
-    if (!isPlanDirty) {
+    if (!isPlanTriggerDirty) {
       return '値に変更がない場合はAI取引プランの再生成をスキップします。';
     }
     return '建値更新後にAI取引プランを自動で再生成します。';
-  }, [regenerateEnabled, isPlanDirty]);
+  }, [regenerateEnabled, isPlanTriggerDirty]);
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -790,13 +879,13 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
               <span className="text-sm font-medium text-gray-900">取引プランプレビュー</span>
               <span
                 className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                  isPlanDirty
+                  isPlanTriggerDirty
                     ? 'bg-blue-100 text-blue-600'
                     : 'bg-gray-100 text-gray-500'
                 }`}
                 data-testid="plan-status"
               >
-                {isPlanDirty ? '再生成予定' : '変更なし'}
+                {isPlanTriggerDirty ? '再生成予定' : '変更なし'}
               </span>
             </div>
             {planPreview ? (
@@ -831,7 +920,7 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
                     {planPreview.riskReward ? `1:${planPreview.riskReward.toFixed(2)}` : '—'}
                   </span>
                 </div>
-                {isPlanDirty && (
+                {isPlanTriggerDirty && (
                   <p className="mt-2 text-xs text-blue-600" data-testid="plan-dirty-hint">
                     保存すると新しい取引プランが適用されます。
                   </p>

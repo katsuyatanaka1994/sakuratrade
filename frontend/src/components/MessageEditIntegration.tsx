@@ -580,6 +580,20 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
         onSave={handleEntryModalSave}
         isLoading={isUpdating}
         chatId={chatId}
+        onAddBotMessage={(message) => {
+          if (!onMessagesUpdate) {
+            return;
+          }
+          const legacyMessage: LegacyMessage = {
+            id: message.id,
+            type: 'bot',
+            content: message.content,
+            timestamp: message.timestamp,
+          };
+          const nextMessages = [...latestMessagesRef.current, legacyMessage];
+          latestMessagesRef.current = nextMessages;
+          onMessagesUpdate(nextMessages);
+        }}
       />
       
       <EditExitModal

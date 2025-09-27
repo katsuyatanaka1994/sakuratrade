@@ -69,6 +69,8 @@ export function generateSystemPlanMessage(
     stopLossTarget: number;
     profitTarget: number;
     riskRatio: number;
+    expectedProfitAmount: number;
+    expectedLossAmount: number;
   }
 ): string {
   const { symbol, name = '', side, avgPrice, qtyTotal } = position;
@@ -84,6 +86,9 @@ export function generateSystemPlanMessage(
   message += `• 損切目標: ${formatPrice(metrics.stopLossTarget)}\n`;
   message += `• 利確目標: ${formatPrice(metrics.profitTarget)}\n`;
   message += `• リスク比率: 1:${metrics.riskRatio.toFixed(2)}\n\n`;
+  message += `**想定損益:**\n`;
+  message += `• 利確時損益: +${formatPrice(metrics.expectedProfitAmount)}\n`;
+  message += `• 損切時損益: -${formatPrice(metrics.expectedLossAmount)}\n\n`;
   
   // ポジション方向による推奨アクション
   if (side === 'LONG') {
@@ -143,6 +148,8 @@ export async function sendPositionUpdateMessages(
     stopLossTarget: number;
     profitTarget: number;
     riskRatio: number;
+    expectedProfitAmount: number;
+    expectedLossAmount: number;
   }
 ): Promise<{
   userMessageResult: BotMessageResult;
