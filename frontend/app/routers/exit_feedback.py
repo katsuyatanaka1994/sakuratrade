@@ -1,7 +1,7 @@
 import os
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
-from fastapi.responses import JSONResponse
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_async_db
@@ -12,6 +12,7 @@ router = APIRouter()
 
 # 環境変数からOpenAI APIキーを取得
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 
 @router.post("/feedback/exit", response_model=ExitFeedbackResponse)
 async def generate_exit_feedback(
@@ -24,19 +25,19 @@ async def generate_exit_feedback(
     file: Optional[UploadFile] = File(None, description="チャート画像ファイル"),
     entry_date: Optional[str] = Form(None, description="エントリー日時"),
     exit_date: Optional[str] = Form(None, description="決済日時"),
-    db: AsyncSession = Depends(get_async_db)
+    db: AsyncSession = Depends(get_async_db),
 ):
     """
     決済時フィードバック生成エンドポイント
-    
+
     - チャート画像を分析して振り返りポイントを生成
     - GPT-4oによる画像解析でトレードの振り返りを構造化
     - HTML形式で視認性の高いフィードバックを返却
     """
-    
+
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
-    
+
     try:
         # リクエストデータ作成
         request = ExitFeedbackRequest(
@@ -48,9 +49,9 @@ async def generate_exit_feedback(
             quantity=quantity,
             image_file=file.filename if file else None,
             entry_date=entry_date,
-            exit_date=exit_date
+            exit_date=exit_date,
         )
-        
+
         # ファイル処理
         image_data = None
         if file:
@@ -58,25 +59,26 @@ async def generate_exit_feedback(
             file_content = await file.read()
             if len(file_content) > 10 * 1024 * 1024:
                 raise HTTPException(status_code=413, detail="ファイルサイズが大きすぎます（10MB制限）")
-            
+
             # ファイル形式チェック
-            if not file.content_type or not file.content_type.startswith('image/'):
+            if not file.content_type or not file.content_type.startswith("image/"):
                 raise HTTPException(status_code=400, detail="画像ファイルのみアップロード可能です")
-            
+
             image_data = file_content
-        
+
         # フィードバック生成サービス初期化
         feedback_service = ExitFeedbackService(OPENAI_API_KEY)
-        
+
         # 決済フィードバック生成
         result = feedback_service.generate_exit_feedback(request, image_data)
-        
+
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"フィードバック生成中にエラーが発生しました: {str(e)}")
+
 
 @router.get("/feedback/status")
 async def feedback_status():
@@ -86,13 +88,9 @@ async def feedback_status():
     status = {
         "exit_feedback": "available",
         "gpt_analysis": "available" if OPENAI_API_KEY else "unavailable",
-        "template_system": "available"
+        "template_system": "available",
     }
-    
+
     overall_status = "healthy" if status["gpt_analysis"] == "available" else "partial"
-    
-    return {
-        "overall_status": overall_status,
-        "details": status,
-        "timestamp": "2024-01-15T10:00:00Z"
-    }
+
+    return {"overall_status": overall_status, "details": status, "timestamp": "2024-01-15T10:00:00Z"}

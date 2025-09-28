@@ -1,0 +1,156 @@
+F841 Local variable `lines` is assigned to but never used
+   --> app/services/exit_feedback_service.py:148:13
+    |
+146 |         try:
+147 |             # シンプルなパースロジック（実際の実装ではより詳細な解析が必要）
+148 |             lines = gpt_analysis.split('\n')
+    |             ^^^^^
+149 |             current_item = None
+    |
+help: Remove assignment to unused variable `lines`
+
+F841 Local variable `current_item` is assigned to but never used
+   --> app/services/exit_feedback_service.py:149:13
+    |
+147 |             # シンプルなパースロジック（実際の実装ではより詳細な解析が必要）
+148 |             lines = gpt_analysis.split('\n')
+149 |             current_item = None
+    |             ^^^^^^^^^^^^
+150 |             
+151 |             categories = ["仕掛けタイミング", "利確判断", "改善点"]
+    |
+help: Remove assignment to unused variable `current_item`
+
+F841 Local variable `system_prompt` is assigned to but never used
+   --> app/services/integrated_advice_service.py:147:5
+    |
+145 |     """シンプルなGPT分析（統合分析を使わない場合）"""
+146 |     
+147 |     system_prompt = (
+    |     ^^^^^^^^^^^^^
+148 |         "あなたはプロの株式スイングトレーダー兼アナリストです。"
+149 |         "チャート画像を解析し、トレーディングアドバイスを日本語で提供してください。"
+    |
+help: Remove assignment to unused variable `system_prompt`
+
+F841 Local variable `user_prompt` is assigned to but never used
+   --> app/services/integrated_advice_service.py:152:5
+    |
+150 |     )
+151 |     
+152 |     user_prompt = f"この{symbol_context or '株価'}のチャート画像を解析し、{analysis_context or 'トレーディング'}のアドバイスを教えてく                                 …
+    |     ^^^^^^^^^^^
+153 |     
+154 |     # 簡易版のGPT呼び出し（実装は省略）
+    |
+help: Remove assignment to unused variable `user_prompt`
+
+F841 Local variable `current_price` is assigned to but never used
+  --> app/services/strategy_estimator.py:9:5
+   |
+ 7 |     trend = indicators.trend_check or ""
+ 8 |     rsi = indicators.rsi_overheat or ""
+ 9 |     current_price = indicators.current_price or 0
+   |     ^^^^^^^^^^^^^
+10 |     recent_high = indicators.recent_high or 0
+11 |     recent_low = indicators.recent_low or 0
+   |
+help: Remove assignment to unused variable `current_price`
+
+F841 Local variable `sma_touch` is assigned to but never used
+  --> app/services/strategy_estimator.py:14:5
+   |
+12 |     price_action = indicators.price_action or ""
+13 |     volume = indicators.volume_trend or ""
+14 |     sma_touch = indicators.sma_touch if indicators.sma_touch is not None else False
+   |     ^^^^^^^^^
+15 |
+16 |     if "下降トレンド" in trend and "RSI高値圏" in rsi and price_action == "陰線" and volume == "増加":
+   |
+help: Remove assignment to unused variable `sma_touch`
+
+F841 Local variable `lines` is assigned to but never used
+   --> frontend/app/services/exit_feedback_service.py:148:13
+    |
+146 |         try:
+147 |             # シンプルなパースロジック（実際の実装ではより詳細な解析が必要）
+148 |             lines = gpt_analysis.split('\n')
+    |             ^^^^^
+149 |             current_item = None
+    |
+help: Remove assignment to unused variable `lines`
+
+F841 Local variable `current_item` is assigned to but never used
+   --> frontend/app/services/exit_feedback_service.py:149:13
+    |
+147 |             # シンプルなパースロジック（実際の実装ではより詳細な解析が必要）
+148 |             lines = gpt_analysis.split('\n')
+149 |             current_item = None
+    |             ^^^^^^^^^^^^
+150 |             
+151 |             categories = ["仕掛けタイミング", "利確判断", "改善点"]
+    |
+help: Remove assignment to unused variable `current_item`
+
+F841 Local variable `system_prompt` is assigned to but never used
+   --> frontend/app/services/integrated_advice_service.py:147:5
+    |
+145 |     """シンプルなGPT分析（統合分析を使わない場合）"""
+146 |     
+147 |     system_prompt = (
+    |     ^^^^^^^^^^^^^
+148 |         "あなたはプロの株式スイングトレーダー兼アナリストです。"
+149 |         "チャート画像を解析し、トレーディングアドバイスを日本語で提供してください。"
+    |
+help: Remove assignment to unused variable `system_prompt`
+
+F841 Local variable `user_prompt` is assigned to but never used
+   --> frontend/app/services/integrated_advice_service.py:152:5
+    |
+150 |     )
+151 |     
+152 |     user_prompt = f"この{symbol_context or '株価'}のチャート画像を解析し、{analysis_context or 'トレーディング'}のアドバイスを教えてく                                 …
+    |     ^^^^^^^^^^^
+153 |     
+154 |     # 簡易版のGPT呼び出し（実装は省略）
+    |
+help: Remove assignment to unused variable `user_prompt`
+
+F841 Local variable `indicators_data` is assigned to but never used
+  --> test_integrated_system.py:44:9
+   |
+42 |         }
+43 |         
+44 |         indicators_data = {
+   |         ^^^^^^^^^^^^^^^
+45 |             "sma5": 7500,
+46 |             "sma20": 7480,
+   |
+help: Remove assignment to unused variable `indicators_data`
+
+F841 Local variable `context` is assigned to but never used
+  --> test_integrated_system.py:57:9
+   |
+55 |         }
+56 |         
+57 |         context = {
+   |         ^^^^^^^
+58 |             "recentPivotBarsAgo": 2,
+59 |             "priceBand": "mid",
+   |
+help: Remove assignment to unused variable `context`
+
+F841 Local variable `image_base64` is assigned to but never used
+  --> test_integrated_system.py:64:9
+   |
+62 |         }
+63 |         
+64 |         image_base64 = create_test_image()
+   |         ^^^^^^^^^^^^
+65 |         
+66 |         print("📊 テストデータ:")
+   |
+help: Remove assignment to unused variable `image_base64`
+
+Found 13 errors.
+No fixes available (13 hidden fixes can be enabled with the `--unsafe-fixes` option).

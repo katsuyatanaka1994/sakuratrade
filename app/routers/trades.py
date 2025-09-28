@@ -1,19 +1,21 @@
-from fastapi import APIRouter, Depends, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
-from sqlalchemy.future import select
-from pydantic import BaseModel, Field
-from typing import Optional, List, Union
-from datetime import datetime
 import uuid
+from datetime import datetime
+from typing import List, Optional, Union
 from uuid import UUID
 
-from models import Trade
-from schemas import TradeCreate
-from database import get_db
-from deps import get_session
+from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.deps import get_session
+from app.models import Trade
+from app.schemas.trade import TradeCreate
 
 router = APIRouter(prefix="/trades", tags=["trades"])
+
 
 class TradeIn(BaseModel):
     tradeId: Optional[int] = None
@@ -23,6 +25,7 @@ class TradeIn(BaseModel):
     priceIn: float
     size: float
     enteredAt: datetime
+
 
 class TradeOut(BaseModel):
     tradeId: Union[int, UUID] = Field(..., alias="trade_id")
@@ -38,6 +41,7 @@ class TradeOut(BaseModel):
         from_attributes = True
         populate_by_name = True
 
+
 @router.post("", response_model=TradeOut, status_code=status.HTTP_201_CREATED)
 async def create_trade(payload: TradeIn, session: AsyncSession = Depends(get_session)):
     new_trade = Trade(
@@ -47,12 +51,13 @@ async def create_trade(payload: TradeIn, session: AsyncSession = Depends(get_ses
         side=payload.side,
         price_in=payload.priceIn,
         size=payload.size,
-        entered_at=payload.enteredAt
+        entered_at=payload.enteredAt,
     )
     session.add(new_trade)
     await session.commit()
     await session.refresh(new_trade)
     return TradeOut.model_validate(new_trade)
+
 
 @router.get("", response_model=List[TradeOut])
 async def get_trades(session: AsyncSession = Depends(get_session)):
@@ -60,6 +65,7 @@ async def get_trades(session: AsyncSession = Depends(get_session)):
     result = await session.execute(stmt)
     trades = result.scalars().all()
     return trades
+
 
 @router.post("/save", response_model=TradeOut, status_code=status.HTTP_201_CREATED)
 def save_trade(trade: TradeCreate, db: Session = Depends(get_db)):
@@ -73,7 +79,7 @@ def save_trade(trade: TradeCreate, db: Session = Depends(get_db)):
         entered_at=trade.entered_at,
         price_in=trade.price_in,
         size=trade.size,
-        description=trade.description
+        description=trade.description,
     )
     db.add(db_trade)
     db.commit()

@@ -1,7 +1,9 @@
-import os, sys
+import os
+import sys
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import pytest
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 
@@ -17,7 +19,7 @@ async def test_create_trade(anyio_backend):
         "side": "LONG",
         "priceIn": 1.0,
         "size": 1.0,
-        "enteredAt": "2021-01-01T00:00:00Z"
+        "enteredAt": "2021-01-01T00:00:00Z",
     }
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

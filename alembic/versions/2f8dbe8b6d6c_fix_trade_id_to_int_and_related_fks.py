@@ -1,18 +1,15 @@
 """fix trade_id to int and related FKs
 
 Revision ID: 2f8dbe8b6d6c
-Revises: 
+Revises:
 Create Date: 2025-07-12 15:17:41.388139
 
 """
+
 from typing import Sequence, Union
 
-from alembic import op
-import sqlalchemy as sa
-
-
 # revision identifiers, used by Alembic.
-revision: str = '2f8dbe8b6d6c'
+revision: str = "2f8dbe8b6d6c"
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

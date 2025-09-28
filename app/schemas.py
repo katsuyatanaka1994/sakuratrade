@@ -1,13 +1,16 @@
-from pydantic import BaseModel
+from datetime import datetime
 from enum import Enum
 from uuid import UUID
-from datetime import datetime
+
+from pydantic import BaseModel
+
 
 class Side(str, Enum):
     BUY = "buy"
     SELL = "sell"
     LONG = "LONG"
     SHORT = "SHORT"
+
 
 class TradeCreate(BaseModel):
     user_id: UUID
@@ -20,6 +23,7 @@ class TradeCreate(BaseModel):
     size: float
     entered_at: datetime
     description: str
+
 
 class TradeResponse(BaseModel):
     trade_id: int
@@ -37,6 +41,7 @@ class TradeResponse(BaseModel):
     class Config:
         orm_mode = True
 
+
 class User(BaseModel):
     user_id: UUID
     email: str
@@ -48,17 +53,21 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
+
 class LoginResponse(BaseModel):
     token: str
     user: User
+
 
 class RegisterRequest(BaseModel):
     email: str
     password: str
 
+
 class OAuthRequest(BaseModel):
     provider: str
     token: str
+
 
 class Image(BaseModel):
     image_id: int
@@ -72,6 +81,7 @@ class Image(BaseModel):
     class Config:
         orm_mode = True
 
+
 class PatternResult(BaseModel):
     pattern_id: int
     trade_id: int
@@ -83,9 +93,11 @@ class PatternResult(BaseModel):
     class Config:
         orm_mode = True
 
+
 class AlertType(str, Enum):
     PRICE = "price"
     VOLUME = "volume"
+
 
 class Alert(BaseModel):
     alert_id: int

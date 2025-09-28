@@ -34,7 +34,7 @@ import { undoChatMessage, updateChatMessage } from '../services/api';
 import { createChatMessage, generateAIReply } from '../services/api';
 import { CHART_PATTERNS, CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
 import type { ChartPattern } from '../types/chat';
-import { loadTradePlanConfig, buildPlanMessageContent } from '../utils/tradePlanMessage';
+import { loadTradePlanConfig, createPlanLegacyMessage } from '../utils/tradePlanMessage';
 
 // Helper function to get API URL - hardcoded for now to debug
 const getApiUrl = () => {
@@ -118,6 +118,7 @@ interface Message {
       delete?: string;
     } | string;
   };
+  relatedEntryId?: string;
 }
 
 // Chat interface for chat management
@@ -788,6 +789,29 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const handleConfirmEntryDelete = async () => {
     if (!entryDeleteState.target) return;
     const target = entryDeleteState.target;
+    const relatedPlanMessageIds = (() => {
+      const linked = messages
+        .filter(msg => msg.type === 'bot' && msg.relatedEntryId === target.id)
+        .map(msg => msg.id);
+      if (linked.length > 0) {
+        return Array.from(new Set(linked));
+      }
+      const targetIndex = messages.findIndex(msg => msg.id === target.id);
+      if (targetIndex >= 0) {
+        const fallback = messages
+          .slice(targetIndex + 1)
+          .find(msg => msg.type === 'bot' && typeof msg.content === 'string' && msg.content.includes('🎯 取引プラン設定'));
+        if (fallback) {
+          return [fallback.id];
+        }
+      }
+      return [] as string[];
+    })();
+    const pendingPlanEntry = planMessageTimers.current.get(target.id);
+    if (pendingPlanEntry) {
+      window.clearTimeout(pendingPlanEntry.timeoutId);
+      planMessageTimers.current.delete(target.id);
+    }
 
     setIsDeletingEntry(true);
     try {
@@ -800,13 +824,20 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         },
       });
 
-      if (!response.ok) {
+      const isNotFound = response.status === 404;
+
+      if (!response.ok && !isNotFound) {
         throw new Error(`Failed to delete entry message: ${response.status}`);
+      }
+
+      if (isNotFound) {
+        console.warn(`Entry message ${target.id} already deleted on server`);
       }
 
       setDeletingEntryIds(prev => {
         const next = new Set(prev);
         next.add(target.id);
+        relatedPlanMessageIds.forEach(id => next.add(id));
         return next;
       });
 
@@ -848,21 +879,32 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       }
 
       setTimeout(() => {
-        setMessages(prev => prev.filter(msg => msg.id !== target.id));
+        setMessages(prev => prev.filter(msg => msg.id !== target.id && !relatedPlanMessageIds.includes(msg.id)));
         setDeletingEntryIds(prev => {
           const next = new Set(prev);
           next.delete(target.id);
+          relatedPlanMessageIds.forEach(id => next.delete(id));
           return next;
         });
-      }, 200);
+      }, 320);
       setEntryDeleteState({ isOpen: false });
       showToast('success', '建値メッセージを削除しました');
     } catch (error) {
       console.error('Failed to delete entry message:', error);
       showToast('error', '建値メッセージの削除に失敗しました', '時間をおいて再度お試しください');
+      if (pendingPlanEntry) {
+        const { message } = pendingPlanEntry;
+        setMessages(prev => {
+          if (prev.some(m => m.id === message.id)) {
+            return prev;
+          }
+          return [...prev, message];
+        });
+      }
       setDeletingEntryIds(prev => {
         const next = new Set(prev);
         next.delete(target.id);
+        relatedPlanMessageIds.forEach(id => next.delete(id));
         return next;
       });
     } finally {
@@ -930,6 +972,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     const memoValue = entryMemo.trim();
     const memoForPayload = memoValue.length > 0 ? memoValue : undefined;
     const chartPatternValue = entryChartPattern === '' ? undefined : entryChartPattern;
+    const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
+    const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
+    const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
 
     if (isNaN(price) || isNaN(qty)) {
       alert('価格と数量を正しく入力してください');
@@ -950,9 +995,6 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     const [symbolCodeRaw, ...symbolNameParts] = entrySymbol.trim().split(/\s+/);
     const symbolCodeForPayload = symbolCodeRaw || originalParsed?.symbolCode || entrySymbol.trim();
     const symbolNameForPayload = symbolNameParts.join(' ') || originalParsed?.symbolCode || symbolCodeForPayload;
-    const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
-    const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
-    const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
     const newContent = `📈 建値入力しました！(編集済み)<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`;
 
     const updatedSide: 'LONG' | 'SHORT' = entryPositionType === 'long' ? 'LONG' : 'SHORT';
@@ -963,12 +1005,12 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     const planTriggerChanged = priceChanged || sideChanged || qtyChanged;
     const planBotMessage = planTriggerChanged
       ? {
-          id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-            ? `plan-${crypto.randomUUID()}`
-            : `plan-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          ...createPlanLegacyMessage(price, qty, updatedSide, planConfig, {
+            edited: true,
+            relatedEntryId: editingMessageId,
+          }),
           type: 'bot' as const,
-          content: buildPlanMessageContent(price, qty, updatedSide, planConfig, { edited: true }),
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          relatedEntryId: editingMessageId,
         }
       : null;
 
@@ -1013,13 +1055,21 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     setMessages(prev => {
       let next = prev.map(msg => (msg.id === editingMessageId ? { ...msg, content: newContent } : msg));
       if (planBotMessage) {
-        for (let i = next.length - 1; i >= 0; i -= 1) {
-          const candidate = next[i];
-          if (candidate.type === 'bot' && typeof candidate.content === 'string' && candidate.content.includes('🎯 取引プラン設定')) {
-            next = [...next.slice(0, i), ...next.slice(i + 1)];
-            break;
+        let removed = false;
+        next = next.filter(candidate => {
+          if (candidate.type !== 'bot') {
+            return true;
           }
-        }
+          if (!removed && candidate.relatedEntryId === editingMessageId) {
+            removed = true;
+            return false;
+          }
+          if (!removed && typeof candidate.content === 'string' && candidate.content.includes('🎯 取引プラン設定')) {
+            removed = true;
+            return false;
+          }
+          return true;
+        });
         return [...next, planBotMessage];
       }
       return next;
@@ -1955,6 +2005,13 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   
   // Chat container ref for scrolling
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const planMessageTimers = useRef<Map<string, { timeoutId: number; message: Message }>>(new Map());
+  useEffect(() => {
+    return () => {
+      planMessageTimers.current.forEach(({ timeoutId }) => window.clearTimeout(timeoutId));
+      planMessageTimers.current.clear();
+    };
+  }, []);
   
   // Scroll to bottom to show latest message
   const scrollToLatestMessage = () => {
@@ -2419,12 +2476,11 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       symbol: entrySymbol
     });
 
-    // Retrieve user's configured TP/SL percentages from localStorage (default values if not set)
-    const tpPercent = parseFloat(localStorage.getItem('takeProfitPercent') || '5'); // e.g., 5%
-    const slPercent = parseFloat(localStorage.getItem('stopLossPercent') || '2'); // e.g., 2%
+    const planConfig = loadTradePlanConfig();
 
     // ポジションタイプの表示用文字列
     const positionText = entryPositionType === 'long' ? 'ロング（買い）' : 'ショート（売り）';
+    const entrySide: 'LONG' | 'SHORT' = entryPositionType === 'long' ? 'LONG' : 'SHORT';
 
     // 現在の建値を保存（決済時に使用）
     setCurrentEntryPrice(price);
@@ -2432,10 +2488,26 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     const memoValue = entryMemo.trim();
     const memoForPayload = memoValue.length > 0 ? memoValue : undefined;
     const chartPatternValue = entryChartPattern === '' ? undefined : entryChartPattern;
+    const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
+    const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
+    const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
+    const fallbackEntryContent = `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`;
+    const createFallbackEntryMessage = (): Message => {
+      const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? `local-entry-${crypto.randomUUID()}`
+        : `local-entry-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      return {
+        id,
+        type: 'user',
+        isTradeAction: true,
+        content: fallbackEntryContent,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+    };
     const entryPayload = {
       symbolCode: entrySymbol,
       symbolName: entrySymbol, // TODO: 実際の銘柄名を取得
-      side: entryPositionType === 'long' ? 'LONG' : 'SHORT',
+      side: entrySide,
       price: price,
       qty: qty,
       executedAt: new Date().toISOString(),
@@ -2445,6 +2517,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     };
 
     // ENTRY メッセージをチャットAPIに送信
+    let entryMessageForTimeline: Message | null = null;
     try {
       const apiUrl = getApiUrl();
 
@@ -2464,11 +2537,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
       if (response.ok) {
         const newMessage = await response.json();
-        // メッセージを画面に反映
-        setMessages(prev => [
-          ...prev,
-          convertChatMessageToTradeMessage(newMessage)
-        ]);
+        entryMessageForTimeline = convertChatMessageToTradeMessage(newMessage);
         // 決済履歴を紐づけ（UNDOで厳密復元に使用）
         try {
           positionsRecordSettlement(newMessage.id, {
@@ -2485,42 +2554,19 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         }
       } else {
         console.error('Failed to create ENTRY message:', response.statusText);
-        // フォールバックで既存のメッセージ形式を使用
-        setMessages(prev => {
-          const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
-          const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
-          const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
-          return [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              type: 'user' as const,
-              isTradeAction: true,
-              content: `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`,
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            }
-          ];
-        });
+        entryMessageForTimeline = createFallbackEntryMessage();
       }
     } catch (error) {
       console.error('Error creating ENTRY message:', error);
-      // フォールバックで既存のメッセージ形式を使用
-      setMessages(prev => {
-        const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
-        const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
-        const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
-        return [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            type: 'user' as const,
-            isTradeAction: true,
-            content: `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          }
-        ];
-      });
+      entryMessageForTimeline = createFallbackEntryMessage();
     }
+
+    if (!entryMessageForTimeline) {
+      entryMessageForTimeline = createFallbackEntryMessage();
+    }
+
+    setMessages(prev => [...prev, entryMessageForTimeline]);
+    const entryMessageId = entryMessageForTimeline.id;
     
     // 画像が添付されている場合、統合分析を実行
     // 成功した場合のみ初回エントリーのポジションにチャート画像IDを紐付け
@@ -2622,30 +2668,25 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       );
     }
 
-    // 利確・損切り目標価格計算とボットメッセージ
-    const takeProfit = entryPositionType === 'long' 
-      ? price * (1 + tpPercent / 100)
-      : price * (1 - tpPercent / 100);
-    const stopLoss = entryPositionType === 'long'
-      ? price * (1 - slPercent / 100)
-      : price * (1 + slPercent / 100);
-
-    // 予想損益計算
-    const expectedProfitAmount = Math.abs(takeProfit - price) * qty;
-    const expectedLossAmount = Math.abs(price - stopLoss) * qty;
-
     // ボットメッセージ：取引プラン
-    setTimeout(() => {
+    const planSeed = createPlanLegacyMessage(price, qty, entrySide, planConfig, {
+      relatedEntryId: entryMessageId,
+    });
+    const planMessage: Message = {
+      id: planSeed.id,
+      type: 'bot',
+      content: planSeed.content,
+      timestamp: planSeed.timestamp,
+      relatedEntryId: entryMessageId,
+    };
+    const planTimeoutId = window.setTimeout(() => {
+      planMessageTimers.current.delete(entryMessageId);
       setMessages(prev => [
         ...prev,
-        {
-          id: crypto.randomUUID(),
-          type: 'bot' as const,
-          content: `🎯 取引プラン設定<br/>📋 リスク管理ルール<br/>• 利確目標: +${tpPercent}% → <span style="color: #16a34a;">${takeProfit.toLocaleString()}円</span><br/>• 損切り目標: -${slPercent}% → <span style="color: #dc2626;">${stopLoss.toLocaleString()}円</span><br/><br/>💰 予想損益<br/>• 利確時: <span style="color: #16a34a;">+${expectedProfitAmount.toLocaleString()}円</span><br/>• 損切り時: <span style="color: #dc2626;">-${expectedLossAmount.toLocaleString()}円</span><br/><br/>⚠️ 重要: 必ず逆指値注文を設定して、感情に左右されない取引を心がけましょう`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        }
+        planMessage,
       ]);
     }, 500); // 少し遅延してボットメッセージを表示
+    planMessageTimers.current.set(entryMessageId, { timeoutId: planTimeoutId, message: planMessage });
 
     setIsEntryModalOpen(false);
     setEntrySymbol('');

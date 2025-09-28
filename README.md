@@ -47,6 +47,12 @@ app/
 uvicorn app.main:app --reload
 ```
 
+## 📦 インポートルール
+
+- プロジェクト内の参照は `from app.<module> import ...` 形式に統一しています。
+- モジュールを直接実行する際は `python -m app.<module_path>` を利用するとパス設定が不要です。
+- CI では `ruff` と `scripts/check_import_paths.py` が同ルールを検証します。
+
 ---
 
 ## 📤 POST /upload-image/

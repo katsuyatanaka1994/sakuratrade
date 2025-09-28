@@ -1,15 +1,13 @@
-
-import streamlit as st
 import openai
+import streamlit as st
 
 # Streamlit Community Cloudの「Secrets」からOpenAI API keyを取得
 openai.api_key = st.secrets.OpenAIAPI.openai_api_key
 
 # st.session_stateを使いメッセージのやりとりを保存
 if "messages" not in st.session_state:
-    st.session_state["messages"] = [
-        {"role": "system", "content": "あなたは優秀なアシスタントAIです。"}
-        ]
+    st.session_state["messages"] = [{"role": "system", "content": "あなたは優秀なアシスタントAIです。"}]
+
 
 # チャットボットとやりとりする関数
 def communicate():
@@ -18,10 +16,7 @@ def communicate():
     user_message = {"role": "user", "content": st.session_state["user_input"]}
     messages.append(user_message)
 
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=messages
-    )  
+    response = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=messages)
 
     bot_message = response["choices"][0]["message"]
     messages.append(bot_message)
@@ -40,7 +35,7 @@ if st.session_state["messages"]:
 
     for message in reversed(messages[1:]):  # 直近のメッセージを上に
         speaker = "🙂"
-        if message["role"]=="assistant":
-            speaker="🤖"
+        if message["role"] == "assistant":
+            speaker = "🤖"
 
         st.write(speaker + ": " + message["content"])

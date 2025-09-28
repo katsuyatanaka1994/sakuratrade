@@ -3,16 +3,15 @@ from __future__ import annotations
 import os
 from typing import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-
 from dotenv import load_dotenv
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from core.settings import JWT_SECRET_KEY, JWT_ALGORITHM
-from models import User
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.future import select
+
+from app.core.settings import JWT_ALGORITHM, JWT_SECRET_KEY
+from app.models import User
 
 load_dotenv()
 
@@ -28,6 +27,7 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+
 
 async def get_current_user(token: str = Depends(oauth2_scheme), session: AsyncSession = Depends(get_session)) -> User:
     try:

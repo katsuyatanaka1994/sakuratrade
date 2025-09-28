@@ -1,20 +1,14 @@
+import os
 from pathlib import Path
-from fastapi.staticfiles import StaticFiles
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import register_routers
-from routers import images
-from routers import analyze
-from routers import advice
-from routers import chats
-from routers import journal
-from routers import integrated_advice
-from routers import exit_feedback
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import create_async_engine
-from models import Base
-import asyncio
 
-import os
+from models import Base
+from routers import advice, analyze, chats, exit_feedback, images, integrated_advice, journal, register_routers
+
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/gptset_dev")
 engine = create_async_engine(DATABASE_URL, echo=True)
 
@@ -28,10 +22,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.on_event("startup")
 async def on_startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
 
 register_routers(app)
 app.include_router(images.router)

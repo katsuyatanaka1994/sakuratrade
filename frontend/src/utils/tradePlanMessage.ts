@@ -106,8 +106,8 @@ export const createPlanLegacyMessage = (
   qty: number,
   side: TradeSide,
   config: TradePlanConfig,
-  options?: { edited?: boolean }
-): { id: string; content: string; timestamp: string } => {
+  options?: { edited?: boolean; relatedEntryId?: string }
+): { id: string; content: string; timestamp: string; relatedEntryId?: string } => {
   const content = buildPlanMessageContent(price, qty, side, config, options);
   const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? `plan-${crypto.randomUUID()}`
@@ -117,5 +117,6 @@ export const createPlanLegacyMessage = (
     id,
     content,
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    relatedEntryId: options?.relatedEntryId,
   };
 };

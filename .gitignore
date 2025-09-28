@@ -23,3 +23,4 @@ CLAUDE.local.md
 .env
 frontend/.env
 frontend/.env
+test.db

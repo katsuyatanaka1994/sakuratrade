@@ -54,6 +54,7 @@ export interface LegacyMessage {
   content: string;
   timestamp: string;
   isTradeAction?: boolean;
+  relatedEntryId?: string;
 }
 
 // Chat type

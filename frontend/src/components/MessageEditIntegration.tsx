@@ -589,12 +589,23 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
             type: 'bot',
             content: message.content,
             timestamp: message.timestamp,
+            relatedEntryId: message.relatedEntryId,
           };
           const trimmed = [...latestMessagesRef.current];
+          let removed = false;
           for (let i = trimmed.length - 1; i >= 0; i -= 1) {
             const candidate = trimmed[i];
-            if (candidate.type === 'bot' && typeof candidate.content === 'string' && candidate.content.includes('🎯 取引プラン設定')) {
+            if (candidate.type !== 'bot') {
+              continue;
+            }
+            if (!removed && candidate.relatedEntryId && candidate.relatedEntryId === message.relatedEntryId) {
               trimmed.splice(i, 1);
+              removed = true;
+              break;
+            }
+            if (!removed && typeof candidate.content === 'string' && candidate.content.includes('🎯 取引プラン設定')) {
+              trimmed.splice(i, 1);
+              removed = true;
               break;
             }
           }

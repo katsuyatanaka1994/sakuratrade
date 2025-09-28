@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from . import auth, trades, images, patterns, alerts, journal
+from . import alerts, auth, images, journal, patterns, trades
 
 routers = [
     auth.router,

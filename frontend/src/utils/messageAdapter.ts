@@ -8,6 +8,7 @@ interface TradeMessage {
   content: string;
   timestamp: string;
   isTradeAction?: boolean;
+  relatedEntryId?: string;
 }
 
 /**
@@ -19,7 +20,8 @@ export function convertTradeMessageToLegacyMessage(tradeMessage: TradeMessage): 
     type: tradeMessage.type,
     content: tradeMessage.content,
     timestamp: tradeMessage.timestamp,
-    isTradeAction: tradeMessage.isTradeAction
+    isTradeAction: tradeMessage.isTradeAction,
+    relatedEntryId: tradeMessage.relatedEntryId,
   };
 }
 
@@ -32,7 +34,8 @@ export function convertLegacyMessageToTradeMessage(legacyMessage: LegacyMessage)
     type: legacyMessage.type,
     content: legacyMessage.content,
     timestamp: legacyMessage.timestamp,
-    isTradeAction: legacyMessage.isTradeAction
+    isTradeAction: legacyMessage.isTradeAction,
+    relatedEntryId: legacyMessage.relatedEntryId,
   };
 }
 

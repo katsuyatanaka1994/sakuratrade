@@ -33,7 +33,7 @@ const EntryDeleteDialog: React.FC<EntryDeleteDialogProps> = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         role="alertdialog"
-        className="w-full max-w-md"
+        className="w-full max-w-md bg-white"
         data-testid="dialog-delete-entry"
       >
         <DialogHeader>

@@ -1,20 +1,24 @@
-from fastapi import APIRouter, status, UploadFile, File, HTTPException
-import uuid
 import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List
-from schemas import Image
+
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
+
+from app.schemas.image import Image
 
 router = APIRouter(prefix="/images", tags=["images"])
 
 UPLOAD_DIR = Path("app/static/uploaded_images")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+
 @router.get("", response_model=List[Image])
 async def list_images():
     """ダミー: 空リストを返す"""
     return []
+
 
 @router.post("", response_model=Image, status_code=status.HTTP_201_CREATED)
 async def create_image(payload: Image):

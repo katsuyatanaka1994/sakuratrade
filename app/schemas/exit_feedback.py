@@ -1,9 +1,11 @@
+from typing import List, Literal, Optional
+
 from pydantic import BaseModel, Field
-from typing import Optional, Literal, List
-from datetime import datetime
+
 
 class ExitFeedbackRequest(BaseModel):
     """決済フィードバック要求"""
+
     trade_id: Optional[str] = Field(None, description="トレードID")
     symbol: str = Field(..., description="銘柄名・証券コード")
     entry_price: float = Field(..., description="建値")
@@ -14,15 +16,19 @@ class ExitFeedbackRequest(BaseModel):
     entry_date: Optional[str] = Field(None, description="エントリー日時")
     exit_date: Optional[str] = Field(None, description="決済日時")
 
+
 class TradeReflectionItem(BaseModel):
     """振り返り項目"""
+
     category: str = Field(..., description="項目名（仕掛けタイミング、利確判断等）")
     content: str = Field(..., description="内容説明")
     evaluation: Literal["◎", "○", "△", "✕"] = Field(..., description="評価記号")
     comment: str = Field(..., description="詳細コメント")
 
+
 class ExitFeedbackResponse(BaseModel):
     """決済フィードバック応答"""
+
     success: bool = Field(True, description="処理成功フラグ")
     trade_summary: str = Field(..., description="トレード概要")
     profit_loss: float = Field(..., description="損益金額")
