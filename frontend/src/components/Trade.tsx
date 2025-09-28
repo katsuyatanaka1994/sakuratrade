@@ -34,6 +34,7 @@ import { undoChatMessage, updateChatMessage } from '../services/api';
 import { createChatMessage, generateAIReply } from '../services/api';
 import { CHART_PATTERNS, CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
 import type { ChartPattern } from '../types/chat';
+import { loadTradePlanConfig, buildPlanMessageContent } from '../utils/tradePlanMessage';
 
 // Helper function to get API URL - hardcoded for now to debug
 const getApiUrl = () => {
@@ -952,7 +953,24 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
     const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
     const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
-    const newContent = `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`;
+    const newContent = `📈 建値入力しました！(編集済み)<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`;
+
+    const updatedSide: 'LONG' | 'SHORT' = entryPositionType === 'long' ? 'LONG' : 'SHORT';
+    const planConfig = loadTradePlanConfig();
+    const priceChanged = originalParsed?.price !== undefined ? originalParsed.price !== price : true;
+    const sideChanged = originalParsed?.side !== undefined ? originalParsed.side !== updatedSide : true;
+    const qtyChanged = originalParsed?.qty !== undefined ? originalParsed.qty !== qty : true;
+    const planTriggerChanged = priceChanged || sideChanged || qtyChanged;
+    const planBotMessage = planTriggerChanged
+      ? {
+          id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? `plan-${crypto.randomUUID()}`
+            : `plan-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          type: 'bot' as const,
+          content: buildPlanMessageContent(price, qty, updatedSide, planConfig, { edited: true }),
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }
+      : null;
 
     const beforeSnapshot: EntryAuditSnapshot | null = originalParsed
       ? {
@@ -968,7 +986,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
     const afterSnapshot: EntryAuditSnapshot = {
       symbolCode: symbolCodeForPayload,
-      side: entryPositionType === 'long' ? 'LONG' : 'SHORT',
+      side: updatedSide,
       price,
       qty,
       note: auditNote(memoForPayload),
@@ -978,7 +996,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
     const linkedPosition = updatePosition(
       symbolCodeForPayload,
-      entryPositionType === 'long' ? 'LONG' : 'SHORT',
+      updatedSide,
       {
         avgPrice: price,
         qtyTotal: qty,
@@ -992,7 +1010,24 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
 
     setIsUpdating(true);
-    setMessages(prev => prev.map(msg => (msg.id === editingMessageId ? { ...msg, content: newContent } : msg)));
+    setMessages(prev => {
+      let next = prev.map(msg => (msg.id === editingMessageId ? { ...msg, content: newContent } : msg));
+      if (planBotMessage) {
+        for (let i = next.length - 1; i >= 0; i -= 1) {
+          const candidate = next[i];
+          if (candidate.type === 'bot' && typeof candidate.content === 'string' && candidate.content.includes('🎯 取引プラン設定')) {
+            next = [...next.slice(0, i), ...next.slice(i + 1)];
+            break;
+          }
+        }
+        return [...next, planBotMessage];
+      }
+      return next;
+    });
+
+    if (planBotMessage) {
+      setTimeout(() => scrollToLatestMessage(), 50);
+    }
 
     try {
       const updatedChatMessage = await updateChatMessage(editingMessageId, {
@@ -1010,6 +1045,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       });
 
       const tradeMessage = convertChatMessageToTradeMessage(updatedChatMessage);
+      tradeMessage.content = tradeMessage.content.replace('📈 建値入力しました！', '📈 建値入力しました！(編集済み)');
       setMessages(prev => prev.map(msg => (msg.id === editingMessageId ? tradeMessage : msg)));
 
       recordEntryEdited({
@@ -1018,7 +1054,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         after: afterSnapshot,
         actorId: 'user-1',
         timestamp: updatedChatMessage.updatedAt ?? new Date().toISOString(),
-        regenerateFlag: false,
+        regenerateFlag: planTriggerChanged,
       });
 
       const chatContext = currentChatId || undefined;

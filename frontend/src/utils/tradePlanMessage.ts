@@ -81,15 +81,17 @@ export const buildPlanMessageContent = (
   price: number,
   qty: number,
   side: TradeSide,
-  config: TradePlanConfig
+  config: TradePlanConfig,
+  options?: { edited?: boolean }
 ): string => {
   const { takeProfitPrice, stopLossPrice, expectedProfitAmount, expectedLossAmount } =
     computeTradePlanTargets(price, qty, side, config);
 
   const takeProfitPercentText = formatPercentText(config.takeProfitPercent, '+');
   const stopLossPercentText = formatPercentText(config.stopLossPercent, '-');
+  const header = options?.edited ? '🎯 取引プラン設定（編集済み）' : '🎯 取引プラン設定';
 
-  return `🎯 取引プラン設定<br/>`
+  return `${header}<br/>`
     + `📋 リスク管理ルール<br/>`
     + `• 利確目標: ${takeProfitPercentText} → <span style="color: #16a34a;">${formatCurrency(takeProfitPrice)}円</span><br/>`
     + `• 損切り目標: ${stopLossPercentText} → <span style="color: #dc2626;">${formatCurrency(stopLossPrice)}円</span><br/><br/>`
@@ -103,9 +105,10 @@ export const createPlanLegacyMessage = (
   price: number,
   qty: number,
   side: TradeSide,
-  config: TradePlanConfig
+  config: TradePlanConfig,
+  options?: { edited?: boolean }
 ): { id: string; content: string; timestamp: string } => {
-  const content = buildPlanMessageContent(price, qty, side, config);
+  const content = buildPlanMessageContent(price, qty, side, config, options);
   const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? `plan-${crypto.randomUUID()}`
     : `plan-${Date.now()}-${Math.random().toString(16).slice(2)}`;

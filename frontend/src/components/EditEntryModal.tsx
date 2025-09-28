@@ -59,6 +59,7 @@ interface PlanInputs {
 interface PlanTriggerInputs {
   price: number;
   side: 'LONG' | 'SHORT';
+  qty: number;
 }
 
 interface TradePlanPreview {
@@ -84,11 +85,13 @@ const toPlanInputs = (
 
 const toPlanTriggerInputs = (
   price: number | undefined,
+  qty: number | undefined,
   side: 'LONG' | 'SHORT' | undefined
 ): PlanTriggerInputs | null => {
   if (!side) return null;
   if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) return null;
-  return { price, side };
+  if (typeof qty !== 'number' || !Number.isFinite(qty) || qty <= 0) return null;
+  return { price, qty, side };
 };
 
 const computeTradePlanPreview = (
@@ -118,7 +121,11 @@ const computeTradePlanPreview = (
 
 const arePlanTriggersEqual = (a: PlanTriggerInputs, b: PlanTriggerInputs): boolean => {
   const normalizePrice = (value: number) => Number(value.toFixed(PRICE_PRECISION));
-  return normalizePrice(a.price) === normalizePrice(b.price) && a.side === b.side;
+  return (
+    normalizePrice(a.price) === normalizePrice(b.price) &&
+    a.side === b.side &&
+    a.qty === b.qty
+  );
 };
 
 const formatCurrency = (value: number): string => {
@@ -287,8 +294,8 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
   );
 
   const watchedPlanTriggerInputs = useMemo(
-    () => toPlanTriggerInputs(watchedPrice, watchedSide),
-    [watchedPrice, watchedSide]
+    () => toPlanTriggerInputs(watchedPrice, watchedQty, watchedSide),
+    [watchedPrice, watchedQty, watchedSide]
   );
 
   const planPreview = useMemo(
@@ -322,6 +329,7 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
         reset(defaultValues);
         lastPlanTriggerInputsRef.current = toPlanTriggerInputs(
           defaultValues.price,
+          defaultValues.qty,
           defaultValues.side
         );
         setIsPlanTriggerDirty(false);
@@ -373,6 +381,7 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
           reset(latestValues, { keepDefaultValues: false });
           lastPlanTriggerInputsRef.current = toPlanTriggerInputs(
             latestValues.price,
+            latestValues.qty,
             latestValues.side
           );
           setIsPlanTriggerDirty(false);
@@ -409,6 +418,7 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
           });
           lastPlanTriggerInputsRef.current = toPlanTriggerInputs(
             initialData.price,
+            initialData.qty,
             initialData.side
           );
           setIsPlanTriggerDirty(false);
@@ -455,6 +465,7 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
       const nextPlanTriggerInputs: PlanTriggerInputs = {
         price: values.price,
         side: values.side,
+        qty: values.qty,
       };
       const previousPlanTriggerInputs = lastPlanTriggerInputsRef.current;
       const planTriggerChanged =
@@ -463,7 +474,7 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
 
       const planBotMessage = planTriggerChanged && values.price > 0 && values.qty > 0
         ? {
-            ...createPlanLegacyMessage(values.price, values.qty, values.side, planConfig),
+            ...createPlanLegacyMessage(values.price, values.qty, values.side, planConfig, { edited: true }),
             type: 'bot' as const,
           }
         : null;
@@ -492,6 +503,9 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
             regenerateEnabled,
             planRegenerated: planTriggerChanged,
           });
+        }
+        if (planBotMessage && typeof onAddBotMessage === 'function') {
+          onAddBotMessage(planBotMessage);
         }
         lastPlanTriggerInputsRef.current = nextPlanTriggerInputs;
         setIsPlanTriggerDirty(false);

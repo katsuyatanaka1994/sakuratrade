@@ -590,7 +590,15 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
             content: message.content,
             timestamp: message.timestamp,
           };
-          const nextMessages = [...latestMessagesRef.current, legacyMessage];
+          const trimmed = [...latestMessagesRef.current];
+          for (let i = trimmed.length - 1; i >= 0; i -= 1) {
+            const candidate = trimmed[i];
+            if (candidate.type === 'bot' && typeof candidate.content === 'string' && candidate.content.includes('🎯 取引プラン設定')) {
+              trimmed.splice(i, 1);
+              break;
+            }
+          }
+          const nextMessages = [...trimmed, legacyMessage];
           latestMessagesRef.current = nextMessages;
           onMessagesUpdate(nextMessages);
         }}
