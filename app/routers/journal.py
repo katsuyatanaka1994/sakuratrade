@@ -125,7 +125,7 @@ async def get_journal_entries(
     from_date: Optional[str] = Query(None),
     to_date: Optional[str] = Query(None),
     symbol: Optional[str] = Query(None),
-    pnl: Optional[str] = Query(None, regex="^(win|lose)$"),
+    pnl: Optional[str] = Query(None, pattern=r"^(win|lose)$"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_async_db),

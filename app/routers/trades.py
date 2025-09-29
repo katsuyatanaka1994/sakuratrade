@@ -4,7 +4,7 @@ from typing import List, Optional, Union
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import Session
@@ -36,10 +36,7 @@ class TradeOut(BaseModel):
     size: float
     enteredAt: datetime = Field(..., alias="entered_at")
     stock_code: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-        populate_by_name = True
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 @router.post("", response_model=TradeOut, status_code=status.HTTP_201_CREATED)

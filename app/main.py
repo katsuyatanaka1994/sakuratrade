@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -12,7 +13,17 @@ from app.routers import advice, ai, analyze, chats, exit_feedback, images, integ
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/gptset_dev")
 engine = create_async_engine(DATABASE_URL, echo=True)
 
-app = FastAPI(title="SaaS API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Previously in @app.on_event("startup")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    # No explicit shutdown tasks defined
+    yield
+
+
+app = FastAPI(title="SaaS API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,12 +32,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def on_startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
 
 # Register all routers

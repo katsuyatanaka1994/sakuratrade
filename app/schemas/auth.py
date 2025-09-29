@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class LoginResponse(BaseModel):
@@ -22,9 +22,7 @@ class User(BaseModel):
     id: int
     name: str
     email: str
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OAuthRequest(BaseModel):

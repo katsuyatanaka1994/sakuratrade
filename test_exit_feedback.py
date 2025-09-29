@@ -4,12 +4,16 @@
 """
 
 import base64
+import os
 
+import pytest
 import requests
 
 
 def test_exit_feedback_endpoint():
     """決済フィードバックエンドポイントのテスト"""
+    if not os.getenv("OPENAI_API_KEY"):
+        pytest.skip("OPENAI_API_KEY not set; skipping exit feedback test")
     try:
         # テスト用データ準備
         image_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
@@ -28,66 +32,49 @@ def test_exit_feedback_endpoint():
             "exit_date": "2024-01-15T15:00:00Z",
         }
 
+        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+        endpoint = f"{base_url}/api/v1/feedback/exit"
+
         print("🧪 決済フィードバックエンドポイントテスト開始...")
-        response = requests.post("http://localhost:8000/api/v1/feedback/exit", files=files, data=data, timeout=30)
+        response = requests.post(endpoint, files=files, data=data, timeout=30)
 
-        if response.status_code == 200:
-            result = response.json()
-            print("✅ 決済フィードバックAPI呼び出し成功")
+        # ここからは assert で検証（値は返さない）
+        assert response.status_code == 200, f"API呼び出し失敗: {response.status_code} {response.text[:200]}"
+        result = response.json()
+        assert result.get("success") is True, f"フィードバック生成失敗: {result.get('error_message', 'unknown')}"
 
-            if result.get("success"):
-                print("✅ フィードバック生成成功")
-                print(f"✅ トレード概要: {result.get('trade_summary', '')}")
-                print(f"✅ 損益: {result.get('profit_loss', 0):+.0f}円")
-                print(f"✅ 損益率: {result.get('profit_loss_rate', 0):+.1f}%")
-                print(f"✅ 振り返り項目数: {len(result.get('reflection_items', []))}")
-                print(f"✅ フィードバックHTML生成: {'あり' if result.get('feedback_html') else 'なし'}")
+        # HTMLフィードバックの内容確認（存在時のみ軽く検証）
+        feedback_html = result.get("feedback_html", "")
+        if feedback_html:
+            assert "トレードの振り返りポイント" in feedback_html
+            assert "indicator-table" in feedback_html
+            assert "feedback-section" in feedback_html
 
-                # HTMLフィードバックの内容確認
-                feedback_html = result.get("feedback_html", "")
-                if feedback_html:
-                    if "トレードの振り返りポイント" in feedback_html:
-                        print("✅ HTMLテンプレート: タイトル確認")
-                    if "indicator-table" in feedback_html:
-                        print("✅ HTMLテンプレート: テーブル構造確認")
-                    if "feedback-section" in feedback_html:
-                        print("✅ HTMLテンプレート: CSSクラス確認")
-
-                return True
-            else:
-                print(f"❌ フィードバック生成失敗: {result.get('error_message', 'unknown')}")
-                return False
-        else:
-            print(f"❌ API呼び出し失敗: {response.status_code}")
-            print(f"   レスポンス: {response.text[:200]}...")
-            return False
+        # 追加の基本検証
+        assert isinstance(result.get("trade_summary", ""), str)
+        assert isinstance(result.get("profit_loss", 0), (int, float))
+        assert isinstance(result.get("profit_loss_rate", 0), (int, float))
+        assert isinstance(result.get("reflection_items", []), list)
 
     except Exception as e:
-        print(f"❌ 決済フィードバックテストエラー: {e}")
-        return False
+        pytest.fail(f"決済フィードバックテストエラー: {e}")
 
 
 def test_feedback_status_endpoint():
     """フィードバックシステム状態テスト"""
     try:
-        response = requests.get("http://localhost:8000/api/v1/feedback/status", timeout=10)
-        if response.status_code == 200:
-            result = response.json()
-            print("✅ フィードバックシステム状態取得成功")
-            print(f"   総合状態: {result.get('overall_status', 'unknown')}")
+        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+        endpoint = f"{base_url}/api/v1/feedback/status"
+        response = requests.get(endpoint, timeout=10)
+        assert response.status_code == 200, f"状態取得エラー: {response.status_code}"
+        result = response.json()
 
-            details = result.get("details", {})
-            print(f"   決済フィードバック: {details.get('exit_feedback', 'unknown')}")
-            print(f"   GPT分析: {details.get('gpt_analysis', 'unknown')}")
-            print(f"   テンプレートシステム: {details.get('template_system', 'unknown')}")
+        # 必須キーの存在と型をチェック
+        assert "overall_status" in result
+        assert isinstance(result.get("details", {}), dict)
 
-            return result.get("overall_status") == "healthy"
-        else:
-            print(f"❌ 状態取得エラー: {response.status_code}")
-            return False
     except Exception as e:
-        print(f"❌ 状態テストエラー: {e}")
-        return False
+        pytest.fail(f"状態テストエラー: {e}")
 
 
 def main():

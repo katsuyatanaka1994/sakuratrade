@@ -4,7 +4,9 @@
 """
 
 import io
+import os
 
+import pytest
 import requests
 from PIL import Image
 
@@ -55,11 +57,12 @@ def create_sample_chart_image():
 
 def test_integration_endpoint():
     """統合分析エンドポイントのテスト"""
+    if not os.getenv("OPENAI_API_KEY"):
+        pytest.skip("OPENAI_API_KEY not set; skipping integration endpoint test")
     print("🧪 API統合テスト: /integrated-analysis")
     print("=" * 60)
 
-    # FastAPIサーバーが起動していることを前提
-    base_url = "http://localhost:8000"
+    base_url = os.getenv("BASE_URL", "http://localhost:8000")
     endpoint = f"{base_url}/api/v1/integrated-analysis"
 
     try:
@@ -68,7 +71,6 @@ def test_integration_endpoint():
 
         # リクエストデータ準備
         files = {"file": ("test_chart.png", image_data, "image/png")}
-
         data = {
             "symbol": "7520テスト銘柄",
             "entry_price": 7520.0,
@@ -88,61 +90,47 @@ def test_integration_endpoint():
         print("\n📨 レスポンス:")
         print(f"   Status Code: {response.status_code}")
 
-        if response.status_code == 200:
-            result = response.json()
+        # ここからは assert で検証（値は返さない）
+        assert response.status_code == 200
+        result = response.json()
+        assert result.get("success") is True
 
-            print(f"   Success: {result.get('success', False)}")
+        analysis = result.get("analysis")
+        if analysis:
+            print("\n📊 分析結果:")
+            print(f"   Overall Evaluation: {analysis.get('overall_evaluation')}")
+            print(f"   Confidence Score: {analysis.get('confidence_score', 0):.2f}")
+            print(f"   Indicators Count: {len(analysis.get('indicators', []))}")
 
-            if result.get("success"):
-                analysis = result.get("analysis")
-                if analysis:
-                    print("\n📊 分析結果:")
-                    print(f"   Overall Evaluation: {analysis.get('overall_evaluation')}")
-                    print(f"   Confidence Score: {analysis.get('confidence_score', 0):.2f}")
-                    print(f"   Indicators Count: {len(analysis.get('indicators', []))}")
+            indicators = analysis.get("indicators", [])
+            print("\n🔍 Indicators サンプル:")
+            for i, indicator in enumerate(indicators[:3], 1):
+                print(f"   {i}. {indicator.get('name')}: {indicator.get('value')} ({indicator.get('evaluation')})")
 
-                    indicators = analysis.get("indicators", [])
-                    print("\n🔍 Indicators サンプル:")
-                    for i, indicator in enumerate(indicators[:3], 1):
-                        print(
-                            f"   {i}. {indicator.get('name')}: {indicator.get('value')} ({indicator.get('evaluation')})"
-                        )
-
-                natural_feedback = result.get("natural_feedback", "")
-                print("\n📝 自然文フィードバック（先頭200文字）:")
-                print(f"   {natural_feedback[:200]}...")
-
-                return True, result
-            else:
-                print(f"   Error: {result.get('error_message', 'Unknown error')}")
-                return False, result
-        else:
-            print(f"   Error Response: {response.text}")
-            return False, None
+        natural_feedback = result.get("natural_feedback", "")
+        print("\n📝 自然文フィードバック（先頭200文字）:")
+        print(f"   {natural_feedback[:200]}...")
 
     except requests.exceptions.ConnectionError:
-        print("❌ FastAPIサーバーに接続できません")
-        print("   サーバーを起動してください: uvicorn main:app --reload")
-        return False, None
+        pytest.fail("FastAPIサーバーに接続できません。サーバーを起動してください: uvicorn app.main:app --reload")
     except Exception as e:
-        print(f"❌ テストエラー: {e}")
-        return False, None
+        pytest.fail(f"テストエラー: {e}")
 
 
 def test_quick_analysis_endpoint():
     """クイック分析エンドポイントのテスト"""
+    if not os.getenv("OPENAI_API_KEY"):
+        pytest.skip("OPENAI_API_KEY not set; skipping quick analysis test")
     print("\n🧪 API統合テスト: /quick-analysis")
     print("=" * 60)
 
-    base_url = "http://localhost:8000"
+    base_url = os.getenv("BASE_URL", "http://localhost:8000")
     endpoint = f"{base_url}/api/v1/quick-analysis"
 
     try:
         # テスト用画像作成
         image_data = create_sample_chart_image()
-
         files = {"file": ("test_chart.png", image_data, "image/png")}
-
         data = {"symbol": "7520テスト銘柄", "analysis_context": "クイック分析テスト"}
 
         response = requests.post(endpoint, files=files, data=data, timeout=15)
@@ -150,22 +138,17 @@ def test_quick_analysis_endpoint():
         print("📨 レスポンス:")
         print(f"   Status Code: {response.status_code}")
 
-        if response.status_code == 200:
-            result = response.json()
-            print(f"   Success: {result.get('success', False)}")
-            print(f"   Analysis Type: {result.get('analysis_type', 'unknown')}")
-            print(f"   Message Length: {len(result.get('message', ''))}")
-            return True, result
-        else:
-            print(f"   Error: {response.text}")
-            return False, None
+        assert response.status_code == 200
+        result = response.json()
+        # 成功フラグと基本フィールドの存在を確認
+        assert result.get("success") is True
+        assert "analysis_type" in result
+        assert isinstance(result.get("message", ""), str)
 
     except requests.exceptions.ConnectionError:
-        print("❌ FastAPIサーバーに接続できません")
-        return False, None
+        pytest.fail("FastAPIサーバーに接続できません")
     except Exception as e:
-        print(f"❌ テストエラー: {e}")
-        return False, None
+        pytest.fail(f"テストエラー: {e}")
 
 
 def test_status_endpoint():
@@ -173,7 +156,7 @@ def test_status_endpoint():
     print("\n🧪 API統合テスト: /analysis-status")
     print("=" * 60)
 
-    base_url = "http://localhost:8000"
+    base_url = os.getenv("BASE_URL", "http://localhost:8000")
     endpoint = f"{base_url}/api/v1/analysis-status"
 
     try:
@@ -182,27 +165,17 @@ def test_status_endpoint():
         print("📨 レスポンス:")
         print(f"   Status Code: {response.status_code}")
 
-        if response.status_code == 200:
-            result = response.json()
-            print(f"   Overall Status: {result.get('overall_status')}")
-
-            details = result.get("details", {})
-            rule_based = details.get("rule_based_modules", {})
-            print(f"   Pivot v1.3: {rule_based.get('pivot_v13')}")
-            print(f"   Entry v0.4: {rule_based.get('entry_v04')}")
-            print(f"   GPT Analysis: {details.get('gpt_analysis')}")
-
-            return True, result
-        else:
-            print(f"   Error: {response.text}")
-            return False, None
+        assert response.status_code == 200
+        result = response.json()
+        assert "overall_status" in result
+        # 任意で詳細フィールドの有無も軽くチェック
+        details = result.get("details", {})
+        assert isinstance(details, dict)
 
     except requests.exceptions.ConnectionError:
-        print("❌ FastAPIサーバーに接続できません")
-        return False, None
+        pytest.fail("FastAPIサーバーに接続できません")
     except Exception as e:
-        print(f"❌ テストエラー: {e}")
-        return False, None
+        pytest.fail(f"テストエラー: {e}")
 
 
 def main():
