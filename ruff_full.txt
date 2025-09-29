@@ -1,0 +1,298 @@
+E501 Line too long (151 > 120)
+  --> app/services/gpt_analyzer.py:73:96
+   |
+71 | …
+72 | …
+73 | …is_context or 'テクニカル指標'}を上記JSON形式で抽出してください。"
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+74 | …
+75 | …
+   |
+
+F841 Local variable `system_prompt` is assigned to but never used
+   --> app/services/integrated_advice_service.py:139:5
+    |
+137 |     """シンプルなGPT分析（統合分析を使わない場合）"""
+138 |
+139 |     system_prompt = (
+    |     ^^^^^^^^^^^^^
+140 |         "あなたはプロの株式スイングトレーダー兼アナリストです。"
+141 |         "チャート画像を解析し、トレーディングアドバイスを日本語で提供してください。"
+    |
+help: Remove assignment to unused variable `system_prompt`
+
+F841 Local variable `user_prompt` is assigned to but never used
+   --> app/services/integrated_advice_service.py:144:5
+    |
+142 |     )
+143 |
+144 |     user_prompt = f"この{symbol_context or '株価'}のチャート画像を解析し、{analysis_context or 'トレーディング'}のアドバイスを教えてく                                 …
+    |     ^^^^^^^^^^^
+145 |
+146 |     # 簡易版のGPT呼び出し（実装は省略）
+    |
+help: Remove assignment to unused variable `user_prompt`
+
+E501 Line too long (143 > 120)
+   --> app/services/integrated_advice_service.py:144:94
+    |
+142 | …
+143 | …
+144 | …s_context or 'トレーディング'}のアドバイスを教えてください。"
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^
+145 | …
+146 | …
+    |
+
+E501 Line too long (127 > 120)
+   --> app/services/rule_based_analyzer.py:120:106
+    |
+118 | …     value=f"20MA: {slope20_pct:+.2f}%, 60MA: {slope60_pct:+.2f}%",
+119 | …     evaluation=slope_evaluation,
+120 | …     comment=f"移動平均線の傾き評価。20MA: {slope20_pct:+.2f}%, 60MA: {slope60_pct:+.2f}%。スコア{slope_score}点。",
+    |                                                                                                               ^^^^^^^
+121 | …     source="rule_based",
+122 | …     confidence=0.85,
+    |
+
+E501 Line too long (131 > 120)
+   --> app/services/rule_based_analyzer.py:161:101
+    |
+159 | …     value=f"{label} ({final_score}点)",
+160 | …     evaluation=evaluation_map.get(label, "中立"),
+161 | …     comment=f"Entry v0.4による総合判定: {label}。最終スコア{final_score}点、ゲート通過: {'○' if gate_passed else '×'}",
+    |                                                                                                               ^^^^^^^^^^^
+162 | …     source="rule_based",
+163 | …     confidence=0.90,
+    |
+
+F841 Local variable `current_price` is assigned to but never used
+  --> app/services/strategy_estimator.py:8:5
+   |
+ 6 |     trend = indicators.trend_check or ""
+ 7 |     rsi = indicators.rsi_overheat or ""
+ 8 |     current_price = indicators.current_price or 0
+   |     ^^^^^^^^^^^^^
+ 9 |     recent_high = indicators.recent_high or 0
+10 |     recent_low = indicators.recent_low or 0
+   |
+help: Remove assignment to unused variable `current_price`
+
+F841 Local variable `sma_touch` is assigned to but never used
+  --> app/services/strategy_estimator.py:13:5
+   |
+11 |     price_action = indicators.price_action or ""
+12 |     volume = indicators.volume_trend or ""
+13 |     sma_touch = indicators.sma_touch if indicators.sma_touch is not None else False
+   |     ^^^^^^^^^
+14 |
+15 |     if "下降トレンド" in trend and "RSI高値圏" in rsi and price_action == "陰線" and volume == "増加":
+   |
+help: Remove assignment to unused variable `sma_touch`
+
+E712 Avoid equality comparisons to `True`; use `result["isPivot"]:` for truth checks
+   --> app/tests/test_integrated_analysis.py:113:16
+    |
+111 |         assert "scores" in result
+112 |         assert result["final"] == 75
+113 |         assert result["isPivot"] == True
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^
+114 |
+115 |     @patch("subprocess.run")
+    |
+help: Replace with `result["isPivot"]`
+
+E712 Avoid equality comparisons to `False`; use `not result["isPivot"]:` for false checks
+   --> app/tests/test_integrated_analysis.py:125:16
+    |
+123 |         assert "scores" in result
+124 |         assert result["final"] == 50
+125 |         assert result["isPivot"] == False
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+126 |
+127 |     def test_pivot_result_to_indicators(self, analyzer):
+    |
+help: Replace with `not result["isPivot"]`
+
+E501 Line too long (135 > 120)
+  --> frontend/app/services/exit_feedback_service.py:37:119
+   |
+35 | …
+36 | … "long" else "ショート"
+37 | …} {request.entry_price}円 → {request.exit_price}円 ({request.quantity}株)"
+   |                                                             ^^^^^^^^^^^^^^^
+38 | …
+39 | …
+   |
+
+F841 Local variable `lines` is assigned to but never used
+   --> frontend/app/services/exit_feedback_service.py:137:13
+    |
+135 |         try:
+136 |             # シンプルなパースロジック（実際の実装ではより詳細な解析が必要）
+137 |             lines = gpt_analysis.split("\n")
+    |             ^^^^^
+138 |             current_item = None
+    |
+help: Remove assignment to unused variable `lines`
+
+F841 Local variable `current_item` is assigned to but never used
+   --> frontend/app/services/exit_feedback_service.py:138:13
+    |
+136 |             # シンプルなパースロジック（実際の実装ではより詳細な解析が必要）
+137 |             lines = gpt_analysis.split("\n")
+138 |             current_item = None
+    |             ^^^^^^^^^^^^
+139 |
+140 |             categories = ["仕掛けタイミング", "利確判断", "改善点"]
+    |
+help: Remove assignment to unused variable `current_item`
+
+E501 Line too long (134 > 120)
+   --> frontend/app/services/exit_feedback_service.py:161:109
+    |
+159 | …         if request.position_type == "short":
+160 | …             profit_loss = -profit_loss
+161 | …         content = f"エントリー価格 {request.entry_price}円での{'買い' if request.position_type == 'long' else '売り'}判断"
+    |                                                                                                               ^^^^^^^^^^^^^^
+162 | …         comment = "チャートパターンと市場環境を総合的に判断"
+163 | …     elif category == "利確判断":
+    |
+
+E501 Line too long (131 > 120)
+   --> frontend/app/services/exit_feedback_service.py:232:84
+    |
+231 | …
+232 | …場分析と戦略の見直しを行い、次回の改善に活かしましょう。"
+    |                                                 ^^^^^^^^^^^
+233 | …
+234 | …
+    |
+
+E501 Line too long (151 > 120)
+  --> frontend/app/services/gpt_analyzer.py:73:96
+   |
+71 | …
+72 | …
+73 | …is_context or 'テクニカル指標'}を上記JSON形式で抽出してください。"
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+74 | …
+75 | …
+   |
+
+F841 Local variable `system_prompt` is assigned to but never used
+   --> frontend/app/services/integrated_advice_service.py:139:5
+    |
+137 |     """シンプルなGPT分析（統合分析を使わない場合）"""
+138 |
+139 |     system_prompt = (
+    |     ^^^^^^^^^^^^^
+140 |         "あなたはプロの株式スイングトレーダー兼アナリストです。"
+141 |         "チャート画像を解析し、トレーディングアドバイスを日本語で提供してください。"
+    |
+help: Remove assignment to unused variable `system_prompt`
+
+F841 Local variable `user_prompt` is assigned to but never used
+   --> frontend/app/services/integrated_advice_service.py:144:5
+    |
+142 |     )
+143 |
+144 |     user_prompt = f"この{symbol_context or '株価'}のチャート画像を解析し、{analysis_context or 'トレーディング'}のアドバイスを教えてく                                 …
+    |     ^^^^^^^^^^^
+145 |
+146 |     # 簡易版のGPT呼び出し（実装は省略）
+    |
+help: Remove assignment to unused variable `user_prompt`
+
+E501 Line too long (143 > 120)
+   --> frontend/app/services/integrated_advice_service.py:144:94
+    |
+142 | …
+143 | …
+144 | …s_context or 'トレーディング'}のアドバイスを教えてください。"
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^
+145 | …
+146 | …
+    |
+
+E501 Line too long (127 > 120)
+   --> frontend/app/services/rule_based_analyzer.py:120:106
+    |
+118 | …     value=f"20MA: {slope20_pct:+.2f}%, 60MA: {slope60_pct:+.2f}%",
+119 | …     evaluation=slope_evaluation,
+120 | …     comment=f"移動平均線の傾き評価。20MA: {slope20_pct:+.2f}%, 60MA: {slope60_pct:+.2f}%。スコア{slope_score}点。",
+    |                                                                                                               ^^^^^^^
+121 | …     source="rule_based",
+122 | …     confidence=0.85,
+    |
+
+E501 Line too long (131 > 120)
+   --> frontend/app/services/rule_based_analyzer.py:161:101
+    |
+159 | …     value=f"{label} ({final_score}点)",
+160 | …     evaluation=evaluation_map.get(label, "中立"),
+161 | …     comment=f"Entry v0.4による総合判定: {label}。最終スコア{final_score}点、ゲート通過: {'○' if gate_passed else '×'}",
+    |                                                                                                               ^^^^^^^^^^^
+162 | …     source="rule_based",
+163 | …     confidence=0.90,
+    |
+
+E501 Line too long (125 > 120)
+   --> simple_chat_server.py:355:98
+    |
+353 |     if not ai_response:
+354 |         ai_response = (
+355 |             f"AI応答: メッセージ「{user_message.get('text', user_message.get('type', 'メッセージ'))}」に対する分析結果です。"
+    |                                                                                                                         ^^^^^
+356 |             "（現在はモック応答。OPENAI_API_KEY を設定すると実応答に切り替わります）"
+357 |         )
+    |
+
+F841 Local variable `indicators_data` is assigned to but never used
+  --> test_integrated_system.py:45:9
+   |
+43 |         }
+44 |
+45 |         indicators_data = {
+   |         ^^^^^^^^^^^^^^^
+46 |             "sma5": 7500,
+47 |             "sma20": 7480,
+   |
+help: Remove assignment to unused variable `indicators_data`
+
+F841 Local variable `context` is assigned to but never used
+  --> test_integrated_system.py:58:9
+   |
+56 |         }
+57 |
+58 |         context = {"recentPivotBarsAgo": 2, "priceBand": "mid", "entry_price": 7520, "position_type": "long"}
+   |         ^^^^^^^
+59 |
+60 |         image_base64 = create_test_image()
+   |
+help: Remove assignment to unused variable `context`
+
+F841 Local variable `image_base64` is assigned to but never used
+  --> test_integrated_system.py:60:9
+   |
+58 |         context = {"recentPivotBarsAgo": 2, "priceBand": "mid", "entry_price": 7520, "position_type": "long"}
+59 |
+60 |         image_base64 = create_test_image()
+   |         ^^^^^^^^^^^^
+61 |
+62 |         print("📊 テストデータ:")
+   |
+help: Remove assignment to unused variable `image_base64`
+
+E501 Line too long (160 > 120)
+   --> test_integrated_system.py:189:121
+    |
+187 | …
+188 | …
+189 | …} | {{ indicator.comment[:60] }}{{ "..." if indicator.comment|length > 60 else "" }} |
+    |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+190 | …
+    |
+
+Found 26 errors.
+No fixes available (13 hidden fixes can be enabled with the `--unsafe-fixes` option).

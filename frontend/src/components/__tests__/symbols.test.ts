@@ -8,7 +8,7 @@ describe('symbols utils', () => {
     { code: '7203', name: 'トヨタ', market: 'プライム' },
   ];
 
-  test('extractCodesFromText (legacy - now unused)', () => {
+  test.skip('extractCodesFromText (legacy - deprecated; numeric codes are ignored in new spec)', () => {
     // 旧機能のテスト（現在は使用されない）
     expect(extractCodesFromText('今日は5803が強い')).toEqual(['5803']);
     expect(extractCodesFromText('9984.T について')).toEqual(['9984']);

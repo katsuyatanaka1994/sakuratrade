@@ -22,19 +22,36 @@ app/
 
 ---
 
-## 🚀 起動手順
+## 🛠 初期セットアップ
 
-```
-1. 仮想環境を作成
+1. 環境変数ファイルをコピー
+   ```bash
+   cp .env.example .env
+   cp frontend/.env.example frontend/.env
+   ```
+
+2. 仮想環境を作成してアクティベート
+   ```bash
    python -m venv venv
    source venv/bin/activate
+   ```
 
-2. 依存関係をインストール
+3. 依存関係をインストール
+   ```bash
    pip install -r requirements.txt
+   ```
 
-3. 開発サーバー起動
-   uvicorn app.main:app --reload
+## 🚀 開発サーバーの起動
+
+```bash
+uvicorn app.main:app --reload
 ```
+
+## 📦 インポートルール
+
+- プロジェクト内の参照は `from app.<module> import ...` 形式に統一しています。
+- モジュールを直接実行する際は `python -m app.<module_path>` を利用するとパス設定が不要です。
+- CI では `ruff` と `scripts/check_import_paths.py` が同ルールを検証します。
 
 ---
 

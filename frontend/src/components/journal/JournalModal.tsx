@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../UI/dialog';
 import { Button } from '../UI/button';
 import { ExternalLink, MessageCircle } from 'lucide-react';
-import { JournalEntry, journalApi } from '../../services/journal';
+import type { JournalEntry } from '../../services/journal';
+import { journalApi } from '../../services/journal';
 import { useSymbolSuggest } from '../../hooks/useSymbolSuggest';
 import { useNavigate } from 'react-router-dom';
 

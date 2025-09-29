@@ -1,0 +1,7 @@
+repos:
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.6.9  # Ruff の安定版タグを指定
+    hooks:
+      - id: ruff
+        args: [--fix]  # 自動修正も有効化
+      - id: ruff-format

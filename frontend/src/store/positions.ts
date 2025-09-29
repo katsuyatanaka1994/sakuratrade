@@ -1,3 +1,5 @@
+import { isDevelopmentEnv, resolveApiBaseUrl } from '../lib/env';
+
 // Using crypto.randomUUID() for cross-browser compatibility
 // import * as ULID from 'ulid';
 
@@ -49,6 +51,12 @@ export interface Position {
   name?: string;
   chatId?: string;
   currentTradeId?: string; // ULID for trade journal tracking
+  status?: 'OPEN' | 'CLOSED'; // Position status for edit permissions
+  ownerId?: string; // Owner ID for edit permissions
+  version: number; // Version for optimistic locking
+  // Chart analysis linkage
+  chartImageId?: string | null;
+  aiFeedbacked?: boolean;
 }
 export interface SymbolGroup { symbol: string; name?: string; positions: Position[] }
 
@@ -61,12 +69,15 @@ function notify() {
 }
 export function subscribe(fn: Listener) { listeners.add(fn); return () => listeners.delete(fn); }
 
-const key = (symbol: string, side: Side, chatId?: string) => `${symbol}:${side}:${chatId || 'default'}`;
+export const makePositionKey = (symbol: string, side: Side, chatId?: string | null) => `${symbol}:${side}:${chatId || 'default'}`;
+
+const key = makePositionKey;
 
 // localStorage keys for persistence
 const POSITIONS_STORAGE_KEY = 'positions_data';
 const CLOSED_POSITIONS_STORAGE_KEY = 'closed_positions_data';
 const TRADE_ENTRIES_KEY = 'trade_entries'; // Track entry timestamps per tradeId
+const SETTLEMENT_HISTORY_KEY = 'settlement_history'; // EXIT messageId -> settlement record
 
 // Helper functions for localStorage serialization
 function serializePositions(positions: Map<string, Position>): string {
@@ -88,6 +99,7 @@ function savePositionsToStorage() {
     localStorage.setItem(POSITIONS_STORAGE_KEY, serializePositions(state.positions));
     localStorage.setItem(CLOSED_POSITIONS_STORAGE_KEY, JSON.stringify(state.closed));
     saveTradeEntries();
+    saveSettlementHistory();
     saveFailedJournalQueue();
   } catch (error) {
     console.warn('Failed to save positions to localStorage:', error);
@@ -112,16 +124,19 @@ function loadPositionsFromStorage() {
   try {
     const positionsData = localStorage.getItem(POSITIONS_STORAGE_KEY);
     const closedData = localStorage.getItem(CLOSED_POSITIONS_STORAGE_KEY);
+    const historyData = localStorage.getItem(SETTLEMENT_HISTORY_KEY);
     
     return {
       positions: positionsData ? deserializePositions(positionsData) : new Map<string, Position>(),
-      closed: closedData ? JSON.parse(closedData) : []
+      closed: closedData ? JSON.parse(closedData) : [],
+      settlementHistory: historyData ? JSON.parse(historyData) as Record<string, SettlementRecord> : {}
     };
   } catch (error) {
     console.warn('Failed to load positions from localStorage:', error);
     return {
       positions: new Map<string, Position>(),
-      closed: []
+      closed: [],
+      settlementHistory: {}
     };
   }
 }
@@ -210,11 +225,13 @@ const state: {
   closed: Position[];
   tradeEntries: Map<string, string>; // tradeId -> entry timestamp
   failedJournalQueue: FailedJournalEntry[];
+  settlementHistory: Record<string, SettlementRecord>;
 } = {
   positions: initialData.positions,
   closed: initialData.closed,
   tradeEntries: loadTradeEntries(),
   failedJournalQueue: loadFailedJournalQueue(),
+  settlementHistory: initialData.settlementHistory,
 };
 
 export function getState() { return state; }
@@ -235,7 +252,7 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   const isInitialEntry = !p || p.qtyTotal === 0;
   
   if (!p) {
-    p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId };
+    p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId, status: 'OPEN', ownerId: 'current_user', version: 1, chartImageId: null, aiFeedbacked: false };
     state.positions.set(k, p);
   }
   
@@ -255,6 +272,101 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   return p;
 }
 
+export function removeEntryLot(symbol: string, side: Side, price: number, qty: number, chatId?: string): boolean {
+  if (qty <= 0) return false;
+  const k = key(symbol, side, chatId);
+  const position = state.positions.get(k);
+  if (!position) {
+    console.warn('[positions.store] removeEntryLot: position not found', { symbol, side, chatId });
+    return false;
+  }
+
+  const totalQtyBefore = position.qtyTotal;
+  if (totalQtyBefore <= 0) {
+    console.warn('[positions.store] removeEntryLot: no quantity to remove', { symbol, side, chatId });
+    return false;
+  }
+
+  const qtyToRemove = Math.min(qty, totalQtyBefore);
+
+  // Update lots starting from the latest entry
+  let remaining = qtyToRemove;
+  for (let i = position.lots.length - 1; i >= 0 && remaining > 0; i -= 1) {
+    const lot = position.lots[i];
+    if (lot.qtyRemaining <= 0) continue;
+    const removable = Math.min(lot.qtyRemaining, remaining);
+    lot.qtyRemaining -= removable;
+    remaining -= removable;
+    if (lot.qtyRemaining <= 0) {
+      position.lots.splice(i, 1);
+    }
+  }
+
+  const totalValueBefore = position.avgPrice * totalQtyBefore;
+  const totalValueAfter = Math.max(0, totalValueBefore - price * qtyToRemove);
+  const totalQtyAfter = totalQtyBefore - qtyToRemove;
+
+  if (totalQtyAfter <= 0) {
+    state.positions.delete(k);
+  } else {
+    position.qtyTotal = totalQtyAfter;
+    position.avgPrice = totalQtyAfter > 0 ? totalValueAfter / totalQtyAfter : 0;
+    position.updatedAt = new Date().toISOString();
+    position.status = 'OPEN';
+    state.positions.set(k, position);
+  }
+
+  notify();
+  return true;
+}
+
+export function updatePosition(symbol: string, side: Side, updates: Partial<Position>, chatId?: string): Position | null {
+  const k = key(symbol, side, chatId);
+  const p = state.positions.get(k);
+  
+  if (!p) {
+    console.warn('Position not found for update:', { symbol, side, chatId });
+    return null;
+  }
+  
+  // Update position with provided fields
+  const updatedPosition = {
+    ...p,
+    ...updates,
+    updatedAt: updates.updatedAt || new Date().toISOString(),
+    // Guard against undefined/NaN version from legacy data
+    version: (updates.version !== undefined)
+      ? updates.version
+      : (typeof p.version === 'number' && isFinite(p.version) ? p.version + 1 : 1)
+  };
+  
+  state.positions.set(k, updatedPosition);
+  notify();
+  return updatedPosition;
+}
+
+export function syncPositionFromServer(position: Position): Position | null {
+  const identifierKey = makePositionKey(position.symbol, position.side, position.chatId);
+
+  if (position.qtyTotal <= 0) {
+    const existed = state.positions.delete(identifierKey);
+    if (existed) {
+      notify();
+    }
+    return null;
+  }
+
+  const normalisedPosition: Position = {
+    ...position,
+    updatedAt: position.updatedAt || new Date().toISOString(),
+    status: position.status ?? 'OPEN',
+  };
+
+  state.positions.set(identifierKey, normalisedPosition);
+  notify();
+  return normalisedPosition;
+}
+
 export function settle(symbol: string, side: Side, price: number, qty: number, chatId?: string) {
   const k = key(symbol, side, chatId);
   const p = state.positions.get(k);
@@ -264,6 +376,8 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
   const matchedLots: { lotPrice: number; qty: number; pnl: number }[] = [];
   let remaining = qty;
   let realized = 0;
+  const startQtyTotal = p.qtyTotal;
+  const startAvg = p.avgPrice; // 固定平均建値（証券会社風）
 
   for (const lot of p.lots) {
     if (remaining <= 0) break;
@@ -279,7 +393,8 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
   const wasQtyTotal = p.qtyTotal;
   p.qtyTotal -= qty;
   p.lots = p.lots.filter(l => l.qtyRemaining > 0);
-  p.avgPrice = p.qtyTotal > 0 ? p.lots.reduce((acc, l) => acc + l.price * l.qtyRemaining, 0) / p.qtyTotal : 0;
+  // 平均建値は売却では変えない（固定）。完全クローズ時のみ0。
+  p.avgPrice = p.qtyTotal > 0 ? startAvg : 0;
   p.realizedPnl += realized;
   p.updatedAt = new Date().toISOString();
 
@@ -287,57 +402,43 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
   let tradeSnapshot: TradeSnapshot | null = null;
   
   // Check for complete close (qtyTotal becomes 0)
-  if (p.qtyTotal === 0 && p.currentTradeId && state.tradeEntries.has(p.currentTradeId)) {
-    const entryTime = state.tradeEntries.get(p.currentTradeId)!;
-    const closeTime = new Date().toISOString();
-    const holdMinutes = Math.floor((new Date(closeTime).getTime() - new Date(entryTime).getTime()) / 60000);
-    
-    // Use position's average price (calculated correctly during entry)
-    let avgEntry = p.avgPrice;
-    
-    // Ensure avgEntry is valid
-    if (!isFinite(avgEntry) || avgEntry <= 0) {
-      // Fallback: calculate from remaining lots
-      if (p.lots.length > 0) {
-        const totalValue = p.lots.reduce((sum, lot) => sum + (lot.price * lot.qtyRemaining), 0);
-        const totalQty = p.lots.reduce((sum, lot) => sum + lot.qtyRemaining, 0);
-        avgEntry = totalQty > 0 ? totalValue / totalQty : price;
-      } else {
-        avgEntry = price; // Use exit price as last resort
+  if (p.qtyTotal === 0) {
+    // When possible, create a trade snapshot using tracked entry time
+    if (p.currentTradeId && state.tradeEntries.has(p.currentTradeId)) {
+      const entryTime = state.tradeEntries.get(p.currentTradeId)!;
+      const closeTime = new Date().toISOString();
+      const holdMinutes = Math.floor((new Date(closeTime).getTime() - new Date(entryTime).getTime()) / 60000);
+
+      const avgEntry = startAvg; // fixed average entry
+
+      let pnlPct = 0;
+      if (avgEntry > 0) {
+        pnlPct = side === 'LONG'
+          ? ((price - avgEntry) / avgEntry) * 100
+          : ((avgEntry - price) / avgEntry) * 100;
+        if (!isFinite(pnlPct)) pnlPct = 0;
       }
-    }
-    
-    // Calculate pnl_pct safely to avoid NaN/Infinity
-    let pnlPct = 0;
-    if (avgEntry > 0) {
-      pnlPct = side === 'LONG' 
-        ? ((price - avgEntry) / avgEntry) * 100 
-        : ((avgEntry - price) / avgEntry) * 100;
-      
-      // Ensure pnlPct is a valid finite number
-      if (!isFinite(pnlPct)) {
-        pnlPct = 0;
-      }
+
+      tradeSnapshot = {
+        tradeId: p.currentTradeId,
+        chatId: chatId || 'default',
+        symbol,
+        side,
+        avgEntry: isFinite(avgEntry) ? avgEntry : 0,
+        avgExit: price,
+        qty: wasQtyTotal,
+        pnlAbs: isFinite(realized) ? realized : 0,
+        pnlPct,
+        holdMinutes,
+        closedAt: closeTime.replace(/\.\d{3}Z$/, 'Z')
+      };
+
+      // Clear trade tracking
+      state.tradeEntries.delete(p.currentTradeId);
+      delete p.currentTradeId;
     }
 
-    tradeSnapshot = {
-      tradeId: p.currentTradeId,
-      chatId: chatId || 'default',
-      symbol,
-      side,
-      avgEntry: isFinite(avgEntry) ? avgEntry : 0,
-      avgExit: price,
-      qty: wasQtyTotal,
-      pnlAbs: isFinite(realized) ? realized : 0,
-      pnlPct,
-      holdMinutes,
-      closedAt: closeTime.replace(/\.\d{3}Z$/, 'Z') // Remove milliseconds from ISO string
-    };
-    
-    // Clear trade tracking
-    state.tradeEntries.delete(p.currentTradeId);
-    delete p.currentTradeId;
-    
+    // In all cases, remove from open positions and archive into closed
     state.positions.delete(k);
     state.closed.push(p);
     positionResult = null;
@@ -345,6 +446,75 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
 
   notify();
   return { position: positionResult, realizedPnl: realized, details: { matchedLots }, tradeSnapshot };
+}
+
+// Record settlement (link EXIT message id -> matched lots) for exact undo
+export function recordSettlement(exitMessageId: string, record: Omit<SettlementRecord, 'createdAt' | 'undone'>) {
+  state.settlementHistory[exitMessageId] = {
+    ...record,
+    createdAt: new Date().toISOString(),
+    undone: false,
+  };
+  saveSettlementHistory();
+}
+
+// Undo settlement using the recorded history; returns true if applied
+export function unsettle(exitMessageId: string): boolean {
+  const rec = state.settlementHistory[exitMessageId];
+  if (!rec || rec.undone) return false;
+
+  const kpos = key(rec.symbol, rec.side, rec.chatId);
+  let pos = state.positions.get(kpos);
+  const now = new Date().toISOString();
+
+  // If position was closed, revive basic structure
+  if (!pos) {
+    pos = {
+      symbol: rec.symbol,
+      side: rec.side,
+      qtyTotal: 0,
+      avgPrice: 0,
+      lots: [],
+      realizedPnl: 0,
+      updatedAt: now,
+      chatId: rec.chatId,
+      status: 'OPEN',
+      ownerId: 'current_user',
+      version: 1,
+      name: undefined,
+      currentTradeId: undefined,
+      chartImageId: null,
+      aiFeedbacked: false,
+    };
+    state.positions.set(kpos, pos);
+    // Remove one closed record if present
+    const idx = state.closed.findIndex(c => c.symbol === rec.symbol && c.side === rec.side && c.chatId === rec.chatId);
+    if (idx >= 0) state.closed.splice(idx, 1);
+  }
+
+  // Restore consumed lots
+  for (const lot of rec.matchedLots) {
+    pos!.lots.push({ price: lot.lotPrice, qtyRemaining: lot.qty, time: now });
+    pos!.qtyTotal += lot.qty;
+  }
+  // Recompute average price
+  if (pos!.qtyTotal > 0) {
+    const totalVal = pos!.lots.reduce((s, l) => s + l.price * l.qtyRemaining, 0);
+    const totalQty = pos!.lots.reduce((s, l) => s + l.qtyRemaining, 0);
+    pos!.avgPrice = totalQty > 0 ? totalVal / totalQty : 0;
+  } else {
+    pos!.avgPrice = 0;
+  }
+  pos!.realizedPnl = (pos!.realizedPnl || 0) - (rec.realizedPnl || 0);
+  pos!.updatedAt = now;
+  pos!.status = 'OPEN';
+  pos!.version += 1;
+
+  // Mark as undone
+  rec.undone = true;
+  savePositionsToStorage();
+  notify();
+  return true;
 }
 
 export function getGroups(chatId?: string): SymbolGroup[] {
@@ -366,18 +536,46 @@ export function getLongShortQty(symbol: string, chatId?: string) {
   return { long, short };
 }
 
+// Explicitly delete a position (user-initiated removal)
+export function deletePosition(symbol: string, side: Side, chatId?: string): boolean {
+  console.log('[positions.store] deletePosition called', { symbol, side, chatId });
+  // Try exact key first
+  const tryKeys: string[] = [];
+  tryKeys.push(key(symbol, side, chatId));
+  // Fallbacks for legacy/default chatId
+  if (chatId && chatId !== 'default') {
+    tryKeys.push(key(symbol, side, 'default'));
+  }
+  // As a last resort, search by symbol+side (ignore chatId)
+  const anyKey = Array.from(state.positions.keys()).find(k => k.startsWith(`${symbol}:${side}:`));
+  if (anyKey) tryKeys.push(anyKey);
+
+  for (const kpos of tryKeys) {
+    if (state.positions.has(kpos)) {
+      console.log('[positions.store] deleting key', kpos);
+      state.positions.delete(kpos);
+      notify();
+      return true;
+    }
+  }
+  console.warn('[positions.store] deletePosition: no matching key found', { tryKeys, keys: Array.from(state.positions.keys()) });
+  return false;
+}
+
 // Debug and utility functions
 export function clearAllPositions() {
   state.positions.clear();
   state.closed.length = 0;
   state.tradeEntries.clear();
   state.failedJournalQueue.length = 0;
+  state.settlementHistory = {};
   
   // Also clear localStorage directly
   try {
     localStorage.removeItem(POSITIONS_STORAGE_KEY);
     localStorage.removeItem(CLOSED_POSITIONS_STORAGE_KEY);
     localStorage.removeItem(TRADE_ENTRIES_KEY);
+    localStorage.removeItem(SETTLEMENT_HISTORY_KEY);
     localStorage.removeItem(FAILED_JOURNAL_QUEUE_KEY);
   } catch (error) {
     console.warn('Error clearing localStorage:', error);
@@ -395,12 +593,45 @@ export function debugPositions() {
   console.log('LocalStorage data:');
   console.log('- positions:', localStorage.getItem(POSITIONS_STORAGE_KEY));
   console.log('- closed:', localStorage.getItem(CLOSED_POSITIONS_STORAGE_KEY));
+  console.log('- settlementHistory:', localStorage.getItem(SETTLEMENT_HISTORY_KEY));
 }
 
 // Journal API functions
 const getApiUrl = () => {
-  return process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : '';
+  const fallback = isDevelopmentEnv() ? 'http://localhost:8000' : '';
+  return resolveApiBaseUrl(fallback);
 };
+
+// ===== Settlement (EXIT) history for accurate Undo =====
+export interface SettlementRecordLot { lotPrice: number; qty: number }
+export interface SettlementRecord {
+  symbol: string;
+  side: Side;
+  chatId?: string;
+  exitPrice: number;
+  exitQty: number;
+  realizedPnl: number;
+  matchedLots: SettlementRecordLot[];
+  createdAt: string;
+  undone?: boolean;
+}
+
+function saveSettlementHistory() {
+  try {
+    localStorage.setItem(SETTLEMENT_HISTORY_KEY, JSON.stringify(state.settlementHistory));
+  } catch (e) {
+    console.warn('Failed to save settlement history:', e);
+  }
+}
+
+function loadSettlementHistory(): Record<string, SettlementRecord> {
+  try {
+    const raw = localStorage.getItem(SETTLEMENT_HISTORY_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
 
 export async function submitJournalEntry(tradeSnapshot: TradeSnapshot): Promise<boolean> {
   try {

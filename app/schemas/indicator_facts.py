@@ -1,9 +1,13 @@
-from pydantic import BaseModel, Field
 from typing import Optional
+
+from pydantic import BaseModel, Field
+
 
 class IndicatorFacts(BaseModel):
     symbol: Optional[str] = None
-    trend_check: Optional[str] = Field(None, description="トレンドの状態", pattern="^(上昇トレンド|下降トレンド|レンジ)$")
+    trend_check: Optional[str] = Field(
+        None, description="トレンドの状態", pattern="^(上昇トレンド|下降トレンド|レンジ)$"
+    )
     resistance_check: Optional[str] = None
     ma_break_check: Optional[str] = None
     rsi_check: Optional[str] = None

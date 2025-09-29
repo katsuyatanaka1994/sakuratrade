@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>建値入力メッセージ編集テスト - 結果確認</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-panel {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .warning { background-color: #fff3cd; color: #856404; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .test-step {
+            border-left: 4px solid #007bff;
+            padding-left: 15px;
+            margin: 15px 0;
+        }
+        .console-log {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+        }
+        .app-link {
+            display: inline-block;
+            background: #007bff;
+            color: white;
+            padding: 12px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .app-link:hover {
+            background: #0056b3;
+        }
+        .debug-info {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 建値入力メッセージ編集テスト</h1>
+    
+    <div class="test-panel">
+        <h2>📋 テスト手順</h2>
+        <a href="http://localhost:3001" class="app-link" target="_blank">
+            🚀 アプリケーションを開く (localhost:3001)
+        </a>
+        
+        <div class="test-step">
+            <h3>ステップ1: 建値入力メッセージを作成</h3>
+            <ol>
+                <li>新しいチャットを作成</li>
+                <li>「建値入力」ボタンをクリック</li>
+                <li>以下を入力:
+                    <ul>
+                        <li>銘柄: 7203 トヨタ自動車</li>
+                        <li>ポジション: ロング（買い）</li>
+                        <li>建値: 2500</li>
+                        <li>数量: 100</li>
+                    </ul>
+                </li>
+                <li>「実行」ボタンをクリック</li>
+                <li>「📈 建値入力しました！」メッセージが表示される</li>
+            </ol>
+        </div>
+        
+        <div class="test-step">
+            <h3>ステップ2: 編集機能をテスト</h3>
+            <ol>
+                <li>作成した建値入力メッセージにマウスホバー</li>
+                <li>編集アイコン（✏️）が右下に表示される</li>
+                <li>編集アイコンをクリック</li>
+                <li><strong>重要:</strong> ブラウザの開発者ツール（F12）を開いてコンソールを確認</li>
+            </ol>
+        </div>
+        
+        <div class="test-step">
+            <h3>ステップ3: 期待される結果を確認</h3>
+            
+            <div class="status success">
+                <h4>✅ 成功の場合、以下のログが表示されます:</h4>
+                <div class="console-log">
+🔧 handleEntryEdit called with message: [メッセージID]<br>
+🔧 Setting editingMessageId to: [メッセージID]<br>
+🔧 Prefilling entry modal: {...}<br>
+🏷️ AutoBadge Debug: { isEditing: true, editingMessageId: "[メッセージID]", ..., shouldShowBadge: false }
+                </div>
+                <p><strong>重要ポイント:</strong> <code>isEditing: true</code> かつ <code>shouldShowBadge: false</code> であること</p>
+            </div>
+            
+            <div class="status warning">
+                <h4>⚠️ 問題がある場合、以下が表示されます:</h4>
+                <div class="console-log">
+🏷️ AutoBadge Debug: { isEditing: false, editingMessageId: null, ..., shouldShowBadge: true }
+                </div>
+                <p>この場合は修正が必要です</p>
+            </div>
+            
+            <div class="status error">
+                <h4>❌ エラーの場合:</h4>
+                <ul>
+                    <li>コンソールエラーが表示される</li>
+                    <li>モーダルが開かない</li>
+                    <li>データがプレフィルされない</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div class="test-panel">
+        <h2>🔧 技術詳細</h2>
+        
+        <div class="debug-info">
+            <h4>修正内容:</h4>
+            <p>1. <code>flushSync()</code>を使用して状態更新の同期化</p>
+            <p>2. <code>editingMessageId</code>をモーダル表示前に確実に設定</p>
+            <p>3. <code>autoBadge={!editingMessageId && ...}</code> でバッジ表示を制御</p>
+            <p>4. 詳細なデバッグログの追加</p>
+        </div>
+        
+        <div class="debug-info">
+            <h4>確認するポイント:</h4>
+            <ul>
+                <li>建値入力モーダルの銘柄欄に「自動入力」バッジが表示されない</li>
+                <li>銘柄、価格、数量、ポジションタイプが正しくプレフィルされている</li>
+                <li>手動で銘柄を変更可能</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="test-panel">
+        <h2>📊 テスト結果レポート</h2>
+        <div id="test-results">
+            <p>ブラウザコンソールでログを確認して、以下に結果を記録してください:</p>
+            <textarea id="results" rows="8" cols="80" placeholder="テスト結果をここに記載..."></textarea>
+            <br>
+            <button onclick="saveResults()">結果を保存</button>
+        </div>
+    </div>
+
+    <script>
+        function saveResults() {
+            const results = document.getElementById('results').value;
+            if (results.trim()) {
+                localStorage.setItem('entryEditTestResults', results);
+                alert('結果が保存されました');
+            } else {
+                alert('結果を入力してください');
+            }
+        }
+        
+        // 保存された結果があれば復元
+        const savedResults = localStorage.getItem('entryEditTestResults');
+        if (savedResults) {
+            document.getElementById('results').value = savedResults;
+        }
+        
+        console.log('🧪 建値入力メッセージ編集テストページが準備完了');
+        console.log('📱 アプリケーション: http://localhost:3001');
+    </script>
+</body>
+</html>

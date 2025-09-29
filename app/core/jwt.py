@@ -1,6 +1,9 @@
-import jwt
 from datetime import datetime, timedelta
-from core.settings import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXP_DELTA_SECONDS
+
+import jwt
+
+from app.core.settings import JWT_ALGORITHM, JWT_EXP_DELTA_SECONDS, JWT_SECRET_KEY
+
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()

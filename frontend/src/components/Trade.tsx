@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { 
   Upload, 
   Send,
@@ -17,11 +18,23 @@ import Sidebar from './Sidebar';
 import ImageModal from './ImageModal';
 import RightPanePositions from './positions/RightPanePositions';
 import AutocompleteSymbol from './AutocompleteSymbol';
+import ChartImageUploader from './ChartImageUploader';
+import EntryMessageActions from './EntryMessageActions';
+import EntryDeleteDialog from './EntryDeleteDialog';
 import { getLatestSymbolFromChat, loadSymbols } from '../utils/symbols';
 import type { ChatMsg } from '../utils/symbols';
 import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
 import { useToast } from './ToastContainer';
-import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, TradeSnapshot } from '../store/positions';
+import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, getLongShortQty, updatePosition, recordSettlement as positionsRecordSettlement, unsettle as positionsUnsettle, getState as getPositionsState, removeEntryLot, deletePosition as storeDeletePosition } from '../store/positions';
+import type { TradeSnapshot } from '../store/positions';
+import { recordEntryDeleted, recordEntryEdited } from '../lib/auditLogger';
+import type { EntryAuditSnapshot } from '../lib/auditLogger';
+import { convertChatMessageToTradeMessage } from '../utils/messageAdapter';
+import { undoChatMessage, updateChatMessage } from '../services/api';
+import { createChatMessage, generateAIReply } from '../services/api';
+import { CHART_PATTERNS, CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
+import type { ChartPattern } from '../types/chat';
+import { loadTradePlanConfig, createPlanLegacyMessage } from '../utils/tradePlanMessage';
 
 // Helper function to get API URL - hardcoded for now to debug
 const getApiUrl = () => {
@@ -88,6 +101,8 @@ const extractStockName = (message: string): string | null => {
   return null;
 };
 
+// Helper functions will be defined inside the component
+
 // Message interface for chat
 interface Message {
   id: string;
@@ -95,6 +110,15 @@ interface Message {
   content: string;
   timestamp: string;
   isTradeAction?: boolean; // 取引アクション（建値入力・決済）メッセージかどうか
+  entryPermissions?: {
+    canEdit?: boolean;
+    canDelete?: boolean;
+    reasons?: {
+      edit?: string;
+      delete?: string;
+    } | string;
+  };
+  relatedEntryId?: string;
 }
 
 // Chat interface for chat management
@@ -105,28 +129,171 @@ interface Chat {
   updatedAt: string;
 }
 
+interface ParsedEntryMessage {
+  symbolCode: string;
+  side: 'LONG' | 'SHORT';
+  price?: number;
+  qty?: number;
+  chartPattern?: string;
+  note?: string;
+  tradeId?: string;
+}
+
+type EntryFormState = {
+  symbol: string;
+  side: 'long' | 'short';
+  price: string;
+  qty: string;
+  chartPattern: ChartPattern | '';
+  memo: string;
+};
+
+const parseEntryMessage = (message: Message): ParsedEntryMessage | null => {
+  if (!message.content.includes('建値入力しました')) return null;
+  const content = message.content;
+  const plainText = content
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\r/g, '');
+
+  const symbolMatch = plainText.match(/銘柄[:：]\s*([^\n]+)/);
+  const symbolText = symbolMatch ? symbolMatch[1].trim() : '';
+  const symbolCode = symbolText ? symbolText.split(' ')[0] : '';
+  const positionMatch = plainText.match(/ポジションタイプ[:：]\s*([^\n]+)/);
+  const positionText = positionMatch ? positionMatch[1].trim() : '';
+  const side: 'LONG' | 'SHORT' = positionText.includes('ショート') || positionText.includes('SHORT') ? 'SHORT' : 'LONG';
+  const priceMatch = plainText.match(/建値[:：]\s*([\d,]+)円/);
+  const qtyMatch = plainText.match(/数量[:：]\s*([\d,]+)株/);
+  const patternMatch = plainText.match(/チャートパターン[:：]\s*([^\n]+)/);
+  const patternLabel = patternMatch ? patternMatch[1].trim() : undefined;
+  const patternEntry = patternLabel
+    ? CHART_PATTERNS.find((pattern) => pattern.label === patternLabel)
+    : undefined;
+  const noteMatch = plainText.match(/(?:📝\s*|メモ[:：]\s*)([^\n]+)/);
+  const tradeMatch = plainText.match(/取引ID[:：]\s*([^\n]+)/);
+  const price = priceMatch ? Number(priceMatch[1].replace(/,/g, '')) : undefined;
+  const qty = qtyMatch ? Number(qtyMatch[1].replace(/,/g, '')) : undefined;
+
+  if (!symbolCode) {
+    return null;
+  }
+
+  return {
+    symbolCode,
+    side,
+    price,
+    qty,
+    chartPattern: patternEntry?.value,
+    note: noteMatch ? noteMatch[1].trim() : undefined,
+    tradeId: tradeMatch ? tradeMatch[1].trim() : undefined,
+  };
+};
+
+const auditNote = (note?: string) => (note ? note.slice(0, 120) : undefined);
+
+// Image preview attachment type for chat input
+type ChatImageType = 'image/png' | 'image/jpeg' | 'image/webp';
+interface ChatImage {
+  id: string;
+  file: File;
+  url: string;
+  size: number;
+  type: ChatImageType;
+}
+
+// Feature flag: allow editing from chat bubbles (ENTRY/EXIT/TEXT)
+const ENABLE_CHAT_BUBBLE_EDIT = true;
+const ENTRY_ACTION_DISABLED_REASON = '決済済みのため操作できません';
+
 // MessageBubble Component with improved style & timestamp below bubble
-const MessageBubble: React.FC<{ 
-  message: Message; 
+const MessageBubble: React.FC<{
+  message: Message;
   onImageClick?: (imageUrl: string) => void;
   isHighlighted?: boolean;
-}> = ({ message, onImageClick, isHighlighted }) => {
+  onMessageEdit?: (message: Message) => void;
+  onMessageUndo?: (message: Message) => void;
+  isEntrySettled?: (message: Message) => boolean;
+  entryCanEdit?: boolean;
+  entryCanDelete?: boolean;
+  entryDisabledReason?: string | { edit?: string; delete?: string };
+  onEntryDelete?: (message: Message) => void;
+  isDeleting?: boolean;
+}> = ({
+  message,
+  onImageClick,
+  isHighlighted,
+  onMessageEdit,
+  onMessageUndo,
+  isEntrySettled,
+  entryCanEdit,
+  entryCanDelete,
+  entryDisabledReason,
+  onEntryDelete,
+  isDeleting = false,
+}) => {
   const isUser = message.type === 'user';
   const messageRef = React.useRef<HTMLDivElement>(null);
-  
+  const [showHoverActions, setShowHoverActions] = React.useState(false);
+
+  // 編集対象: ユーザーが自由入力したメッセージのみ
+  // 非対象: 取引アクション（ENTRY/EXIT）やユーザー通知（建値更新など）
+  const isTradeAction = Boolean((message as any).isTradeAction);
+  const hasInlineImages = typeof message.content === 'string' && /<img\b|data-image-url=/.test(message.content);
+  const isUserUpdateNotice =
+    typeof message.content === 'string' && (
+      message.content.includes('建値を更新しました') ||
+      message.content.includes('建値入力しました') ||
+      message.content.includes('決済しました')
+    );
+  const isEligibleForEdit = ENABLE_CHAT_BUBBLE_EDIT && isUser && !isTradeAction && !isUserUpdateNotice && !hasInlineImages;
+  // EXIT bubble detection and 30-min window for Undo icon visibility
+  const isExitBubble = Boolean(isTradeAction && typeof message.content === 'string' && message.content.includes('決済しました'));
+  const canUndoWindow = (() => {
+    try {
+      const ts = new Date(message.timestamp).getTime();
+      if (!isFinite(ts)) return true; // fallback: show when timestamp unparsable
+      return Date.now() - ts <= 30 * 60 * 1000;
+    } catch {
+      return true;
+    }
+  })();
+  const canShowUndo = isExitBubble && canUndoWindow;
+
+  const isEntryMessage = Boolean(
+    isTradeAction &&
+      typeof message.content === 'string' &&
+      message.content.includes('建値入力しました')
+  );
+
+  const resolvedEntryActions = React.useMemo(() => {
+    if (!isEntryMessage) return null;
+    const settled = isEntrySettled?.(message) ?? false;
+    const canEditFinal = entryCanEdit ?? !settled;
+    const canDeleteFinal = entryCanDelete ?? !settled;
+    const reasons = entryDisabledReason ?? (settled ? { edit: ENTRY_ACTION_DISABLED_REASON, delete: ENTRY_ACTION_DISABLED_REASON } : undefined);
+
+    return {
+      canEdit: canEditFinal,
+      canDelete: canDeleteFinal,
+      reasons,
+    };
+  }, [isEntryMessage, isEntrySettled, message, entryCanEdit, entryCanDelete, entryDisabledReason]);
+
+  const shouldDisplayEntryActions = Boolean(resolvedEntryActions);
+
   // メッセージがレンダリングされた後、画像にクリックイベントを追加
   React.useEffect(() => {
     if (messageRef.current && onImageClick) {
       const images = messageRef.current.querySelectorAll('img[data-image-url]');
       const overlays = messageRef.current.querySelectorAll('.image-overlay');
-      
+
       const handleClick = (event: Event) => {
         event.preventDefault();
         event.stopPropagation();
-        
+
         let imageUrl = null;
         const target = event.target as HTMLElement;
-        
+
         // 画像が直接クリックされた場合
         if (target.tagName === 'IMG') {
           imageUrl = (target as HTMLImageElement).getAttribute('data-image-url');
@@ -141,7 +308,7 @@ const MessageBubble: React.FC<{
             }
           }
         }
-        
+
         if (imageUrl) {
           console.log('画像クリック:', imageUrl);
           onImageClick(imageUrl);
@@ -152,7 +319,7 @@ const MessageBubble: React.FC<{
       images.forEach((img) => {
         img.addEventListener('click', handleClick);
       });
-      
+
       overlays.forEach((overlay) => {
         overlay.addEventListener('click', handleClick);
       });
@@ -169,22 +336,88 @@ const MessageBubble: React.FC<{
     }
   }, [message.content, onImageClick]);
 
+  const handleMouseEnter = () => {
+    if (!ENABLE_CHAT_BUBBLE_EDIT) return;
+    if (isEligibleForEdit || canShowUndo || shouldDisplayEntryActions) {
+      setShowHoverActions(true);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (!ENABLE_CHAT_BUBBLE_EDIT) return;
+    setShowHoverActions(false);
+  };
+
   return (
     <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} mb-4`}>
       <div
-        ref={messageRef}
-        data-message-id={message.id}
-        className={`max-w-[75%] px-4 py-3 rounded-2xl text-[13px] leading-relaxed shadow transition-all duration-300 ${
-          isHighlighted 
-            ? 'ring-2 ring-yellow-400 bg-yellow-50' 
-            : isUser
-              ? 'bg-blue-100 text-[#1E3A8A] ml-auto'
-              : 'bg-white border border-[#E5E7EB] text-[#111827] mr-auto'
-        } ${isUser ? 'ml-auto' : 'mr-auto'}`}
+        className={`relative max-w-[75%] ${isUser ? 'ml-auto' : 'mr-auto'}`}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
-        <span dangerouslySetInnerHTML={{ __html: message.content }} />
+        <div
+          ref={messageRef}
+          data-message-id={message.id}
+          data-testid={(message as any)['data-testid'] || (message.type === 'bot' ? 'bot-message' : 'user-message')}
+          className={`relative w-full px-4 py-3 rounded-2xl text-[13px] leading-relaxed shadow transition-all duration-300 ${
+            isHighlighted
+              ? 'ring-2 ring-yellow-400 bg-yellow-50'
+              : isUser
+                ? 'bg-blue-100 text-[#1E3A8A]'
+                : 'bg-white border border-[#E5E7EB] text-[#111827]'
+          } ${isDeleting ? 'opacity-0 scale-[0.98]' : 'opacity-100'}`}
+          >
+          <span dangerouslySetInnerHTML={{ __html: message.content }} />
+
+          {shouldDisplayEntryActions && (
+            <EntryMessageActions
+              canEdit={resolvedEntryActions!.canEdit}
+              canDelete={resolvedEntryActions!.canDelete}
+              disabledReason={resolvedEntryActions!.reasons}
+              isVisible={showHoverActions}
+              onEdit={() => onMessageEdit?.(message)}
+              onDelete={() => onEntryDelete?.(message)}
+            />
+          )}
+
+          {/* Action Icons */}
+          {showHoverActions && (isEligibleForEdit || canShowUndo) && (
+            <div className="absolute bottom-1 right-1 flex gap-1">
+              {/* Edit Icon */}
+              {isEligibleForEdit && (
+                <button
+                  className="w-6 h-6 bg-gray-400 hover:bg-gray-500 text-white rounded-full flex items-center justify-center transition-all opacity-60 hover:opacity-80 shadow-sm z-10"
+                  onClick={() => onMessageEdit?.(message)}
+                  aria-label="メッセージを編集"
+                >
+                  <svg width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+                    <path d="M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Zm640-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z"/>
+                  </svg>
+                </button>
+              )}
+
+              {/* Undo Icon for EXIT messages */}
+              {canShowUndo && (
+                <button
+                  className="w-6 h-6 bg-orange-500 hover:bg-orange-600 text-white rounded-full flex items-center justify-center transition-all opacity-80 hover:opacity-100 shadow-sm z-10"
+                  onClick={() => onMessageUndo?.(message)}
+                  aria-label="決済を取り消し"
+                  title="決済を取り消し"
+                >
+                  <svg width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+                    <path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z"/>
+                  </svg>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-      <span className="mt-1 text-[10px] text-gray-400 px-1">{message.timestamp}</span>
+
+      {/* Timestamp positioned below bubble - isolated from edit icon */}
+      <span className={`mt-1 text-[10px] text-gray-400 ${isUser ? 'self-end' : 'self-start'}`}>
+        {message.timestamp}
+      </span>
     </div>
   );
 };
@@ -195,7 +428,8 @@ const PrimaryButton: React.FC<{
   onClick?: () => void;
   className?: string;
   variant?: 'primary' | 'danger';
-}> = ({ children, onClick, className = '', variant = 'primary' }) => {
+  disabled?: boolean;
+}> = ({ children, onClick, className = '', variant = 'primary', disabled = false }) => {
   const baseClass = "h-12 px-6 rounded-lg text-white font-medium transition-colors";
   const variantClass = variant === 'primary' 
     ? 'bg-[#3B82F6] hover:bg-[#2563EB]' 
@@ -204,7 +438,8 @@ const PrimaryButton: React.FC<{
   return (
     <Button 
       onClick={onClick}
-      className={`${baseClass} ${variantClass} ${className}`}
+      disabled={disabled}
+      className={`${baseClass} ${variantClass} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
     >
       {children}
     </Button>
@@ -268,6 +503,794 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const [entryCode, setEntryCode] = useState('');
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   
+  // Track settled entries by message ID
+  const [settledEntries, setSettledEntries] = useState<Set<string>>(new Set());
+  
+  // Helper function to mark an ENTRY as settled
+  const markEntryAsSettled = (messageId: string) => {
+    setSettledEntries(prev => {
+      const newSet = new Set(prev);
+      newSet.add(messageId);
+      console.log(`🔒 DEBUG: Marked ENTRY ${messageId} as settled. Total settled:`, newSet.size);
+      return newSet;
+    });
+  };
+
+  // Helper function to check if ENTRY is settled (closed)
+  const isEntrySettled = (message: Message): boolean => {
+    // Only check for ENTRY messages
+    if (!message.content.includes('建値入力しました')) {
+      return false;
+    }
+    
+    // Check if this specific message is marked as settled
+    if (settledEntries.has(message.id)) {
+      console.log(`🔍 DEBUG: Message ${message.id} is explicitly marked as settled`);
+      return true;
+    }
+    
+    try {
+      // Parse message content to extract entry data
+      const content = message.content;
+      
+      // Extract symbol
+      const symbolMatch = content.match(/銘柄:\s*([^\<\<br/\>]+)/);
+      const symbol = symbolMatch ? symbolMatch[1].trim() : '';
+      if (!symbol) {
+        return false;
+      }
+      
+      // Extract position type
+      const positionMatch = content.match(/ポジションタイプ:\s*([^\<\<br/\>]+)/);
+      const positionText = positionMatch ? positionMatch[1].trim() : '';
+      const side = (positionText.includes('ロング') || positionText.includes('LONG')) ? 'LONG' : 'SHORT';
+      
+      const chatId = undefined; // Will be passed from chat context
+      
+      // Check if position exists in active positions
+      const { long, short } = getLongShortQty(symbol, chatId);
+      const currentQty = side === 'LONG' ? long : short;
+      
+      // Fallback check: Position is settled if qty is 0 and message is older than 5 seconds
+      const messageAge = Date.now() - new Date(message.timestamp).getTime();
+      const isOldMessage = messageAge > 5000; // 5 seconds
+      
+      const isSettled = currentQty === 0 && isOldMessage;
+      return isSettled;
+    } catch (error) {
+      console.warn('Error checking if ENTRY is settled:', error);
+      return false;
+    }
+  };
+  
+  // Chat input state for MessageEditIntegration
+  const [chatInput, setChatInput] = useState<string>('');
+
+  // Message editing states
+  const [editEntryModal, setEditEntryModal] = useState<{
+    isOpen: boolean;
+    messageId?: string;
+    data?: any;
+  }>({ isOpen: false });
+  
+  const [editExitModal, setEditExitModal] = useState<{
+    isOpen: boolean;
+    messageId?: string;
+    data?: any;
+  }>({ isOpen: false });
+  
+  const [editingTextMessage, setEditingTextMessage] = useState<{
+    messageId: string;
+    originalText: string;
+  } | null>(null);
+
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [entryInitialState, setEntryInitialState] = useState<EntryFormState | null>(null);
+  const [entrySymbol, setEntrySymbol] = useState('');
+  const [entryPrice, setEntryPrice] = useState('');
+  const [entryQuantity, setEntryQuantity] = useState('');
+  const [entryPositionType, setEntryPositionType] = useState<'long' | 'short'>('long');
+  const [entryChartPattern, setEntryChartPattern] = useState<ChartPattern | ''>('');
+  const [entryMemo, setEntryMemo] = useState<string>('');
+  const [entryImageFile, setEntryImageFile] = useState<File | null>(null);
+  const [imageError, setImageError] = useState<string>('');
+  const [showChartPatternSelect, setShowChartPatternSelect] = useState<boolean>(false);
+  const [showMemoTextarea, setShowMemoTextarea] = useState<boolean>(false);
+
+  // Edit mode tracking for modals
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [entryDeleteState, setEntryDeleteState] = useState<{ isOpen: boolean; target?: Message }>({ isOpen: false });
+  const [deletingEntryIds, setDeletingEntryIds] = useState<Set<string>>(new Set());
+  const [isDeletingEntry, setIsDeletingEntry] = useState(false);
+  const entryDeletePreview = useMemo(() => {
+    if (!entryDeleteState.target) return '';
+    return entryDeleteState.target.content
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .trim();
+  }, [entryDeleteState]);
+
+  const isEditingEntry = Boolean(editingMessageId);
+  const isEntryFormDirty = useMemo(() => {
+    if (!isEditingEntry || !entryInitialState) {
+      return true;
+    }
+
+    return (
+      entrySymbol !== entryInitialState.symbol ||
+      entryPositionType !== entryInitialState.side ||
+      entryPrice !== entryInitialState.price ||
+      entryQuantity !== entryInitialState.qty ||
+      entryChartPattern !== entryInitialState.chartPattern ||
+      entryMemo !== entryInitialState.memo
+    );
+  }, [
+    isEditingEntry,
+    entryInitialState,
+    entrySymbol,
+    entryPositionType,
+    entryPrice,
+    entryQuantity,
+    entryChartPattern,
+    entryMemo,
+  ]);
+
+  const isEntrySubmitDisabled =
+    isAnalyzing ||
+    !!imageError ||
+    isUpdating ||
+    (isEditingEntry && !isEntryFormDirty);
+
+  // Message editing handlers
+  const handleMessageEdit = (message: Message) => {
+    if (message.type === 'user' && !message.isTradeAction) {
+      // 画像付きメッセージは編集不可
+      if (typeof message.content === 'string' && /<img\b|data-image-url=/.test(message.content)) {
+        showToast('warning', '画像付きメッセージは編集できません');
+        return;
+      }
+      // Handle regular text message edit
+      setEditingTextMessage({
+        messageId: message.id,
+        originalText: message.content
+      });
+      setChatInput(message.content);
+    } else if (message.isTradeAction) {
+      // Handle trade action message edit
+      if (message.content.includes('建値入力しました')) {
+        // ENTRY message - open entry modal with prefill
+        handleEntryEdit(message);
+      } else if (message.content.includes('決済しました')) {
+        // EXIT message - open exit modal with prefill
+        handleExitEdit(message);
+      }
+    }
+  };
+
+  const handleEntryEdit = (message: Message) => {
+    console.log('🔧 handleEntryEdit called with message:', message.id);
+    console.log('🔧 Original message content:', message.content);
+    
+    // Parse message content to extract entry data
+    // Format: "📈 建値入力しました！<br/>銘柄: SYMBOL<br/>ポジションタイプ: LONG/SHORT<br/>建値: PRICE円<br/>数量: QTY株"
+    const content = message.content;
+    const plainText = content
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .trim();
+    
+    // Extract symbol
+    const symbolMatch = content.match(/銘柄:\s*([^\<\<br/\>]+)/);
+    const symbol = symbolMatch ? symbolMatch[1].trim() : '';
+    console.log('🔧 Symbol extraction:', { symbolMatch, symbol });
+    
+    // Extract symbol code and name
+    let symbolCode = '';
+    let symbolName = '';
+    if (symbol.includes(' ')) {
+      const parts = symbol.split(' ');
+      symbolCode = parts[0];
+      symbolName = parts.slice(1).join(' ');
+    } else {
+      symbolCode = symbol;
+      // 銘柄コードから銘柄名を取得する処理が必要な場合はここで実装
+    }
+    
+    // Extract position type
+    const positionMatch = content.match(/ポジションタイプ:\s*([^\<\<br/\>]+)/);
+    const positionText = positionMatch ? positionMatch[1].trim() : '';
+    const isLong = positionText.includes('ロング') || positionText.includes('LONG');
+    console.log('🔧 Position extraction:', { positionMatch, positionText, isLong });
+    
+    // Extract price (remove commas)
+    const priceMatch = content.match(/建値:\s*([\d,]+)円/);
+    const price = priceMatch ? priceMatch[1].replace(/,/g, '') : '';
+    console.log('🔧 Price extraction:', { priceMatch, price });
+    
+    // Extract quantity (remove commas)
+    const qtyMatch = content.match(/数量:\s*([\d,]+)株/);
+    const qty = qtyMatch ? qtyMatch[1].replace(/,/g, '') : '';
+    console.log('🔧 Quantity extraction:', { qtyMatch, qty });
+    
+    // Extract chart pattern label
+    const patternMatch = plainText.match(/チャートパターン[:：]\s*([^\n]+)/);
+    const patternLabel = patternMatch ? patternMatch[1].trim() : '';
+    const patternEntry = CHART_PATTERNS.find((p) => p.label === patternLabel);
+    const chartPatternValue = patternEntry ? patternEntry.value : undefined;
+
+    // Extract optional memo
+    const memoMatch = plainText.match(/(?:📝\s*)?メモ[:：]\s*([^\n]+)/);
+    const memoValue = memoMatch ? memoMatch[1].trim() : '';
+
+    console.log('🔧 Setting editingMessageId to:', message.id);
+    
+    // Use flushSync to ensure state updates are synchronous before opening modal
+    flushSync(() => {
+      setEditingMessageId(message.id);
+    });
+    
+    // Then prefill the form data
+    setEntrySymbol(symbol); // 既存の新規モーダル用
+    setEntryPrice(price);
+    setEntryQuantity(qty);
+    setEntryPositionType(isLong ? 'long' : 'short');
+    setEntryChartPattern(chartPatternValue ?? '');
+    setShowChartPatternSelect(Boolean(chartPatternValue));
+    setEntryMemo(memoValue);
+    setShowMemoTextarea(memoValue.length > 0);
+    setEntryInitialState({
+      symbol,
+      side: isLong ? 'long' : 'short',
+      price,
+      qty,
+      chartPattern: chartPatternValue ?? '',
+      memo: memoValue,
+    });
+
+    // 編集モーダル用のデータ設定
+    const editData = {
+      symbolCode: symbolCode,
+      symbolName: symbolName,
+      side: isLong ? 'LONG' : 'SHORT',
+      price: parseFloat(price) || 0,
+      qty: parseInt(qty) || 0,
+      chartPattern: chartPatternValue,
+      note: memoValue
+    };
+
+    // 編集モーダルの状態を更新
+    setEditEntryModal({
+      isOpen: true,
+      messageId: message.id,
+      data: editData
+    });
+    
+    console.log('🔧 Prefilling entry modal:', { 
+      messageId: message.id,
+      symbol, 
+      price, 
+      qty, 
+      positionType: isLong ? 'long' : 'short',
+      editingMessageIdAfterFlushSync: message.id
+    });
+    
+    // Open modal last
+    setIsEntryModalOpen(true);
+  };
+
+  const handleEntryDeleteRequest = (message: Message) => {
+    if (!message.content.includes('建値入力しました')) {
+      return;
+    }
+    setEntryDeleteState({ isOpen: true, target: message });
+  };
+
+  const handleConfirmEntryDelete = async () => {
+    if (!entryDeleteState.target) return;
+    const target = entryDeleteState.target;
+    const relatedPlanMessageIds = (() => {
+      const linked = messages
+        .filter(msg => msg.type === 'bot' && msg.relatedEntryId === target.id)
+        .map(msg => msg.id);
+      if (linked.length > 0) {
+        return Array.from(new Set(linked));
+      }
+      const targetIndex = messages.findIndex(msg => msg.id === target.id);
+      if (targetIndex >= 0) {
+        const fallback = messages
+          .slice(targetIndex + 1)
+          .find(msg => msg.type === 'bot' && typeof msg.content === 'string' && msg.content.includes('🎯 取引プラン設定'));
+        if (fallback) {
+          return [fallback.id];
+        }
+      }
+      return [] as string[];
+    })();
+    const pendingPlanEntry = planMessageTimers.current.get(target.id);
+    if (pendingPlanEntry) {
+      window.clearTimeout(pendingPlanEntry.timeoutId);
+      planMessageTimers.current.delete(target.id);
+    }
+
+    setIsDeletingEntry(true);
+    try {
+      const apiUrl = getApiUrl();
+      const chatIdentifier = currentChatId || 'default-chat-123';
+      const response = await fetch(`${apiUrl}/chats/${chatIdentifier}/messages/${target.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const isNotFound = response.status === 404;
+
+      if (!response.ok && !isNotFound) {
+        throw new Error(`Failed to delete entry message: ${response.status}`);
+      }
+
+      if (isNotFound) {
+        console.warn(`Entry message ${target.id} already deleted on server`);
+      }
+
+      setDeletingEntryIds(prev => {
+        const next = new Set(prev);
+        next.add(target.id);
+        relatedPlanMessageIds.forEach(id => next.add(id));
+        return next;
+      });
+
+      const parsed = parseEntryMessage(target);
+      if (parsed) {
+        const chatContext = currentChatId || undefined;
+        let removed = false;
+        if (parsed.price !== undefined && parsed.qty !== undefined) {
+          removed = removeEntryLot(
+            parsed.symbolCode,
+            parsed.side,
+            parsed.price,
+            parsed.qty,
+            chatContext
+          );
+        }
+        if (!removed) {
+          storeDeletePosition(parsed.symbolCode, parsed.side, chatContext);
+        }
+        window.dispatchEvent(new Event('positions-changed'));
+
+        const beforeSnapshot: EntryAuditSnapshot = {
+          symbolCode: parsed.symbolCode,
+          side: parsed.side,
+          price: parsed.price,
+          qty: parsed.qty,
+          note: auditNote(parsed.note),
+          tradeId: parsed.tradeId,
+        };
+
+        recordEntryDeleted({
+          entryId: target.id,
+          before: beforeSnapshot,
+          after: null,
+          actorId: 'user-1',
+          timestamp: new Date().toISOString(),
+          regenerateFlag: false,
+        });
+      }
+
+      setTimeout(() => {
+        setMessages(prev => prev.filter(msg => msg.id !== target.id && !relatedPlanMessageIds.includes(msg.id)));
+        setDeletingEntryIds(prev => {
+          const next = new Set(prev);
+          next.delete(target.id);
+          relatedPlanMessageIds.forEach(id => next.delete(id));
+          return next;
+        });
+      }, 320);
+      setEntryDeleteState({ isOpen: false });
+      showToast('success', '建値メッセージを削除しました');
+    } catch (error) {
+      console.error('Failed to delete entry message:', error);
+      showToast('error', '建値メッセージの削除に失敗しました', '時間をおいて再度お試しください');
+      if (pendingPlanEntry) {
+        const { message } = pendingPlanEntry;
+        setMessages(prev => {
+          if (prev.some(m => m.id === message.id)) {
+            return prev;
+          }
+          return [...prev, message];
+        });
+      }
+      setDeletingEntryIds(prev => {
+        const next = new Set(prev);
+        next.delete(target.id);
+        relatedPlanMessageIds.forEach(id => next.delete(id));
+        return next;
+      });
+    } finally {
+      setIsDeletingEntry(false);
+    }
+  };
+
+  const handleExitEdit = (message: Message) => {
+    // Parse message content to extract exit data
+    // Format: "✅ 決済しました！<br/>銘柄: SYMBOL NAME<br/>ポジションタイプ: LONG/SHORT<br/>決済価格: PRICE円<br/>数量: QTY株"
+    const content = message.content;
+    
+    // Extract symbol
+    const symbolMatch = content.match(/銘柄:\s*([^\<\<br/\>]+)/);
+    const symbolWithName = symbolMatch ? symbolMatch[1].trim() : '';
+    const symbol = symbolWithName.split(' ')[0]; // Take first part as symbol code
+    
+    // Extract exit price (remove commas)
+    const priceMatch = content.match(/決済価格:\s*([\d,]+)円/);
+    const price = priceMatch ? priceMatch[1].replace(/,/g, '') : '';
+    
+    // Extract quantity (remove commas)
+    const qtyMatch = content.match(/数量:\s*([\d,]+)株/);
+    const qty = qtyMatch ? qtyMatch[1].replace(/,/g, '') : '';
+    
+    // Extract position type to determine side
+    const positionMatch = content.match(/ポジションタイプ:\s*([^\<\<br/\>]+)/);
+    const positionText = positionMatch ? positionMatch[1].trim() : '';
+    const side = positionText.includes('ロング') || positionText.includes('LONG') ? 'LONG' : 'SHORT';
+    
+    // Prefill the exit form
+    setExitSymbol(symbol);
+    setExitPrice(price);
+    setExitQuantity(qty);
+    setExitSide(side);
+    
+    // Set edit mode
+    setEditingMessageId(message.id);
+    
+    console.log('Prefilling exit modal:', { symbol, price, qty, side });
+    
+    setIsExitModalOpen(true);
+  };
+
+  const handleCancelTextEdit = () => {
+    setEditingTextMessage(null);
+    setChatInput('');
+  };
+
+  const clearEditMode = () => {
+    console.log('🧹 clearEditMode called - clearing editingMessageId');
+    setEditingMessageId(null);
+    setEntryInitialState(null);
+  };
+
+  const handleEntryUpdate = async () => {
+    if (!editingMessageId) return;
+
+    const originalMessage = messages.find(msg => msg.id === editingMessageId);
+    const originalContent = originalMessage?.content || '';
+    const originalParsed = originalMessage ? parseEntryMessage(originalMessage) : null;
+
+    const price = parseFloat(entryPrice);
+    const qty = parseInt(entryQuantity, 10);
+    const memoValue = entryMemo.trim();
+    const memoForPayload = memoValue.length > 0 ? memoValue : undefined;
+    const chartPatternValue = entryChartPattern === '' ? undefined : entryChartPattern;
+    const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
+    const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
+    const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
+
+    if (isNaN(price) || isNaN(qty)) {
+      alert('価格と数量を正しく入力してください');
+      return;
+    }
+
+    if (price <= 0 || qty <= 0) {
+      alert('価格と数量は正の数値で入力してください');
+      return;
+    }
+
+    if (!entrySymbol.trim()) {
+      alert('銘柄を入力してください（例: 5803.T）');
+      return;
+    }
+
+    const positionText = entryPositionType === 'long' ? 'ロング（買い）' : 'ショート（売り）';
+    const [symbolCodeRaw, ...symbolNameParts] = entrySymbol.trim().split(/\s+/);
+    const symbolCodeForPayload = symbolCodeRaw || originalParsed?.symbolCode || entrySymbol.trim();
+    const symbolNameForPayload = symbolNameParts.join(' ') || originalParsed?.symbolCode || symbolCodeForPayload;
+    const newContent = `📈 建値入力しました！(編集済み)<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`;
+
+    const updatedSide: 'LONG' | 'SHORT' = entryPositionType === 'long' ? 'LONG' : 'SHORT';
+    const planConfig = loadTradePlanConfig();
+    const priceChanged = originalParsed?.price !== undefined ? originalParsed.price !== price : true;
+    const sideChanged = originalParsed?.side !== undefined ? originalParsed.side !== updatedSide : true;
+    const qtyChanged = originalParsed?.qty !== undefined ? originalParsed.qty !== qty : true;
+    const planTriggerChanged = priceChanged || sideChanged || qtyChanged;
+    const planBotMessage = planTriggerChanged
+      ? {
+          ...createPlanLegacyMessage(price, qty, updatedSide, planConfig, {
+            edited: true,
+            relatedEntryId: editingMessageId,
+          }),
+          type: 'bot' as const,
+          relatedEntryId: editingMessageId,
+        }
+      : null;
+
+    const beforeSnapshot: EntryAuditSnapshot | null = originalParsed
+      ? {
+          symbolCode: originalParsed.symbolCode,
+          side: originalParsed.side,
+          price: originalParsed.price,
+          qty: originalParsed.qty,
+          note: auditNote(originalParsed.note),
+          tradeId: originalParsed.tradeId,
+          chartPattern: originalParsed.chartPattern,
+        }
+      : null;
+
+    const afterSnapshot: EntryAuditSnapshot = {
+      symbolCode: symbolCodeForPayload,
+      side: updatedSide,
+      price,
+      qty,
+      note: auditNote(memoForPayload),
+      tradeId: originalParsed?.tradeId,
+      chartPattern: chartPatternValue,
+    };
+
+    const linkedPosition = updatePosition(
+      symbolCodeForPayload,
+      updatedSide,
+      {
+        avgPrice: price,
+        qtyTotal: qty,
+        updatedAt: new Date().toISOString(),
+      },
+      currentChatId || undefined
+    );
+
+    if (linkedPosition) {
+      window.dispatchEvent(new Event('positions-changed'));
+    }
+
+    setIsUpdating(true);
+    setMessages(prev => {
+      let next = prev.map(msg => (msg.id === editingMessageId ? { ...msg, content: newContent } : msg));
+      if (planBotMessage) {
+        let removed = false;
+        next = next.filter(candidate => {
+          if (candidate.type !== 'bot') {
+            return true;
+          }
+          if (!removed && candidate.relatedEntryId === editingMessageId) {
+            removed = true;
+            return false;
+          }
+          if (!removed && typeof candidate.content === 'string' && candidate.content.includes('🎯 取引プラン設定')) {
+            removed = true;
+            return false;
+          }
+          return true;
+        });
+        return [...next, planBotMessage];
+      }
+      return next;
+    });
+
+    if (planBotMessage) {
+      setTimeout(() => scrollToLatestMessage(), 50);
+    }
+
+    try {
+      const updatedChatMessage = await updateChatMessage(editingMessageId, {
+        type: 'ENTRY',
+        payload: {
+          symbolCode: symbolCodeForPayload,
+          symbolName: symbolNameForPayload,
+          side: entryPositionType === 'long' ? 'LONG' : 'SHORT',
+          price,
+          qty,
+          ...(memoForPayload ? { note: memoForPayload } : {}),
+          ...(chartPatternValue ? { chartPattern: chartPatternValue } : {}),
+          ...(originalParsed?.tradeId ? { tradeId: originalParsed.tradeId } : {}),
+        },
+      });
+
+      const tradeMessage = convertChatMessageToTradeMessage(updatedChatMessage);
+      tradeMessage.content = tradeMessage.content.replace('📈 建値入力しました！', '📈 建値入力しました！(編集済み)');
+      setMessages(prev => prev.map(msg => (msg.id === editingMessageId ? tradeMessage : msg)));
+
+      recordEntryEdited({
+        entryId: editingMessageId,
+        before: beforeSnapshot,
+        after: afterSnapshot,
+        actorId: 'user-1',
+        timestamp: updatedChatMessage.updatedAt ?? new Date().toISOString(),
+        regenerateFlag: planTriggerChanged,
+      });
+
+      const chatContext = currentChatId || undefined;
+
+      // Remove previous lots if they existed
+      if (originalParsed?.qty && originalParsed.qty > 0 && originalParsed.price !== undefined) {
+        removeEntryLot(
+          originalParsed.symbolCode,
+          originalParsed.side,
+          originalParsed.price,
+          originalParsed.qty,
+          chatContext
+        );
+      }
+
+      // Apply new entry lots only when qty remains positive
+      if (qty > 0) {
+        positionsEntry(
+          symbolCodeForPayload,
+          entryPositionType === 'long' ? 'LONG' : 'SHORT',
+          price,
+          qty,
+          symbolNameForPayload,
+          chatContext
+        );
+      } else {
+        storeDeletePosition(
+          symbolCodeForPayload,
+          entryPositionType === 'long' ? 'LONG' : 'SHORT',
+          chatContext
+        );
+      }
+
+      window.dispatchEvent(new Event('positions-changed'));
+    } catch (error) {
+      console.error('Failed to update ENTRY message:', error);
+      // Keep optimistic update but warn in console for follow-up.
+    } finally {
+      setIsUpdating(false);
+      setIsEntryModalOpen(false);
+      clearEditMode();
+      setEntryMemo('');
+      setEntryChartPattern('');
+      setShowChartPatternSelect(false);
+      setShowMemoTextarea(false);
+    }
+  };
+
+  const handleExitUpdate = async () => {
+    if (!editingMessageId) return;
+
+    const price = parseFloat(exitPrice);
+    const qty = parseInt(exitQuantity, 10);
+    
+    // バリデーション
+    if (isNaN(price) || isNaN(qty)) {
+      alert("価格と数量を正しく入力してください");
+      return;
+    }
+    
+    if (price <= 0 || qty <= 0) {
+      alert("価格と数量は正の数値で入力してください");
+      return;
+    }
+
+    // 銘柄名を取得（簡易版）
+    const symbolName = exitSymbol; // TODO: 実際の銘柄名取得
+    const positionText = exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）';
+    
+    // Update the message content
+    const newContent = `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${positionText}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`;
+    
+    // Update message in state
+    setMessages(prev => prev.map(msg => 
+      msg.id === editingMessageId 
+        ? { ...msg, content: newContent }
+        : msg
+    ));
+
+    // Call PATCH API to update message on backend
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/chats/default-chat-123/messages/${editingMessageId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: newContent }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // Success - keep the optimistic update
+    } catch (error) {
+      console.error('Failed to update EXIT message:', error);
+      showToast('error', 'メッセージの更新に失敗しました');
+      // Revert the optimistic update
+      const originalMessage = messages.find(msg => msg.id === editingMessageId);
+      const originalContent = originalMessage?.content || '';
+      setMessages(prevMessages => prevMessages.map(msg =>
+        msg.id === editingMessageId 
+          ? { ...msg, content: originalContent }
+          : msg
+      ));
+    }
+    
+    // Close modal and clear edit mode
+    setIsExitModalOpen(false);
+    clearEditMode();
+    
+    console.log('Updated exit message:', { price, qty, symbol: exitSymbol, side: exitSide });
+  };
+
+  const [undoingIds, setUndoingIds] = useState<Set<string>>(new Set());
+  const handleMessageUndo = async (message: Message) => {
+    if (!message.isTradeAction || typeof message.content !== 'string' || !message.content.includes('決済しました')) return;
+    if (undoingIds.has(message.id)) return; // 冪等
+
+    // 時間制限（30分）
+    const messageTime = new Date(message.timestamp).getTime();
+    const timeDiff = Date.now() - messageTime;
+    if (timeDiff > 30 * 60 * 1000) {
+      showToast('warning', '決済から30分以上経過しているため、取り消しできません。');
+      return;
+    }
+
+    // Confirm
+    if (!confirm('決済を取り消しますか？')) return;
+
+    setUndoingIds(prev => new Set(prev).add(message.id));
+
+    // 事前に、直後の「損益情報」ボットメッセージを特定
+    const previous = messages;
+    const exitIndex = previous.findIndex(m => m.id === message.id);
+    const nextPnlMessageId = exitIndex >= 0
+      ? previous.slice(exitIndex + 1).find(m => m.type === 'bot' && typeof m.content === 'string' && m.content.includes('損益情報'))?.id
+      : undefined;
+
+    // 楽観的: まずUIから取り除く（EXITバブル） + 画像URLクリーンアップ
+    removeMessagesByIds([message.id]);
+
+    try {
+      await undoChatMessage(message.id);
+      // ポジションを厳密に復元
+      try {
+        const ok = positionsUnsettle(message.id);
+        if (!ok) {
+          console.warn('No settlement record found for undo, position not modified');
+        }
+      } catch (e) {
+        console.warn('Failed to unsettle position after undo:', e);
+      }
+      // 直後の「損益情報」ボットメッセージも削除（クリーンアップ含む）
+      if (nextPnlMessageId) removeMessagesByIds([nextPnlMessageId]);
+      showToast('success', 'ポジションを復元しました。');
+    } catch (err: any) {
+      console.error('Undo failed:', err);
+      const msg = String(err?.message || err);
+      const isNotFound = /404|not\s*found/i.test(msg);
+      if (isNotFound) {
+        // サーバー未登録の場合はローカルで復元のみ実施して成功扱い
+        const ok = positionsUnsettle(message.id);
+        if (ok) {
+          // 直後の「損益情報」ボットメッセージも削除（ローカル cleanup）
+          if (nextPnlMessageId) removeMessagesByIds([nextPnlMessageId]);
+          showToast('success', 'ポジションを復元しました。');
+        } else {
+          // 履歴が無ければ元に戻す
+          setMessages(previous);
+          showToast('error', '取り消しに失敗しました（履歴なし）');
+        }
+      } else {
+        setMessages(previous); // それ以外はロールバック
+        showToast('error', '取り消しに失敗しました');
+      }
+    } finally {
+      setUndoingIds(prev => {
+        const n = new Set(prev);
+        n.delete(message.id);
+        return n;
+      });
+    }
+  };
+  
   // 銘柄自動入力関連の状態
   const [symbolInputMode, setSymbolInputMode] = useState<'auto' | 'manual'>('auto');
   const [autoSymbolBadge, setAutoSymbolBadge] = useState(false);
@@ -279,10 +1302,6 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const [messages, setMessages] = useState<Message[]>([]);
   const [isCreatingChat, setIsCreatingChat] = useState(false); // チャット作成中フラグ
   
-  // 統合分析の状態
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<any>(null);
-
   // Restore last selected file on mount
   useEffect(() => {
     const lastFile = localStorage.getItem("lastSelectedFile");
@@ -331,8 +1350,6 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     if (symbolInputMode !== 'auto' || !currentChatId || !symbolsReady || !messages || messages.length === 0) return;
     
     try {
-      console.log('🔍 銘柄自動検出開始:', { currentChatId, messageCount: messages.length });
-      
       // 銘柄辞書をロード
       const symbolDict = await loadSymbols();
       if (symbolDict.length === 0) {
@@ -521,19 +1538,20 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       
       // エラー時はローカルのみでチャット作成（フォールバック）
       const fallbackId = `chat_${Date.now()}`;
+      const fallbackName = generateUniqueChatName();
       const newChat: Chat = {
         id: fallbackId,
-        name: defaultName,
+        name: fallbackName,
         messages: [],
         updatedAt: new Date().toISOString()
       };
       
       setChats(prevChats => [newChat, ...prevChats]);
       setCurrentChatId(fallbackId);
-      setSelectedFile(defaultName);
+      setSelectedFile(fallbackName);
       setMessages([]);
       
-      localStorage.setItem("lastSelectedFile", defaultName);
+      localStorage.setItem("lastSelectedFile", fallbackName);
       localStorage.setItem("currentChatId", fallbackId);
       
       console.log('⚠️ Fallback to local chat creation:', fallbackId);
@@ -645,11 +1663,6 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
   };
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
-  const [chatInput, setChatInput] = useState('');
-  const [entrySymbol, setEntrySymbol] = useState('');
-  const [entryPrice, setEntryPrice] = useState('');
-  const [entryQuantity, setEntryQuantity] = useState('');
-  const [entryPositionType, setEntryPositionType] = useState('long');
   const [exitSymbol, setExitSymbol] = useState<string>('');
   const [exitSide, setExitSide] = useState<'LONG'|'SHORT'|''>('');
   const [exitPrice, setExitPrice] = useState('');
@@ -661,11 +1674,12 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
   
   // モーダル内画像アップロード関連の状態
-  const [entryImageFile, setEntryImageFile] = useState<File | null>(null);
   const [entryImagePreview, setEntryImagePreview] = useState<string>('');
   const [exitImageFile, setExitImageFile] = useState<File | null>(null);
   const [exitImagePreview, setExitImagePreview] = useState<string>('');
-  const [imageError, setImageError] = useState<string>('');
+  const [showExitMemo, setShowExitMemo] = useState<boolean>(false);
+  const [exitMemo, setExitMemo] = useState<string>('');
+  const exitMemoRef = useRef<HTMLTextAreaElement | null>(null);
   
 
   // 画像クリック時の処理
@@ -684,7 +1698,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   };
 
   // グローバル関数としてwindowオブジェクトに登録
-  React.useEffect(() => {
+  useEffect(() => {
     (window as any).handleImageClick = handleImageClick;
     return () => {
       delete (window as any).handleImageClick;
@@ -692,17 +1706,24 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   }, []);
 
   // モーダル状態の変更を監視
-  React.useEffect(() => {
+  useEffect(() => {
     console.log('🖼️ Modal状態が変更されました:', { imageModalOpen, selectedImageUrl });
   }, [imageModalOpen, selectedImageUrl]);
+
+  useEffect(() => {
+    if (showExitMemo && exitMemoRef.current) {
+      exitMemoRef.current.focus();
+    }
+  }, [showExitMemo]);
   
   // 現在の建値を記録する状態（決済時に参照用）
   const [currentEntryPrice, setCurrentEntryPrice] = useState<number>(0);
   
   // 画像バリデーション関数
   const validateImage = (file: File): { ok: boolean; message?: string } => {
-    if (!file.type.startsWith('image/')) {
-      return { ok: false, message: '画像ファイルのみアップロードできます' };
+    const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      return { ok: false, message: 'png / jpg / jpeg / webp のみアップロードできます' };
     }
     if (file.size > 10 * 1024 * 1024) {
       return { ok: false, message: 'ファイルサイズは10MB以下にしてください' };
@@ -719,6 +1740,33 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     if (url) {
       URL.revokeObjectURL(url);
     }
+  };
+
+  const handleEntryImageChange = (file: File | null) => {
+    if (entryImagePreview) {
+      revokePreviewURL(entryImagePreview);
+    }
+
+    if (!file) {
+      setEntryImageFile(null);
+      setEntryImagePreview('');
+      setImageError('');
+      return;
+    }
+
+    const previewUrl = makePreviewURL(file);
+    setEntryImageFile(file);
+    setEntryImagePreview(previewUrl);
+    setImageError('');
+  };
+
+  const handleEntryImageError = (reason: 'type' | 'size' | 'other') => {
+    const messages: Record<typeof reason, string> = {
+      type: 'png / jpeg 以外はアップロードできません',
+      size: 'ファイルサイズは10MB以下にしてください',
+      other: '画像アップロードに失敗しました',
+    };
+    setImageError(messages[reason]);
   };
   
   // 画像解析と結果投稿関数
@@ -788,31 +1836,31 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
   // Chat messages state moved to top of component
 
-  // Modal open -> auto-fill latest symbol from chat context
+  // Modal open -> auto-fill latest symbol from chat context (但し編集モードでは無効)
   useEffect(() => {
     if (!isEntryModalOpen) return;
+
+    if (editingMessageId) {
+      return;
+    }
     
-    // まずフィールドをクリア
+    setShowChartPatternSelect(false);
+    setEntryChartPattern('');
+    setShowMemoTextarea(false);
+    setEntryMemo('');
+    setEntryInitialState(null);
+
+    // まずすべてのフィールドをクリア（新規入力の場合のみ）
     setEntrySymbol('');
     setEntryCode('');
+    setEntryPrice('');
+    setEntryQuantity('');
+    setEntryPositionType('long');
     setAutoFilled(false);
-    console.log('🔍 建値入力モーダルが開かれました - 自動入力を開始');
     (async () => {
       try {
-        console.log('📊 現在のチャット状況:', {
-          currentChatId,
-          messageCount: messages.length,
-          messages: messages.map(m => ({ 
-            id: m.id, 
-            type: m.type,
-            content: m.content,
-            timestamp: m.timestamp
-          }))
-        });
-
         // メッセージがない場合は早期リターン
         if (messages.length === 0) {
-          console.log('💬 チャットにメッセージがありません。銘柄を含むメッセージを送信してから建値入力を試してください。');
           setAutoFilled(false);
           return;
         }
@@ -855,7 +1903,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         console.error('❌ 自動入力中にエラー:', error);
       }
     })();
-  }, [isEntryModalOpen]);
+  }, [isEntryModalOpen, editingMessageId]);
 
   // --- Load chats and current chat from localStorage on mount ---
   useEffect(() => {
@@ -957,6 +2005,13 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   
   // Chat container ref for scrolling
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const planMessageTimers = useRef<Map<string, { timeoutId: number; message: Message }>>(new Map());
+  useEffect(() => {
+    return () => {
+      planMessageTimers.current.forEach(({ timeoutId }) => window.clearTimeout(timeoutId));
+      planMessageTimers.current.clear();
+    };
+  }, []);
   
   // Scroll to bottom to show latest message
   const scrollToLatestMessage = () => {
@@ -966,6 +2021,28 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
   };
 
+  // --- Helper: revoke blob: object URLs embedded in message HTML when removing messages ---
+  const getBlobUrlsFromHtml = (html: string): string[] => {
+    const urls: string[] = [];
+    try {
+      const re = /data-image-url=\"([^\"]+)\"/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(html)) !== null) {
+        const u = m[1];
+        if (u && u.startsWith('blob:')) urls.push(u);
+      }
+    } catch {}
+    return urls;
+  };
+
+  const removeMessagesByIds = (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const toRemove = messages.filter(m => ids.includes(m.id));
+    const urls = toRemove.flatMap(m => typeof m.content === 'string' ? getBlobUrlsFromHtml(m.content) : []);
+    setMessages(prev => prev.filter(m => !ids.includes(m.id)));
+    if (urls.length) setTimeout(() => { urls.forEach(u => { try { URL.revokeObjectURL(u); } catch {} }); }, 0);
+  };
+
   useEffect(() => {
     // メッセージが追加されたら最新メッセージを表示（DOM更新後に実行）
     setTimeout(() => {
@@ -973,6 +2050,32 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }, 100);
   }, [messages]);
   const [loading, setLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
+
+  // Image preview helpers
+  const MAX_FILES = 3;
+  const ACCEPTED: ChatImageType[] = ['image/png', 'image/jpeg', 'image/webp'];
+  const formatBytes = (b: number) => b < 1024 ? `${b}B` : b < 1024*1024 ? `${(b/1024).toFixed(1)}KB` : `${(b/(1024*1024)).toFixed(1)}MB`;
+  const addPreviewImages = (files: FileList | null) => {
+    if (!files) return;
+    const current = pendingImages;
+    const next: ChatImage[] = [];
+    for (const file of Array.from(files)) {
+      const type = file.type as ChatImageType;
+      if (!ACCEPTED.includes(type)) { showToast('warning', 'サポート外の形式です（png/jpeg/webp のみ）'); continue; }
+      if (file.size > 10 * 1024 * 1024) { showToast('warning', 'ファイルサイズは10MB以下にしてください'); continue; }
+      if (current.length + next.length >= MAX_FILES) { showToast('warning', `添付は最大${MAX_FILES}枚までです`); break; }
+      const dup = current.concat(next).some(p => p.file.name === file.name && p.size === file.size);
+      if (dup) continue;
+      const url = URL.createObjectURL(file);
+      next.push({ id: crypto.randomUUID(), file, url, size: file.size, type });
+    }
+    if (next.length) setPendingImages(prev => [...prev, ...next]);
+  };
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { addPreviewImages(e.target.files); e.target.value=''; };
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => { const fl = e.clipboardData?.files; if (fl && fl.length) addPreviewImages(fl); };
+  const removePreview = (id: string) => { setPendingImages(prev => { prev.forEach(p => { if (p.id===id) URL.revokeObjectURL(p.url); }); return prev.filter(p => p.id!==id); }); };
   const storageKey = `chatMessages_${selectedFile || 'default'}`;
 
   // Save messages to current chat whenever messages change
@@ -1167,21 +2270,110 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   };
 
   const handleSendMessage = async () => {
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() && pendingImages.length === 0) return;
+    if (isSending) return;
+    setIsSending(true);
 
     const userMessage = chatInput.trim();
     
-    // 新しいメッセージを追加
+    // Check if we are in edit mode
+    if (editingTextMessage) {
+      // 新仕様: 元メッセージは残し、編集内容を新しいユーザーバブルとして追加
+      try {
+        setIsUpdating(true);
+
+        // 1) まずローカルに新しいユーザーバブルを追加（楽観的）
+        const tempId = crypto.randomUUID();
+        const optimisticUser = {
+          id: tempId,
+          type: 'user' as const,
+          content: userMessage,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+        setMessages(prev => [...prev, optimisticUser]);
+
+        // 2) サーバーにTEXTとして新規作成（元メッセージは触らない）
+        const chatForApi = currentChatId || 'default-chat-123';
+        const created = await createChatMessage(chatForApi, {
+          type: 'TEXT',
+          author_id: 'user-1',
+          text: userMessage,
+        });
+
+        // 3) サーバーIDで置換
+        const tradeMsg = convertChatMessageToTradeMessage(created);
+        setMessages(prev => prev.map(m => (m.id === tempId ? tradeMsg : m)));
+
+        // 4) 新規メッセージを基点にAI再生成→直下に追加
+        try {
+          let ai = await generateAIReply(chatForApi, created.id);
+          if (!ai?.response && chatForApi !== 'default-chat-123') {
+            ai = await generateAIReply('default-chat-123', created.id);
+          }
+          if (ai?.response) {
+            setMessages(prev => [
+              ...prev,
+              {
+                id: ai.aiMessageId || crypto.randomUUID(),
+                type: 'bot' as const,
+                content: ai.response,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              }
+            ]);
+            setTimeout(() => scrollToLatestMessage(), 50);
+          }
+        } catch (aiErr) {
+          console.warn('AI再生成に失敗:', aiErr);
+        }
+      } catch (err) {
+        // ロールバック（追加した楽観的新規バブルを削除）
+        setMessages(prev => prev.slice(0, -1));
+      showToast('error', 'メッセージの更新に失敗しました');
+      } finally {
+        setIsUpdating(false);
+        setEditingTextMessage(null);
+        setChatInput('');
+      }
+      return;
+    }
+    
+    // 新しいメッセージ（楽観的追加）
+    const tempId = crypto.randomUUID();
+    const galleryHtml = pendingImages.length > 0
+      ? `<div class=\"flex gap-2 flex-wrap mb-2\">${pendingImages.map(img => `<img src=\"${img.url}\" alt=\"添付画像\" class=\"w-24 h-24 object-cover rounded-lg border\" data-image-url=\"${img.url}\" />`).join('')}</div>`
+      : '';
+    const contentHtml = `${galleryHtml}${userMessage ? `<div>${userMessage}</div>` : ''}`;
     const newUserMessage = {
-      id: crypto.randomUUID(),
+      id: tempId,
       type: 'user' as const,
-      content: userMessage,
+      content: contentHtml || '(画像)',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
-    
+
     setMessages(prev => [...prev, newUserMessage]);
     setTimeout(() => scrollToLatestMessage(), 50);
     setChatInput('');
+
+    // バックエンドにもTEXTメッセージを保存（編集用のID付与）
+    try {
+      const chatForApi = currentChatId || 'default-chat-123';
+      const created = await createChatMessage(chatForApi, {
+        type: 'TEXT',
+        author_id: 'user-1',
+        text: pendingImages.length > 0 ? `${userMessage || ''} [画像${pendingImages.length}枚]` : userMessage,
+      } as any);
+      // 返却メッセージで置き換え（ID同期）
+      const tradeMsg = convertChatMessageToTradeMessage(created);
+      setMessages(prev => prev.map(m => (
+        m.id === tempId
+          // 画像を表示中のメッセージはコンテンツを保持し、IDのみサーバーIDへ差し替え
+          ? (pendingImages.length > 0 ? { ...m, id: tradeMsg.id } : tradeMsg)
+          : m
+      )));
+    } catch (e) {
+      console.warn('TEXTメッセージの保存に失敗（ローカルのみ）:', e);
+      // 失敗してもUIは維持（後で編集できない可能性あり）
+    }
     
     // 現在のチャットが「新規チャット」で始まる場合、銘柄名を抽出して名前を更新
     if (currentChatId) {
@@ -1234,11 +2426,23 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         }
       ]);
       setTimeout(() => scrollToLatestMessage(), 50);
+    } finally {
+      // 入力クリア。タイムラインで表示している画像のObjectURLは維持（破棄しない）
+      // TODO: メッセージ削除時にURL.revokeObjectURLを行う
+      setChatInput('');
+      setPendingImages([]);
+      setIsSending(false);
     }
   };
 
 
   const handleEntrySubmit = async () => {
+    // Check if we're in edit mode
+    if (editingMessageId) {
+      await handleEntryUpdate();
+      return;
+    }
+
     // 画像バリデーションエラーがある場合は送信を阫止
     if (imageError) {
       alert('画像アップロードにエラーがあります。修正してから送信してください。');
@@ -1272,29 +2476,104 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       symbol: entrySymbol
     });
 
-    // Retrieve user's configured TP/SL percentages from localStorage (default values if not set)
-    const tpPercent = parseFloat(localStorage.getItem('takeProfitPercent') || '5'); // e.g., 5%
-    const slPercent = parseFloat(localStorage.getItem('stopLossPercent') || '2'); // e.g., 2%
+    const planConfig = loadTradePlanConfig();
 
     // ポジションタイプの表示用文字列
     const positionText = entryPositionType === 'long' ? 'ロング（買い）' : 'ショート（売り）';
+    const entrySide: 'LONG' | 'SHORT' = entryPositionType === 'long' ? 'LONG' : 'SHORT';
 
     // 現在の建値を保存（決済時に使用）
     setCurrentEntryPrice(price);
 
-    // ユーザーメッセージ：建値入力完了
-    setMessages(prev => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        type: 'user' as const,
-        isTradeAction: true, // 取引アクションメッセージとしてマーク
-        content: `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`,
+    const memoValue = entryMemo.trim();
+    const memoForPayload = memoValue.length > 0 ? memoValue : undefined;
+    const chartPatternValue = entryChartPattern === '' ? undefined : entryChartPattern;
+    const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
+    const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
+    const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
+    const fallbackEntryContent = `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`;
+    const createFallbackEntryMessage = (): Message => {
+      const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? `local-entry-${crypto.randomUUID()}`
+        : `local-entry-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      return {
+        id,
+        type: 'user',
+        isTradeAction: true,
+        content: fallbackEntryContent,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+    };
+    const entryPayload = {
+      symbolCode: entrySymbol,
+      symbolName: entrySymbol, // TODO: 実際の銘柄名を取得
+      side: entrySide,
+      price: price,
+      qty: qty,
+      executedAt: new Date().toISOString(),
+      tradeId: crypto.randomUUID(),
+      chartPattern: chartPatternValue,
+      ...(memoForPayload ? { note: memoForPayload } : {}),
+    };
+
+    // ENTRY メッセージをチャットAPIに送信
+    let entryMessageForTimeline: Message | null = null;
+    try {
+      const apiUrl = getApiUrl();
+
+      const entryMessage = {
+        type: "ENTRY",
+        author_id: "user-1",
+        payload: entryPayload
+      };
+
+      const response = await fetch(`${apiUrl}/chats/default-chat-123/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(entryMessage)
+      });
+
+      if (response.ok) {
+        const newMessage = await response.json();
+        entryMessageForTimeline = convertChatMessageToTradeMessage(newMessage);
+        // 決済履歴を紐づけ（UNDOで厳密復元に使用）
+        try {
+          positionsRecordSettlement(newMessage.id, {
+            symbol: exitSymbol,
+            side: exitSide,
+            chatId: exitChatId || currentChatId || undefined,
+            exitPrice: price,
+            exitQty: qty,
+            realizedPnl: settleResult?.realizedPnl || 0,
+            matchedLots: (settleResult?.details?.matchedLots || []).map((l: any) => ({ lotPrice: l.lotPrice, qty: l.qty })),
+          });
+        } catch (e) {
+          console.warn('Failed to record settlement history:', e);
+        }
+      } else {
+        console.error('Failed to create ENTRY message:', response.statusText);
+        entryMessageForTimeline = createFallbackEntryMessage();
       }
-    ]);
+    } catch (error) {
+      console.error('Error creating ENTRY message:', error);
+      entryMessageForTimeline = createFallbackEntryMessage();
+    }
+
+    if (!entryMessageForTimeline) {
+      entryMessageForTimeline = createFallbackEntryMessage();
+    }
+
+    setMessages(prev => [...prev, entryMessageForTimeline]);
+    const entryMessageId = entryMessageForTimeline.id;
     
     // 画像が添付されている場合、統合分析を実行
+    // 成功した場合のみ初回エントリーのポジションにチャート画像IDを紐付け
+    let attachChart: { imageId: string } | null = null;
+    const symbolCodeForPosition = entryCode || entrySymbol.split(' ')[0];
+    const preQty = getLongShortQty(symbolCodeForPosition, currentChatId);
+    const isInitialForSide = (entryPositionType === 'long' ? preQty.long : preQty.short) === 0;
     if (entryImageFile) {
       // 統合分析を実行
       try {
@@ -1307,6 +2586,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         formData.append('entry_price', price.toString());
         formData.append('position_type', entryPositionType === 'LONG' ? 'long' : 'short');
         formData.append('analysis_context', `建値入力: ${entrySymbol} ${positionText} ${price}円 ${qty}株`);
+        if (currentChatId) {
+          formData.append('chat_id', currentChatId);
+        }
 
         const apiUrl = getApiUrl();
         const response = await fetch(`${apiUrl}/api/v1/integrated-analysis`, {
@@ -1329,6 +2611,27 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 }
               ]);
             }, 1000); // 建値入力メッセージの後に表示
+
+            // 初回エントリーかつAI成功時のみ、後でポジションに画像IDを紐付け
+            if (isInitialForSide) {
+              attachChart = { imageId: `img-${crypto.randomUUID()}` };
+              // 保存用にデータURL化してlocalStorageへ永続化
+              try {
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(String(reader.result));
+                  reader.onerror = () => reject(new Error('failed_to_read_image'));
+                  reader.readAsDataURL(entryImageFile);
+                });
+                const key = 'chart_images';
+                const existingRaw = localStorage.getItem(key);
+                const existing: Record<string, string> = existingRaw ? JSON.parse(existingRaw) : {};
+                existing[attachChart.imageId] = dataUrl;
+                localStorage.setItem(key, JSON.stringify(existing));
+              } catch (e) {
+                console.warn('画像の保存に失敗しました（プレビュー用）', e);
+              }
+            }
           }
         } else {
           console.warn('統合分析APIエラー:', response.status);
@@ -1343,38 +2646,57 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // 右カラムのストアを更新
     const chatIdForEntry = currentChatId || undefined;
     console.log('🎯 Creating position with chatId:', chatIdForEntry);
-    positionsEntry(entryCode || entrySymbol, entryPositionType === 'long' ? 'LONG' : 'SHORT', price, qty, undefined, chatIdForEntry);
+    // 銘柄名を抽出（"4661 オリエンタルランド"形式の場合）
+    let symbolName = '';
+    if (entrySymbol.includes(' ')) {
+      const parts = entrySymbol.split(' ');
+      symbolName = parts.slice(1).join(' ');
+    }
+    
+    const createdPosition = positionsEntry(symbolCodeForPosition, entryPositionType === 'long' ? 'LONG' : 'SHORT', price, qty, symbolName || undefined, chatIdForEntry);
 
-    // 利確・損切り目標価格計算とボットメッセージ
-    const takeProfit = entryPositionType === 'long' 
-      ? price * (1 + tpPercent / 100)
-      : price * (1 - tpPercent / 100);
-    const stopLoss = entryPositionType === 'long'
-      ? price * (1 - slPercent / 100)
-      : price * (1 + slPercent / 100);
-
-    // 予想損益計算
-    const expectedProfitAmount = Math.abs(takeProfit - price) * qty;
-    const expectedLossAmount = Math.abs(price - stopLoss) * qty;
+    // AI成功時のみ画像IDを紐付け（初回エントリー限定）
+    if (attachChart) {
+      updatePosition(
+        symbolCodeForPosition,
+        entryPositionType === 'long' ? 'LONG' : 'SHORT',
+        {
+          chartImageId: attachChart.imageId,
+          aiFeedbacked: true,
+        },
+        chatIdForEntry
+      );
+    }
 
     // ボットメッセージ：取引プラン
-    setTimeout(() => {
+    const planSeed = createPlanLegacyMessage(price, qty, entrySide, planConfig, {
+      relatedEntryId: entryMessageId,
+    });
+    const planMessage: Message = {
+      id: planSeed.id,
+      type: 'bot',
+      content: planSeed.content,
+      timestamp: planSeed.timestamp,
+      relatedEntryId: entryMessageId,
+    };
+    const planTimeoutId = window.setTimeout(() => {
+      planMessageTimers.current.delete(entryMessageId);
       setMessages(prev => [
         ...prev,
-        {
-          id: crypto.randomUUID(),
-          type: 'bot' as const,
-          content: `🎯 取引プラン設定<br/>📋 リスク管理ルール<br/>• 利確目標: +${tpPercent}% → <span style="color: #16a34a;">${takeProfit.toLocaleString()}円</span><br/>• 損切り目標: -${slPercent}% → <span style="color: #dc2626;">${stopLoss.toLocaleString()}円</span><br/><br/>💰 予想損益<br/>• 利確時: <span style="color: #16a34a;">+${expectedProfitAmount.toLocaleString()}円</span><br/>• 損切り時: <span style="color: #dc2626;">-${expectedLossAmount.toLocaleString()}円</span><br/><br/>⚠️ 重要: 必ず逆指値注文を設定して、感情に左右されない取引を心がけましょう`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        }
+        planMessage,
       ]);
     }, 500); // 少し遅延してボットメッセージを表示
+    planMessageTimers.current.set(entryMessageId, { timeoutId: planTimeoutId, message: planMessage });
 
     setIsEntryModalOpen(false);
     setEntrySymbol('');
     setEntryPrice('');
     setEntryQuantity('');
     setEntryPositionType('long');
+    setEntryChartPattern('');
+    setShowChartPatternSelect(false);
+    setEntryMemo('');
+    setShowMemoTextarea(false);
     
     // モーダル用画像状態をクリア
     if (entryImagePreview) {
@@ -1386,6 +2708,12 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   };
 
   const handleExitSubmit = async () => {
+    // Check if we're in edit mode
+    if (editingMessageId) {
+      await handleExitUpdate();
+      return;
+    }
+
     // 画像バリデーションエラーがある場合は送信を阫止
     if (imageError) {
       alert('画像アップロードにエラーがあります。修正してから送信してください。');
@@ -1394,7 +2722,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     
     // カードからの呼び出し時のバリデーション
     if (!exitSymbol || !exitSide) {
-      alert('決済はカードの「決済入力」から実行してください（銘柄・サイドが未選択）');
+      alert('約定はカードの「約定入力」から実行してください（銘柄・サイドが未選択）');
       return;
     }
     
@@ -1426,14 +2754,36 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // 右カラムのストアに決済を通知
     let settleResult;
     try {
+      console.log(`🔍 DEBUG: Attempting to settle position: symbol=${exitSymbol}, side=${exitSide}, price=${price}, qty=${qty}`);
       settleResult = positionsSettle(exitSymbol, exitSide, price, qty, exitChatId || currentChatId || undefined);
+      console.log(`🔍 DEBUG: Settle result:`, settleResult);
     } catch (e: any) {
       alert(e?.message || '決済に失敗しました');
       return;
     }
 
-    // 建値を取得（保存された状態を優先、バックアップとしてメッセージから取得）
-    let entryVal = currentEntryPrice;
+    // 建値を取得（ポジションストアの平均建値を優先し、バックアップを用意）
+    let entryVal = 0;
+
+    // 1) Positions store の平均建値（カード表示と一致させる）
+    try {
+      const state = getPositionsState();
+      const posKey = `${exitSymbol}:${exitSide}:${exitChatId || currentChatId || 'default'}`;
+      const pos = state.positions.get(posKey);
+      if (pos && typeof pos.avgPrice === 'number' && pos.avgPrice > 0) {
+        entryVal = pos.avgPrice;
+      }
+    } catch {}
+
+    // 2) 完全クローズ時は settleResult の tradeSnapshot から補完
+    if (entryVal <= 0 && settleResult?.tradeSnapshot && typeof settleResult.tradeSnapshot.avgEntry === 'number') {
+      entryVal = settleResult.tradeSnapshot.avgEntry;
+    }
+
+    // 3) それでも取得できない場合は、従来の保持値/メッセージ解析でフォールバック
+    if (entryVal <= 0) {
+      entryVal = currentEntryPrice;
+    }
     
     // 保存された建値がない場合、メッセージから取得
     if (entryVal <= 0) {
@@ -1447,8 +2797,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       }
     }
     
-    // デバッグ用ログ
-    console.log('Debug - entryVal:', entryVal, 'currentEntryPrice:', currentEntryPrice);
+    // entryVal validation complete
 
     // 建値が見つからない場合のエラーハンドリング
     if (entryVal <= 0) {
@@ -1456,17 +2805,98 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       return;
     }
 
-    // 1. ユーザー側メッセージを即座に表示
-    setMessages(prev => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        type: 'user' as const,
-        isTradeAction: true, // 取引アクションメッセージとしてマーク
-        content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    // 1. EXIT メッセージをチャットAPIに送信
+    try {
+      const apiUrl = getApiUrl();
+      const memoValue = exitMemo.trim();
+      const exitNote = memoValue.length > 0 ? memoValue : null;
+      const exitMessage = {
+        type: "EXIT",
+        author_id: "user-1",
+        payload: {
+          tradeId: crypto.randomUUID(), // TODO: 実際のtradeIdを使用
+          exitPrice: price,
+          exitQty: qty,
+          note: exitNote,
+          executedAt: new Date().toISOString()
+        }
+      };
+
+      const response = await fetch(`${apiUrl}/chats/default-chat-123/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(exitMessage)
+      });
+
+      if (response.ok) {
+        const newMessage = await response.json();
+        // メッセージを画面に反映
+        setMessages(prev => [
+          ...prev,
+          convertChatMessageToTradeMessage(newMessage)
+        ]);
+      } else {
+        console.error('Failed to create EXIT message:', response.statusText);
+        // フォールバックで既存のメッセージ形式を使用
+        const localId = crypto.randomUUID();
+        const fallbackMemoLine = exitMemo.trim().length > 0 ? `<br/>メモ: ${exitMemo.trim().replace(/\n/g, '<br/>')}` : '';
+        setMessages(prev => [
+          ...prev,
+          {
+            id: localId,
+            type: 'user' as const,
+            isTradeAction: true,
+            content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${fallbackMemoLine}`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          }
+        ]);
+        // ローカルメッセージでも復元できるよう決済履歴を保存
+        try {
+          positionsRecordSettlement(localId, {
+            symbol: exitSymbol,
+            side: exitSide,
+            chatId: exitChatId || currentChatId || undefined,
+            exitPrice: price,
+            exitQty: qty,
+            realizedPnl: settleResult?.realizedPnl || 0,
+            matchedLots: (settleResult?.details?.matchedLots || []).map((l: any) => ({ lotPrice: l.lotPrice, qty: l.qty })),
+          });
+        } catch (e) {
+          console.warn('Failed to record settlement history (fallback):', e);
+        }
       }
-    ]);
+    } catch (error) {
+      console.error('Error creating EXIT message:', error);
+      // フォールバックで既存のメッセージ形式を使用
+      const localId = crypto.randomUUID();
+      const fallbackMemoLine = exitMemo.trim().length > 0 ? `<br/>メモ: ${exitMemo.trim().replace(/\n/g, '<br/>')}` : '';
+      setMessages(prev => [
+        ...prev,
+        {
+          id: localId,
+          type: 'user' as const,
+          isTradeAction: true,
+          content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${fallbackMemoLine}`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }
+      ]);
+      // ローカルメッセージでも復元できるよう決済履歴を保存
+      try {
+        positionsRecordSettlement(localId, {
+          symbol: exitSymbol,
+          side: exitSide,
+          chatId: exitChatId || currentChatId || undefined,
+          exitPrice: price,
+          exitQty: qty,
+          realizedPnl: settleResult?.realizedPnl || 0,
+          matchedLots: (settleResult?.details?.matchedLots || []).map((l: any) => ({ lotPrice: l.lotPrice, qty: l.qty })),
+        });
+      } catch (e) {
+        console.warn('Failed to record settlement history (catch):', e);
+      }
+    }
 
     // 2. システム側メッセージを少し遅延して表示
     setTimeout(() => {
@@ -1481,13 +2911,13 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       
       if (pnl > 0) {
         // 利益時のメッセージ
-        messageContent = `💹 損益情報<br/><br/>建値価格: ${entryVal.toLocaleString()}円<br/>決済価格: ${price.toLocaleString()}円<br/>差額: <span style="color: #16a34a;">${priceDiffStr}</span><br/>株数: ${qty.toLocaleString()}株<br/>損益額: <span style="color: #16a34a;">${pnlStr}</span><br/><br/>🎉 振り返り: おめでとうございます！利益を確定できました。今回の成功要因を分析して、次回の取引にも活かしていきましょう。`;
+        messageContent = `💹 損益情報<br/><br/>平均建値: ${entryVal.toLocaleString()}円<br/>約定価格: ${price.toLocaleString()}円<br/>差額: <span style="color: #16a34a;">${priceDiffStr}</span><br/>株数: ${qty.toLocaleString()}株<br/>損益額: <span style="color: #16a34a;">${pnlStr}</span><br/><br/>🎉 振り返り: おめでとうございます！利益を確定できました。今回の成功要因を分析して、次回の取引にも活かしましょう。`;
       } else if (pnl < 0) {
         // 損失時のメッセージ
-        messageContent = `💹 損益情報<br/><br/>建値価格: ${entryVal.toLocaleString()}円<br/>決済価格: ${price.toLocaleString()}円<br/>差額: <span style="color: #dc2626;">${priceDiffStr}</span><br/>株数: ${qty.toLocaleString()}株<br/>損益額: <span style="color: #dc2626;">${pnlStr}</span><br/><br/>🤔 振り返り: 今回は残念ながら損失となりました。エントリーのタイミングや損切りラインを振り返り、次回に活かしましょう。`;
+        messageContent = `💹 損益情報<br/><br/>平均建値: ${entryVal.toLocaleString()}円<br/>約定価格: ${price.toLocaleString()}円<br/>差額: <span style="color: #dc2626;">${priceDiffStr}</span><br/>株数: ${qty.toLocaleString()}株<br/>損益額: <span style="color: #dc2626;">${pnlStr}</span><br/><br/>🤔 振り返り: 今回は残念ながら損失となりました。エントリーのタイミングや損切りラインを振り返り、次回に活かしましょう。`;
       } else {
         // ブレイクイーブン時のメッセージ
-        messageContent = `💹 損益情報<br/><br/>建値価格: ${entryVal.toLocaleString()}円<br/>決済価格: ${price.toLocaleString()}円<br/>差額: ${priceDiffStr}<br/>株数: ${qty.toLocaleString()}株<br/>損益額: ${pnlStr}<br/><br/>😐 振り返り: ブレイクイーブンでした。リスクを最小限に抑えた取引ができました。`;
+        messageContent = `💹 損益情報<br/><br/>平均建値: ${entryVal.toLocaleString()}円<br/>約定価格: ${price.toLocaleString()}円<br/>差額: ${priceDiffStr}<br/>株数: ${qty.toLocaleString()}株<br/>損益額: ${pnlStr}<br/><br/>😐 振り返り: ブレイクイーブンでした。リスクを最小限に抑えた取引ができました。`;
       }
 
       const botMessageId = crypto.randomUUID();
@@ -1537,6 +2967,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     setExitPrice('');
     setExitQuantity('');
     setExitChatId('');
+    setExitMemo('');
+    setShowExitMemo(false);
     
     // モーダル用画像状態をクリア
     if (exitImagePreview) {
@@ -1545,6 +2977,54 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     setExitImageFile(null);
     setExitImagePreview('');
     setImageError('');
+    
+    // Mark related ENTRY messages as settled when position is fully closed
+    console.log(`🔍 DEBUG: Settlement check - settleResult exists: ${!!settleResult}, has tradeSnapshot: ${!!settleResult?.tradeSnapshot}`);
+    if (settleResult?.tradeSnapshot) {
+      console.log(`🔍 DEBUG: Position fully closed, marking ENTRY messages as settled for ${exitSymbol} ${exitSide}`);
+      console.log(`🔍 DEBUG: Checking ${messages.length} messages for settlement marking`);
+      // Find and mark ENTRY messages for this symbol and side as settled
+      messages.forEach(message => {
+        if (message.type === 'user' && message.content.includes('建値入力しました')) {
+          const content = message.content;
+          const symbolMatch = content.match(/銘柄:\s*([^\<\<br/\>]+)/);
+          const symbol = symbolMatch ? symbolMatch[1].trim() : '';
+          
+          const positionMatch = content.match(/ポジションタイプ:\s*([^\<\<br/\>]+)/);
+          const positionText = positionMatch ? positionMatch[1].trim() : '';
+          const side = (positionText.includes('ロング') || positionText.includes('LONG')) ? 'LONG' : 'SHORT';
+          
+          // Enhanced symbol matching: handle both code-only (6702) and code+name (6702 富士通) formats
+          const symbolMatches = symbol === exitSymbol || 
+                               symbol.startsWith(exitSymbol + ' ') || 
+                               exitSymbol.startsWith(symbol + ' ') ||
+                               (symbol.includes(' ') && exitSymbol.includes(' ') && symbol.split(' ')[0] === exitSymbol.split(' ')[0]);
+          
+          const isMatch = symbolMatches && side === exitSide;
+          
+          console.log(`🔍 DEBUG: Checking ENTRY message ${message.id}: symbol="${symbol}", side=${side}, exitSymbol="${exitSymbol}", exitSide=${exitSide}, match=${isMatch}`);
+          
+          // Mark as settled if symbol and side match the settled position
+          if (isMatch) {
+            markEntryAsSettled(message.id);
+          }
+        }
+      });
+    } else {
+      console.log(`🔍 DEBUG: No tradeSnapshot found, not marking entries as settled`);
+    }
+    
+    // Force re-render to update edit icon visibility for settled ENTRY messages
+    // The isEntrySettled function will now return true for messages related to the settled position
+    setTimeout(() => {
+      console.log(`🔍 DEBUG: Forcing re-render. Current settled entries:`, Array.from(settledEntries));
+      setMessages(prevMessages => {
+        console.log(`🔍 DEBUG: Re-rendering ${prevMessages.length} messages`);
+        return [...prevMessages]; // Shallow copy to trigger re-render
+      });
+      // Force all message components to re-evaluate their settled state
+      window.dispatchEvent(new Event('resize')); // Trigger any layout recalculations
+    }, 100);
   };
 
   // 特定のチャットにメッセージを追加する関数
@@ -1665,14 +3145,53 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                       </div>
                     </div>
                   )}
-                  {messages.map((message, index) => (
-                    <MessageBubble 
-                      key={`${message.id}-${index}`} 
-                      message={message} 
-                      onImageClick={handleImageClick}
-                      isHighlighted={message.id === highlightedMessageId}
-                    />
-                  ))}
+                  {/* Messages Display */}
+                  {messages.map((message) => {
+                    const isEntryMessage = Boolean(
+                      message.isTradeAction &&
+                      typeof message.content === 'string' &&
+                      message.content.includes('建値入力しました')
+                    );
+
+                    let entryActionProps: {
+                      canEdit: boolean;
+                      canDelete: boolean;
+                      reason?: string | { edit?: string; delete?: string };
+                    } | undefined;
+
+                    if (isEntryMessage) {
+                      const explicit = message.entryPermissions;
+                      const settled = isEntrySettled(message);
+                      const canEdit = explicit?.canEdit ?? !settled;
+                      const canDelete = explicit?.canDelete ?? !settled;
+                      const reason = explicit?.reasons ?? (settled
+                        ? { edit: ENTRY_ACTION_DISABLED_REASON, delete: ENTRY_ACTION_DISABLED_REASON }
+                        : undefined);
+
+                      entryActionProps = {
+                        canEdit,
+                        canDelete,
+                        reason,
+                      };
+                    }
+
+                    return (
+                      <MessageBubble
+                        key={message.id}
+                        message={message}
+                        onImageClick={handleImageClick}
+                        isHighlighted={highlightedMessageId === message.id}
+                        onMessageEdit={ENABLE_CHAT_BUBBLE_EDIT ? handleMessageEdit : undefined}
+                        isEntrySettled={isEntrySettled}
+                        onMessageUndo={ENABLE_CHAT_BUBBLE_EDIT ? handleMessageUndo : undefined}
+                        entryCanEdit={entryActionProps?.canEdit}
+                        entryCanDelete={entryActionProps?.canDelete}
+                        entryDisabledReason={entryActionProps?.reason}
+                        onEntryDelete={ENABLE_CHAT_BUBBLE_EDIT ? handleEntryDeleteRequest : undefined}
+                        isDeleting={deletingEntryIds.has(message.id)}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1688,51 +3207,137 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           >
             <div className="px-20 pb-6">
               <div className="max-w-4xl mx-auto">
-                <div className="bg-[#F8F9FB] shadow-md rounded-lg">
-                  <div className="flex items-center justify-center gap-6 px-6 py-3">
-                    {/* Entry Button */}
-                    <PrimaryButton
-                      onClick={() => setIsEntryModalOpen(true)}
-                      className="w-28"
-                      variant="primary"
-                    >
-                      建値入力
-                    </PrimaryButton>
-                    {/* Exit Button */}
-                    <PrimaryButton
-                      onClick={() => setIsExitModalOpen(true)}
-                      className="w-28"
-                      variant="danger"
-                    >
-                      決済入力
-                    </PrimaryButton>
-                    {/* File Upload */}
-                    <label className="w-56 h-12 border-2 border-dashed border-[#D1D5DB] rounded-lg flex items-center justify-center gap-2 cursor-pointer hover:border-[#9CA3AF] transition-colors">
-                      <Upload className="w-5 h-5 text-[#9CA3AF]" />
-                      <span className="text-sm text-[#9CA3AF]">チャート画像をアップロード</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handleFileUpload}
-                      />
-                    </label>
-                  </div>
-                  <div className="flex items-center px-6 py-3 gap-4">
-                    <Input
-                      placeholder="AI に質問する…"
+                {/* Chat Input Card - with edit header when editing */}
+                <div className="bg-[#F7F8FA] shadow-lg rounded-2xl mb-4">
+                  {/* Edit header (only in edit mode) */}
+                  {editingTextMessage && (
+                    <div className="flex items-center justify-between bg-[#6B7280] text-white rounded-t-2xl px-4 py-2">
+                      <div className="flex items-center gap-2 text-sm">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                          <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm2.92 2.33H5v-.92l8.06-8.06.92.92L5.92 19.58zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"/>
+                        </svg>
+                        <span>編集する</span>
+                      </div>
+                      <button
+                        onClick={handleCancelTextEdit}
+                        disabled={isUpdating}
+                        aria-label="編集をキャンセル"
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 disabled:opacity-60"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Upper tier: Preview list + Text input field */}
+                  <div className="mb-4 px-6 py-4 relative">
+                    {pendingImages.length > 0 && (
+                      <div role="list" className="mb-3 flex flex-wrap gap-3">
+                        {pendingImages.map(img => (
+                          <div role="listitem" key={img.id} className="group relative flex items-center gap-2 p-2 bg-[#F3F4F6] rounded-xl">
+                            <img src={img.url} alt={img.file.name} className="w-[72px] h-[72px] object-cover rounded-lg border" />
+                            <div className="flex flex-col max-w-[160px]">
+                              <span className="text-xs text-gray-600 truncate">{img.file.name}</span>
+                              <span className="text-xs text-gray-400">{formatBytes(img.size)}</span>
+                            </div>
+                            <button type="button" onClick={() => removePreview(img.id)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs flex items-center justify-center">×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <input
+                      type="text"
+                      placeholder="AIに質問する..."
                       value={chatInput}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setChatInput(e.target.value)}
-                      disabled={loading}
-                      className="flex-1 h-10 rounded-lg border-[#D1D5DB] focus:border-[#2563EB] disabled:opacity-50"
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onPaste={handlePaste}
+                      onKeyDown={(e) => {
+                        // 編集時は ⌘/Ctrl+Enter で更新、通常時は Enter 送信
+                        if (editingTextMessage && (e.key === 'Enter') && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          handleSendMessage();
+                          return;
+                        }
+                        if (editingTextMessage && e.key === 'Escape') {
+                          e.preventDefault();
+                          handleCancelTextEdit();
+                          return;
+                        }
+                        if (e.key === 'Enter' && !e.shiftKey && !editingTextMessage) {
+                          e.preventDefault();
+                          handleSendMessage();
+                        }
+                      }}
+                      className={`w-full h-12 bg-white border border-[#E5E7EB] rounded-lg outline-none text-[#333] placeholder-[#999] text-base px-4`}
+                      style={{ fontSize: '16px' }}
                     />
-                    <Button
+                  </div>
+
+                  {/* Lower tier: Buttons and controls */}
+                  <div className="flex items-center px-6 pb-4">
+                    {/* Left side buttons */}
+                    <div className="flex gap-3 mr-6">
+                      {/* Entry Button */}
+                      <button
+                        onClick={() => {
+                          console.log('🆕 建値入力ボタンがクリックされました - 新規入力モード');
+                          // 新規建値入力では編集状態をクリア
+                          setEditingMessageId(null);
+                          // モーダルを開く
+                          setIsEntryModalOpen(true);
+                        }}
+                        className="bg-[#007AFF] hover:bg-[#0056CC] text-white px-6 py-3 rounded-xl font-medium text-sm transition-colors w-[120px]"
+                      >
+                        建値入力
+                      </button>
+                      {/* Exit Button (rendered but hidden/disabled per spec) */}
+                      <button
+                        data-testid="payment-button"
+                        onClick={() => setIsExitModalOpen(true)}
+                        disabled
+                        aria-hidden="true"
+                        aria-disabled="true"
+                        tabIndex={-1}
+                        className="hidden bg-[#FF3B30] hover:bg-[#D70015] text-white px-6 py-3 rounded-xl font-medium text-sm transition-colors disabled:cursor-not-allowed"
+                      >
+                        決済
+                      </button>
+                    </div>
+
+                    {/* Spacer */}
+                    <div className="flex-1"></div>
+
+                    {/* File upload area */
+                    }
+                    <div className="border-2 border-dashed border-[#D1D5DB] bg-white rounded-xl px-5 py-3 flex items-center gap-2 mr-4 text-[#6B7280]">
+                      <label className="cursor-pointer flex items-center gap-2">
+                        <Upload className="w-4 h-4" />
+                        <span className="text-sm whitespace-nowrap">チャート画像をアップロード</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          multiple
+                          onChange={handleFileSelect}
+                        />
+                      </label>
+                    </div>
+
+                    {/* Send button stays at default position even in edit mode */}
+                    <button
                       onClick={handleSendMessage}
-                      disabled={loading || !chatInput.trim()}
-                      className="w-10 h-10 bg-[#2563EB] hover:bg-[#1D4ED8] rounded-lg p-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={(chatInput.trim().length === 0 && pendingImages.length === 0) || (editingTextMessage && isUpdating) || isSending}
+                      className="bg-[#007AFF] hover:bg-[#0056CC] disabled:bg-[#C7C7CC] text-white w-12 h-12 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
+                      aria-label={editingTextMessage ? '更新を送信' : '送信'}
                     >
-                      <Send className="w-3.5 h-3.5 text-white" />
-                    </Button>
+                      {isSending ? (
+                        <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                      ) : (
+                        <Send className="w-5 h-5" />
+                      )}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1742,7 +3347,19 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
         {/* Right column for positions */}
         <div className="w-[360px] shrink-0 border-l border-[#E5E7EB] bg-[#E9F7F6]">
-          <RightPanePositions chatId={currentChatId} />
+          <RightPanePositions 
+            chatId={currentChatId} 
+            onAddBotMessage={(message) => {
+              setMessages(prev => [...prev, {
+                id: message.id,
+                type: message.type,
+                content: message.content,
+                timestamp: message.timestamp,
+                'data-testid': message.testId
+              }]);
+              setTimeout(() => scrollToLatestMessage(), 50);
+            }}
+          />
         </div>
       </div>
 
@@ -1757,8 +3374,16 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           setEntryImagePreview('');
           setImageError('');
           setIsEntryModalOpen(false);
+          clearEditMode();
+          // モーダルクローズ時にフォームもクリア
+          setEntrySymbol('');
+          setEntryCode('');
+          setEntryPrice('');
+          setEntryQuantity('');
+          setEntryPositionType('long');
+          setAutoFilled(false);
         }}
-        title="建値入力"
+        title={editingMessageId ? '建値を編集' : '建値入力'}
       >
         <div className="mt-4 space-y-4">
           <div>
@@ -1782,7 +3407,11 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 setSymbolInputMode('manual');
               }}
               placeholder="銘柄コードまたは名称"
-              autoBadge={autoFilled || (symbolInputMode === 'auto' && autoSymbolBadge)}
+              autoBadge={(() => {
+                const isEditing = !!editingMessageId;
+                const shouldShowBadge = !isEditing && (autoFilled || (symbolInputMode === 'auto' && autoSymbolBadge));
+                return shouldShowBadge;
+              })()}
             />
           </div>
           <div>
@@ -1832,48 +3461,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
               <Label className="text-sm text-[#374151] font-medium">AI分析（任意）</Label>
             </div>
             
-            {/* 説明文 */}
-            <div className="bg-[#F6FBFF] px-4 py-3 rounded-lg mb-4">
-              <p className="text-sm text-[#374151]">
-                AIがエントリーの判断を評価し、改善のヒントをお届けします✨
-              </p>
-            </div>
-            
-            <div className="space-y-3">
-              {/* アップロード領域 */}
-              <label className="w-full border-2 border-dashed border-[#D1D5DB] rounded-lg flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#9CA3AF] transition-colors" style={{height: '72px'}}>
-                <Upload className="w-5 h-5 text-[#9CA3AF]" />
-                <span className="text-sm text-[#9CA3AF]">
-                  チャート画像をアップロード
-                </span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    
-                    const validation = validateImage(file);
-                    if (!validation.ok) {
-                      setImageError(validation.message || '');
-                      return;
-                    }
-                    
-                    setImageError('');
-                    setEntryImageFile(file);
-                    
-                    // 既存のプレビューURLをクリーンアップ
-                    if (entryImagePreview) {
-                      revokePreviewURL(entryImagePreview);
-                    }
-                    
-                    const previewUrl = makePreviewURL(file);
-                    setEntryImagePreview(previewUrl);
-                  }}
-                />
-              </label>
-              
+            <div className="space-y-3" data-testid="entry-ai-upload">
+              <ChartImageUploader
+                value={entryImageFile}
+                onChange={handleEntryImageChange}
+                onError={handleEntryImageError}
+                showPreview={false}
+              />
+
               {/* プレビュー表示 */}
               {entryImagePreview && (
                 <div className="relative inline-block">
@@ -1900,18 +3495,109 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 </div>
               )}
               
-              {/* エラーメッセージ */}
-              {imageError && (
-                <div className="text-red-600 text-xs" role="alert">
-                  {imageError}
-                </div>
-              )}
-              
-              {/* ヘルプテキスト */}
-              <div className="text-xs text-[#6B7280]">
-                対応形式：png / jpeg・最大10MB
-              </div>
+              {/* エラーメッセージはアップローダー内で表示 */}
             </div>
+          </div>
+          <div className="w-full space-y-2">
+            {showChartPatternSelect ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-[#374151] font-medium">チャートパターン</Label>
+                    <span className="text-xs text-gray-400">任意</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-sm text-gray-500 ml-2 cursor-pointer"
+                    data-testid="close-chartpattern"
+                    onClick={() => setShowChartPatternSelect(false)}
+                  >
+                    閉じる
+                  </button>
+                </div>
+                <Select
+                  value={entryChartPattern || undefined}
+                  onValueChange={(value) => setEntryChartPattern(value as ChartPattern)}
+                >
+                  <SelectTrigger
+                    className="w-full h-10 border-[#D1D5DB] focus:border-[#2563EB]"
+                    data-testid="chartpattern-select"
+                    name="chartPattern"
+                  >
+                    <SelectValue placeholder="パターンを選択" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[10000] bg-white border border-gray-200 shadow-lg">
+                    {CHART_PATTERNS.map((pattern) => (
+                      <SelectItem key={pattern.value} value={pattern.value}>
+                        {pattern.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                  data-testid="add-chartpattern"
+                  onClick={() => setShowChartPatternSelect(true)}
+                >
+                  ＋ チャートパターンを追加
+                </button>
+                {entryChartPattern && (
+                  <span className="text-xs text-gray-500">
+                    選択中: {CHART_PATTERN_LABEL_MAP[entryChartPattern]}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="w-full space-y-2">
+            {showMemoTextarea ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-[#374151] font-medium">メモ</Label>
+                    <span className="text-xs text-gray-400">任意</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-sm text-gray-500 ml-2 cursor-pointer"
+                    data-testid="close-memo"
+                    onClick={() => setShowMemoTextarea(false)}
+                  >
+                    閉じる
+                  </button>
+                </div>
+                <textarea
+                  className="w-full rounded-lg border border-[#D1D5DB] focus:border-[#2563EB] p-3 resize-y min-h-[96px]"
+                  placeholder="エントリー理由や感情を入力"
+                  value={entryMemo}
+                  onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setEntryMemo(event.target.value)}
+                  name="memo"
+                  maxLength={500}
+                  data-testid="memo-textarea"
+                />
+                <div className="text-xs text-[#6B7280] text-right">最大500文字</div>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                  data-testid="add-memo"
+                  onClick={() => setShowMemoTextarea(true)}
+                >
+                  ＋ メモを追加
+                </button>
+                {entryMemo.trim().length > 0 && (
+                  <span className="text-xs text-gray-500">
+                    下書きあり
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex justify-end items-center mt-6">
             <div className="flex gap-3">
@@ -1925,8 +3611,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
               <PrimaryButton 
                 onClick={handleEntrySubmit} 
                 variant="primary"
-                disabled={isAnalyzing || !!imageError}
-                className={isAnalyzing || imageError ? 'opacity-50 cursor-not-allowed' : ''}
+                disabled={isEntrySubmitDisabled}
+                className={isEntrySubmitDisabled ? 'opacity-50 cursor-not-allowed' : ''}
               >
                 {isAnalyzing ? '🔄 分析中...' : '送信'}
               </PrimaryButton>
@@ -1935,19 +3621,34 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         </div>
       </ModalBase>
 
+      {/* Delete Entry Modal */}
+      <EntryDeleteDialog
+        open={entryDeleteState.isOpen}
+        preview={entryDeletePreview}
+        isDeleting={isDeletingEntry}
+        onCancel={() => {
+          if (isDeletingEntry) return;
+          setEntryDeleteState({ isOpen: false });
+        }}
+        onConfirm={handleConfirmEntryDelete}
+      />
+
       {/* Exit Modal */}
       <ModalBase
         isOpen={isExitModalOpen}
         onClose={() => {
-          if (exitImagePreview) {
+        if (exitImagePreview) {
             revokePreviewURL(exitImagePreview);
           }
           setExitImageFile(null);
           setExitImagePreview('');
           setImageError('');
+          setExitMemo('');
+          setShowExitMemo(false);
           setIsExitModalOpen(false);
+          clearEditMode();
         }}
-        title="決済入力"
+        title="約定入力"
       >
         <div className="mt-4 space-y-4">
           <div className="text-xs text-zinc-500">
@@ -1990,7 +3691,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 </span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/webp"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -2054,6 +3755,51 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 対応形式：png / jpeg・最大10MB
               </div>
             </div>
+          </div>
+          <div className="w-full space-y-3">
+            {showExitMemo ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-[#374151] font-medium">メモ</Label>
+                    <span className="text-xs text-gray-400">任意</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-sm text-gray-500 ml-2 cursor-pointer"
+                    data-testid="settle-close-memo"
+                    onClick={() => setShowExitMemo(false)}
+                  >
+                    閉じる
+                  </button>
+                </div>
+                <textarea
+                  ref={exitMemoRef}
+                  className="w-full rounded-lg border border-[#D1D5DB] focus:border-[#2563EB] p-3 resize-y min-h-[96px]"
+                  placeholder="エントリー/クローズ理由や感情を入力"
+                  value={exitMemo}
+                  onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setExitMemo(event.target.value)}
+                  name="memo"
+                  maxLength={1000}
+                  data-testid="settle-memo-textarea"
+                />
+                <div className="text-xs text-gray-400 mt-1 text-right">最大1000文字</div>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="text-sm text-blue-600 hover:text-blue-700"
+                  data-testid="settle-add-memo"
+                  onClick={() => setShowExitMemo(true)}
+                >
+                  ＋ メモを追加
+                </button>
+                {exitMemo.trim().length > 0 && (
+                  <span className="text-xs text-gray-500">下書きあり</span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-3 mt-6">
             <Button

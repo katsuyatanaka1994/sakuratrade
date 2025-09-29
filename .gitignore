@@ -16,3 +16,11 @@ backend.sh
 
 # ignore node_modules
 node_modules/
+
+# Claude Code local settings
+CLAUDE.local.md
+# environment configuration
+.env
+frontend/.env
+frontend/.env
+test.db

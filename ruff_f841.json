@@ -1,0 +1,431 @@
+[
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 18,
+      "row": 148
+    },
+    "filename": "/Users/prism.tokyo/gptset/app/services/exit_feedback_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 21,
+            "row": 148
+          },
+          "location": {
+            "column": 13,
+            "row": 148
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `lines`"
+    },
+    "location": {
+      "column": 13,
+      "row": 148
+    },
+    "message": "Local variable `lines` is assigned to but never used",
+    "noqa_row": 148,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 25,
+      "row": 149
+    },
+    "filename": "/Users/prism.tokyo/gptset/app/services/exit_feedback_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 150
+          },
+          "location": {
+            "column": 1,
+            "row": 149
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `current_item`"
+    },
+    "location": {
+      "column": 13,
+      "row": 149
+    },
+    "message": "Local variable `current_item` is assigned to but never used",
+    "noqa_row": 149,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 18,
+      "row": 147
+    },
+    "filename": "/Users/prism.tokyo/gptset/app/services/integrated_advice_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 151
+          },
+          "location": {
+            "column": 1,
+            "row": 147
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `system_prompt`"
+    },
+    "location": {
+      "column": 5,
+      "row": 147
+    },
+    "message": "Local variable `system_prompt` is assigned to but never used",
+    "noqa_row": 147,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 16,
+      "row": 152
+    },
+    "filename": "/Users/prism.tokyo/gptset/app/services/integrated_advice_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 153
+          },
+          "location": {
+            "column": 1,
+            "row": 152
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `user_prompt`"
+    },
+    "location": {
+      "column": 5,
+      "row": 152
+    },
+    "message": "Local variable `user_prompt` is assigned to but never used",
+    "noqa_row": 152,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 18,
+      "row": 9
+    },
+    "filename": "/Users/prism.tokyo/gptset/app/services/strategy_estimator.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 10
+          },
+          "location": {
+            "column": 1,
+            "row": 9
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `current_price`"
+    },
+    "location": {
+      "column": 5,
+      "row": 9
+    },
+    "message": "Local variable `current_price` is assigned to but never used",
+    "noqa_row": 9,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 14,
+      "row": 14
+    },
+    "filename": "/Users/prism.tokyo/gptset/app/services/strategy_estimator.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 15
+          },
+          "location": {
+            "column": 1,
+            "row": 14
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `sma_touch`"
+    },
+    "location": {
+      "column": 5,
+      "row": 14
+    },
+    "message": "Local variable `sma_touch` is assigned to but never used",
+    "noqa_row": 14,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 18,
+      "row": 148
+    },
+    "filename": "/Users/prism.tokyo/gptset/frontend/app/services/exit_feedback_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 21,
+            "row": 148
+          },
+          "location": {
+            "column": 13,
+            "row": 148
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `lines`"
+    },
+    "location": {
+      "column": 13,
+      "row": 148
+    },
+    "message": "Local variable `lines` is assigned to but never used",
+    "noqa_row": 148,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 25,
+      "row": 149
+    },
+    "filename": "/Users/prism.tokyo/gptset/frontend/app/services/exit_feedback_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 150
+          },
+          "location": {
+            "column": 1,
+            "row": 149
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `current_item`"
+    },
+    "location": {
+      "column": 13,
+      "row": 149
+    },
+    "message": "Local variable `current_item` is assigned to but never used",
+    "noqa_row": 149,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 18,
+      "row": 147
+    },
+    "filename": "/Users/prism.tokyo/gptset/frontend/app/services/integrated_advice_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 151
+          },
+          "location": {
+            "column": 1,
+            "row": 147
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `system_prompt`"
+    },
+    "location": {
+      "column": 5,
+      "row": 147
+    },
+    "message": "Local variable `system_prompt` is assigned to but never used",
+    "noqa_row": 147,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 16,
+      "row": 152
+    },
+    "filename": "/Users/prism.tokyo/gptset/frontend/app/services/integrated_advice_service.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 153
+          },
+          "location": {
+            "column": 1,
+            "row": 152
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `user_prompt`"
+    },
+    "location": {
+      "column": 5,
+      "row": 152
+    },
+    "message": "Local variable `user_prompt` is assigned to but never used",
+    "noqa_row": 152,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 24,
+      "row": 44
+    },
+    "filename": "/Users/prism.tokyo/gptset/test_integrated_system.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 56
+          },
+          "location": {
+            "column": 1,
+            "row": 44
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `indicators_data`"
+    },
+    "location": {
+      "column": 9,
+      "row": 44
+    },
+    "message": "Local variable `indicators_data` is assigned to but never used",
+    "noqa_row": 44,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 16,
+      "row": 57
+    },
+    "filename": "/Users/prism.tokyo/gptset/test_integrated_system.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 1,
+            "row": 63
+          },
+          "location": {
+            "column": 1,
+            "row": 57
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `context`"
+    },
+    "location": {
+      "column": 9,
+      "row": 57
+    },
+    "message": "Local variable `context` is assigned to but never used",
+    "noqa_row": 57,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  },
+  {
+    "cell": null,
+    "code": "F841",
+    "end_location": {
+      "column": 21,
+      "row": 64
+    },
+    "filename": "/Users/prism.tokyo/gptset/test_integrated_system.py",
+    "fix": {
+      "applicability": "unsafe",
+      "edits": [
+        {
+          "content": "",
+          "end_location": {
+            "column": 24,
+            "row": 64
+          },
+          "location": {
+            "column": 9,
+            "row": 64
+          }
+        }
+      ],
+      "message": "Remove assignment to unused variable `image_base64`"
+    },
+    "location": {
+      "column": 9,
+      "row": 64
+    },
+    "message": "Local variable `image_base64` is assigned to but never used",
+    "noqa_row": 64,
+    "url": "https://docs.astral.sh/ruff/rules/unused-variable"
+  }
+]

@@ -1,14 +1,16 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException
-from openai import OpenAI
-import os
 import base64
+import os
+
 from dotenv import load_dotenv
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from openai import OpenAI
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
 load_dotenv()  # .env からAPIキーなどを読み込む
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "dummy-key-for-testing"))
+
 
 @router.post("/chart")
 async def analyze_chart_image(file: UploadFile = File(...)):
@@ -22,10 +24,7 @@ async def analyze_chart_image(file: UploadFile = File(...)):
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {
-                    "role": "system",
-                    "content": "あなたは株式チャートのテクニカル分析アシスタントです。"
-                },
+                {"role": "system", "content": "あなたは株式チャートのテクニカル分析アシスタントです。"},
                 {
                     "role": "user",
                     "content": [
@@ -36,21 +35,16 @@ async def analyze_chart_image(file: UploadFile = File(...)):
                                 "およびエントリー判断として『押し目』『戻り売り』『ブレイク直後』『トレンド無し』のいずれかを判定してください。"
                                 "赤＝陽線、青＝陰線です。次の形式でJSONを出力してください：\n"
                                 "{\n"
-                                "  \"trend\": \"上昇トレンド または 下降トレンド または トレンドなし\",\n"
-                                "  \"entry_pattern\": \"押し目・戻り売り・ブレイク直後・トレンド無しのいずれか\",\n"
-                                "  \"confidence\": 数値（0.0〜1.0）, \n"
-                                "  \"reason\": \"診断の理由\"\n"
+                                '  "trend": "上昇トレンド または 下降トレンド または トレンドなし",\n'
+                                '  "entry_pattern": "押し目・戻り売り・ブレイク直後・トレンド無しのいずれか",\n'
+                                '  "confidence": 数値（0.0〜1.0）, \n'
+                                '  "reason": "診断の理由"\n'
                                 "}"
-                            )
+                            ),
                         },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{file.content_type};base64,{encoded_image}"
-                            }
-                        }
-                    ]
-                }
+                        {"type": "image_url", "image_url": {"url": f"data:{file.content_type};base64,{encoded_image}"}},
+                    ],
+                },
             ],
             max_tokens=500,
             temperature=0.3,

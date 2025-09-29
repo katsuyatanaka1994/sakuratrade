@@ -1,15 +1,18 @@
-from typing import Optional, List
-import uuid
 from datetime import datetime
+from typing import List
+
 from fastapi import APIRouter, status
-from schemas import Alert, AlertType
+
+from app.schemas.alert import Alert
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
+
 
 @router.get("", response_model=List[Alert])
 async def list_alerts():
     """ダミー: 空リストを返す"""
     return []
+
 
 @router.post("", response_model=Alert, status_code=status.HTTP_201_CREATED)
 async def create_alert(payload: Alert):

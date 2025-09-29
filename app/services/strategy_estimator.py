@@ -1,15 +1,16 @@
-from schemas.indicator_facts import IndicatorFacts
-def estimate_strategy(indicators: IndicatorFacts) -> dict:
+from app.schemas.indicator_facts import IndicatorFacts
 
+
+def estimate_strategy(indicators: IndicatorFacts) -> dict:
     # None対策でデフォルト値を設定
     trend = indicators.trend_check or ""
     rsi = indicators.rsi_overheat or ""
-    current_price = indicators.current_price or 0
+    _current_price = indicators.current_price or 0
     recent_high = indicators.recent_high or 0
     recent_low = indicators.recent_low or 0
     price_action = indicators.price_action or ""
     volume = indicators.volume_trend or ""
-    sma_touch = indicators.sma_touch if indicators.sma_touch is not None else False
+    _sma_touch = indicators.sma_touch if indicators.sma_touch is not None else False
 
     if "下降トレンド" in trend and "RSI高値圏" in rsi and price_action == "陰線" and volume == "増加":
         return {
@@ -19,10 +20,10 @@ def estimate_strategy(indicators: IndicatorFacts) -> dict:
             "tactical_summary": [
                 "✅ 5MAタッチからの陰線1本目を待つ",
                 "✅ RSI・出来高・ローソク足の「型」が揃ったら即準備",
-                "✅ すでに利確済みなので、焦らず再現性を取りにいくフェーズ"
+                "✅ すでに利確済みなので、焦らず再現性を取りにいくフェーズ",
             ],
             "pattern_name": "下降トレンド・戻り売り型",
-            "pattern_score": 0.9
+            "pattern_score": 0.9,
         }
 
     if "上昇トレンド" in trend and rsi == "RSI上昇中" and price_action == "陽線" and volume == "増加":
@@ -33,10 +34,10 @@ def estimate_strategy(indicators: IndicatorFacts) -> dict:
             "tactical_summary": [
                 "🧠 今できること：押し目パターン出現待ち",
                 "✅ RSI50超え＆出来高伴う陽線でロング判断",
-                "🔍 今は型未完成なので見送りもOK"
+                "🔍 今は型未完成なので見送りもOK",
             ],
             "pattern_name": "上昇トレンド・押し目買い型（未完成）",
-            "pattern_score": 0.6
+            "pattern_score": 0.6,
         }
 
     return {
@@ -48,5 +49,5 @@ def estimate_strategy(indicators: IndicatorFacts) -> dict:
             "📉 出来高・RSI・足型が揃わないと様子見推奨",
         ],
         "pattern_name": "型なし・様子見",
-        "pattern_score": 0.2
+        "pattern_score": 0.2,
     }

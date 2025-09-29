@@ -1,0 +1,38 @@
+<div class="feedback-section">
+  <h3>📊 トレードの振り返りポイント</h3>
+  
+  <div class="trade-summary">
+    <p><strong>{{ trade_summary }}</strong></p>
+    <p>
+      損益: <span style="color: {{ 'green' if profit_loss >= 0 else 'red' }};">
+        {{ '{:+,.0f}'.format(profit_loss) }}円 ({{ '{:+.1f}'.format(profit_loss_rate) }}%)
+      </span>
+    </p>
+  </div>
+
+  <table class="indicator-table">
+    <thead>
+      <tr>
+        <th>項目</th>
+        <th>内容</th>
+        <th>評価</th>
+        <th>補足</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in reflection_items %}
+      <tr>
+        <td>{{ item.category }}</td>
+        <td>{{ item.content }}</td>
+        <td style="font-size: 18px;">{{ item.evaluation }}</td>
+        <td><small>{{ item.comment }}</small></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="comprehensive-comment">
+    <h4>💡 メモ</h4>
+    <p>{{ memo_comment }}</p>
+  </div>
+</div>

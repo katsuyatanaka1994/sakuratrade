@@ -1,15 +1,22 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from deps import get_session
-from schemas.auth import LoginResponse
-from schemas import LoginRequest, RegisterRequest, OAuthRequest, User as UserSchema
-
-from sqlalchemy import select
-from models import User
-from core.jwt import create_access_token
+from app.core.jwt import create_access_token
+from app.deps import get_session
+from app.models import User
+from app.schemas.auth import (
+    LoginRequest,
+    LoginResponse,
+    OAuthRequest,
+    RegisterRequest,
+)
+from app.schemas.auth import (
+    User as UserSchema,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
 
 @router.post("/login", response_model=LoginResponse)
 async def login(
@@ -22,15 +29,14 @@ async def login(
 
     if user and user.password == data.password:
         token = create_access_token({"sub": str(user.user_id)})
-        return LoginResponse(token=token, user=user)
+        return LoginResponse(token=token, user=UserSchema.from_orm(user))
 
-    raise HTTPException(status_code=401, detail="Unauthorized")
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
 
 @router.post("/register", response_model=UserSchema, status_code=status.HTTP_201_CREATED)
 async def register(data: RegisterRequest, session: AsyncSession = Depends(get_session)) -> UserSchema:
     from uuid import uuid4
-    from models import User
 
     new_user = User(
         user_id=uuid4(),

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -96,6 +96,26 @@ class Chat(Base):
 
     # リレーション（必要に応じて）
     user: Mapped[User | None] = relationship("User", foreign_keys=[user_id])
+    messages: Mapped[list[ChatMessage]] = relationship(back_populates="chat", cascade="all, delete-orphan")
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id"), nullable=False)
+    type: Mapped[str] = mapped_column(String, nullable=False)  # TEXT, ENTRY, EXIT
+    author_id: Mapped[str] = mapped_column(String, nullable=False)
+
+    # Content fields
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)  # for TEXT type
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # for ENTRY/EXIT type
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # リレーション
+    chat: Mapped[Chat] = relationship(back_populates="messages")
 
 
 class TradeJournal(Base):
@@ -106,7 +126,7 @@ class TradeJournal(Base):
     chat_id: Mapped[str] = mapped_column(String, nullable=False)
     symbol: Mapped[str] = mapped_column(String, nullable=False)
     side: Mapped[str] = mapped_column(String, nullable=False)  # LONG or SHORT
-    
+
     # Trade metrics
     avg_entry: Mapped[float] = mapped_column(Float, nullable=False)
     avg_exit: Mapped[float] = mapped_column(Float, nullable=False)
@@ -115,17 +135,17 @@ class TradeJournal(Base):
     pnl_pct: Mapped[float] = mapped_column(Float, nullable=False)
     hold_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     closed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    
+
     # Feedback from chat
     feedback_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     feedback_tone: Mapped[str | None] = mapped_column(String, nullable=True)  # praise or advice
     feedback_next_actions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string array
     feedback_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    
+
     # Analysis data (optional)
     analysis_score: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0-100
     analysis_labels: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string array
-    
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

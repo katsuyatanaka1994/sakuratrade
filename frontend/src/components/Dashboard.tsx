@@ -11,8 +11,9 @@ import { JournalCard } from './journal/JournalCard';
 import { JournalModal } from './journal/JournalModal';
 import { FilterButton } from './FilterButton';
 import { FilterDialog } from './FilterDialog';
-import { journalApi, JournalEntry, JournalFilters } from '../services/journal';
-import { TradeFilterRuntime } from '../types/trades';
+import { journalApi } from '../services/journal';
+import type { JournalEntry, JournalFilters } from '../services/journal';
+import type { TradeFilterRuntime } from '../types/trades';
 import { formatDateToISO } from '../lib/api/trades';
 
 // Market data interface

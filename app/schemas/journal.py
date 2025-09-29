@@ -1,6 +1,8 @@
-from pydantic import BaseModel
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel
+
 
 class FeedbackData(BaseModel):
     text: str
@@ -8,9 +10,11 @@ class FeedbackData(BaseModel):
     next_actions: List[str]
     message_id: Optional[str] = None
 
+
 class AnalysisData(BaseModel):
     score: int  # 0-100
     labels: List[str]  # max 3
+
 
 class JournalClosePayload(BaseModel):
     trade_id: str
@@ -27,6 +31,7 @@ class JournalClosePayload(BaseModel):
     closed_at: str  # ISO datetime string
     feedback: Optional[FeedbackData] = None
     analysis: Optional[AnalysisData] = None
+
 
 class JournalEntryResponse(BaseModel):
     trade_id: str
@@ -49,13 +54,15 @@ class JournalEntryResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+
 class JournalListQuery(BaseModel):
     from_date: Optional[str] = None  # ISO date string
-    to_date: Optional[str] = None    # ISO date string
+    to_date: Optional[str] = None  # ISO date string
     symbol: Optional[str] = None
-    pnl: Optional[str] = None       # 'win' or 'lose'
+    pnl: Optional[str] = None  # 'win' or 'lose'
     limit: Optional[int] = 50
     offset: Optional[int] = 0
+
 
 class FeedbackResponse(BaseModel):
     feedback_text: str

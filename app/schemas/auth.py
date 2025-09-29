@@ -1,12 +1,15 @@
 from pydantic import BaseModel
 
+
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
+
 class LoginRequest(BaseModel):
     email: str
     password: str
+
 
 class RegisterRequest(BaseModel):
     email: str
@@ -22,6 +25,7 @@ class User(BaseModel):
 
     class Config:
         orm_mode = True
+
 
 class OAuthRequest(BaseModel):
     provider: str  # e.g., 'google', 'github'

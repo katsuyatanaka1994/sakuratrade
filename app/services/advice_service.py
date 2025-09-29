@@ -1,14 +1,16 @@
-from openai import OpenAI
 import os
-import markdown2
 from typing import Optional
+
+import markdown2
 from dotenv import load_dotenv
+from openai import OpenAI
 
 # Load environment variables from .env file
 load_dotenv()
 
 # OpenAI APIキーの読み込み
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 def generate_advice_from_chart(chart_facts: dict) -> str:
     """
@@ -59,10 +61,24 @@ def generate_advice_from_chart(chart_facts: dict) -> str:
 
     # 補完対象キー
     required_keys = [
-        "time", "trend_check", "resistance_check", "ma_break_check", "rsi_check",
-        "volume_check", "overall_assessment", "scenario", "entry_price", "stop_loss",
-        "target1", "target2", "trailing_strategy", "caution1", "caution2",
-        "long_judgement", "short_judgement", "final_comment"
+        "time",
+        "trend_check",
+        "resistance_check",
+        "ma_break_check",
+        "rsi_check",
+        "volume_check",
+        "overall_assessment",
+        "scenario",
+        "entry_price",
+        "stop_loss",
+        "target1",
+        "target2",
+        "trailing_strategy",
+        "caution1",
+        "caution2",
+        "long_judgement",
+        "short_judgement",
+        "final_comment",
     ]
     for key in required_keys:
         chart_facts.setdefault(key, "（未入力）")
@@ -84,9 +100,9 @@ chart_facts:
         model="gpt-4",
         messages=[
             {"role": "system", "content": "あなたは日本株の短期トレードを支援するアドバイザーです。"},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": prompt},
         ],
-        temperature=0.7
+        temperature=0.7,
     )
 
     print("=== Response ===")
@@ -102,10 +118,7 @@ chart_facts:
 # --------------------------------------------------------------------------- #
 # Dynamic chart_facts generator
 # --------------------------------------------------------------------------- #
-def extract_chart_facts(
-    image_bytes: Optional[bytes] = None,
-    indicators: Optional[dict] = None
-) -> dict:
+def extract_chart_facts(image_bytes: Optional[bytes] = None, indicators: Optional[dict] = None) -> dict:
     """
     Build `chart_facts` dynamically.
 
@@ -132,11 +145,7 @@ def _parse_image_to_facts(image_bytes: bytes) -> dict:
     Replace with OpenCV / Vision API logic in a subsequent sprint.
     """
     # Placeholder implementation so the pipeline keeps working.
-    return {
-        "source": "image",
-        "detected": False,
-        "message": "Image parsing not implemented yet."
-    }
+    return {"source": "image", "detected": False, "message": "Image parsing not implemented yet."}
 
 
 # Alias for generate_entry_advice
