@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class Side(str, Enum):
@@ -38,8 +38,7 @@ class TradeResponse(BaseModel):
     entered_at: datetime
     description: str
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class User(BaseModel):
@@ -78,8 +77,7 @@ class Image(BaseModel):
     title: str
     description: str
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PatternResult(BaseModel):
@@ -90,8 +88,7 @@ class PatternResult(BaseModel):
     advice: str | None = None
     diagnosed_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AlertType(str, Enum):
@@ -106,5 +103,4 @@ class Alert(BaseModel):
     target_price: float
     triggered_at: datetime | None = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

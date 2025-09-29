@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class EntryPayload(BaseModel):
@@ -64,5 +64,4 @@ class ChatMessageResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
