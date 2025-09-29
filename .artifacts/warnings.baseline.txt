@@ -1,0 +1,140 @@
+.............................                                            [100%]
+=============================== warnings summary ===============================
+venv/lib/python3.13/site-packages/pydantic/_internal/_config.py:323
+venv/lib/python3.13/site-packages/pydantic/_internal/_config.py:323
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/pydantic/_internal/_config.py:323: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.11/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+venv/lib/python3.13/site-packages/pydantic/_internal/_config.py:373
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+  * 'orm_mode' has been renamed to 'from_attributes'
+    warnings.warn(message, UserWarning)
+
+app/routers/journal.py:128
+  /Users/prism.tokyo/gptset/app/routers/journal.py:128: DeprecationWarning: `regex` has been deprecated, please use `pattern` instead
+    pnl: Optional[str] = Query(None, regex="^(win|lose)$"),
+
+app/main.py:26
+  /Users/prism.tokyo/gptset/app/main.py:26: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+venv/lib/python3.13/site-packages/fastapi/applications.py:4495
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/fastapi/applications.py:4495: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+test_api_integration.py::test_integration_endpoint
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_api_integration.py::test_integration_endpoint returned <class 'tuple'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_api_integration.py::test_quick_analysis_endpoint
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_api_integration.py::test_quick_analysis_endpoint returned <class 'tuple'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_api_integration.py::test_status_endpoint
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_api_integration.py::test_status_endpoint returned <class 'tuple'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_exit_feedback.py::test_exit_feedback_endpoint
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_exit_feedback.py::test_exit_feedback_endpoint returned <class 'bool'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_exit_feedback.py::test_feedback_status_endpoint
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_exit_feedback.py::test_feedback_status_endpoint returned <class 'bool'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_integrated_system.py::test_structured_indicators_generation
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_integrated_system.py::test_structured_indicators_generation returned <class 'tuple'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_integrated_system.py::test_jinja2_template_rendering
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_integrated_system.py::test_jinja2_template_rendering returned <class 'tuple'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_integrated_system.py::test_role_separation
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_integrated_system.py::test_role_separation returned <class 'bool'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_integration_simple.py::test_server_connection
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_integration_simple.py::test_server_connection returned <class 'bool'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_integration_simple.py::test_analysis_status
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_integration_simple.py::test_analysis_status returned <class 'bool'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_integration_simple.py::test_template_rendering
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_integration_simple.py::test_template_rendering returned <class 'bool'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+test_integration_simple.py::test_integration_endpoint
+  /Users/prism.tokyo/gptset/venv/lib/python3.13/site-packages/_pytest/python.py:161: PytestReturnNotNoneWarning: Test functions should return None, but test_integration_simple.py::test_integration_endpoint returned <class 'bool'>.
+  Did you mean to use `assert` instead of `return`?
+  See https://docs.pytest.org/en/stable/how-to/assert.html#return-not-none for more information.
+    warnings.warn(
+
+tests/test_chat_message_delete.py::test_delete_entry_message
+  /Users/prism.tokyo/gptset/app/routers/chats.py:51: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+tests/test_chat_message_delete.py::test_delete_entry_message
+  /Users/prism.tokyo/gptset/app/routers/chats.py:52: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at=datetime.utcnow(),
+
+tests/test_chat_message_delete.py::test_delete_entry_message
+  /Users/prism.tokyo/gptset/app/routers/chats.py:64: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "created_at": datetime.utcnow().isoformat(),
+
+tests/test_chat_message_delete.py::test_delete_entry_message
+  /Users/prism.tokyo/gptset/app/routers/chats.py:65: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "updated_at": datetime.utcnow().isoformat(),
+
+tests/test_chat_message_delete.py::test_delete_entry_message
+  /Users/prism.tokyo/gptset/app/routers/chats.py:244: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+tests/test_chat_message_delete.py::test_delete_entry_message
+  /Users/prism.tokyo/gptset/app/routers/chats.py:250: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    update_chat_stmt = update(Chat).where(Chat.id == chat_id).values(updated_at=datetime.utcnow())
+
+tests/test_chat_message_delete.py::test_delete_entry_message
+  /Users/prism.tokyo/gptset/app/routers/chats.py:262: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "created_at": datetime.utcnow().isoformat(),
+
+tests/test_chat_message_delete.py::test_delete_entry_message
+  /Users/prism.tokyo/gptset/app/routers/chats.py:408: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+29 passed, 26 warnings in 0.31s
