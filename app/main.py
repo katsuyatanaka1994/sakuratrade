@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.models import Base
-from app.routers import advice, ai, analyze, chats, exit_feedback, images, integrated_advice, journal
+from app.routers import advice, ai, analyze, chats, exit_feedback, images, integrated_advice, journal, trades
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:password@db:5432/gptset_dev")
 engine = create_async_engine(DATABASE_URL, echo=True)
@@ -40,6 +40,8 @@ app.include_router(chats.router)
 app.include_router(ai.router)
 # Add journal router
 app.include_router(journal.router)
+# Add trades router
+app.include_router(trades.router)
 # Add integrated analysis router
 app.include_router(integrated_advice.router, prefix="/api/v1", tags=["integrated-analysis"])
 # Add exit feedback router

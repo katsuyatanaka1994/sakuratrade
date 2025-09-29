@@ -8,8 +8,18 @@
 import os
 from datetime import datetime
 
+import pytest
+
 from app.schemas.indicators import TradingAnalysis
 from app.services.analysis_integrator import AnalysisIntegrator
+
+
+@pytest.fixture
+def indicators():
+    return [
+        {"name": "RSI", "value": 75, "evaluation": "強気", "comment": "テスト用RSI"},
+        {"name": "トレンド", "value": "上昇トレンド", "evaluation": "強気", "comment": "テスト用トレンド"},
+    ]
 
 
 def create_test_image():

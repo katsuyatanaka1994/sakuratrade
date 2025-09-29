@@ -35,7 +35,7 @@ class TradeOut(BaseModel):
     priceIn: float = Field(..., alias="price_in")
     size: float
     enteredAt: datetime = Field(..., alias="entered_at")
-    stock_code: str
+    stock_code: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -46,7 +46,7 @@ class TradeOut(BaseModel):
 async def create_trade(payload: TradeIn, session: AsyncSession = Depends(get_session)):
     new_trade = Trade(
         trade_id=uuid.uuid4(),
-        user_id=payload.userId,
+        user_id=UUID(payload.userId),
         ticker=payload.ticker,
         side=payload.side,
         price_in=payload.priceIn,
