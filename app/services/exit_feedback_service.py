@@ -6,6 +6,7 @@ from typing import List, Optional
 import openai
 from jinja2 import Environment, FileSystemLoader
 
+from app.config import MOCK_AI
 from app.schemas.exit_feedback import (
     ExitFeedbackRequest,
     ExitFeedbackResponse,
@@ -18,7 +19,9 @@ class ExitFeedbackService:
 
     def __init__(self, openai_api_key: str):
         self.openai_api_key = openai_api_key
-        openai.api_key = openai_api_key
+        # APIキー設定はMOCK時は不要
+        if not MOCK_AI and openai_api_key:
+            openai.api_key = openai_api_key
 
         # Jinja2 環境
         template_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
@@ -48,7 +51,7 @@ class ExitFeedbackService:
             reflection_items: List[TradeReflectionItem] = []
             memo_comment = ""
 
-            if image_data and self.openai_api_key:
+            if image_data and (self.openai_api_key or MOCK_AI):
                 gpt_analysis = self._analyze_chart_with_gpt(request, image_data)
                 reflection_items = self._parse_gpt_analysis(gpt_analysis, request)
                 memo_comment = self._generate_memo_comment(gpt_analysis, request)
@@ -87,6 +90,26 @@ class ExitFeedbackService:
 
     def _analyze_chart_with_gpt(self, request: ExitFeedbackRequest, image_data: bytes) -> str:
         """GPT を使用してチャート分析"""
+        if MOCK_AI:
+            position_text = "ロング（買い）" if request.position_type == "long" else "ショート（売り）"
+            profit_loss = (request.exit_price - request.entry_price) * request.quantity
+            if request.position_type == "short":
+                profit_loss = -profit_loss
+
+            # 画像は解析しないが、入力情報を使って模擬的な分析を返す
+            return (
+                "【MOCK分析】\n"
+                f"- 銘柄: {request.symbol}\n"
+                f"- ポジション: {position_text}\n"
+                f"- 損益: {profit_loss:+.0f}円\n\n"
+                "1. 仕掛けタイミング: ○ / 内容: トレンド継続の押し目でのエントリー。\n"
+                "   詳細: 直近支持線で反発確認後のエントリーは妥当。\n"
+                "2. 利確判断: ○ / 内容: 節目手前での利確判断。\n"
+                "   詳細: 出来高の鈍化と上ヒゲ出現で一部利確判断は合理的。\n"
+                "3. 改善点: △ / 内容: 逆行時のロスカット幅を明確化。\n"
+                "   詳細: 直近安値割れでの撤退ルールを明文化すると再現性が上がる。\n\n"
+                "メモ: 次回はエントリー根拠の一貫性を維持しつつ、分割利確と逆行時の管理を徹底する。"
+            )
         try:
             # 画像を base64 エンコード
             image_base64 = base64.b64encode(image_data).decode("utf-8")
