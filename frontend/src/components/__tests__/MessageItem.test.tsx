@@ -1,6 +1,9 @@
 process.env.TZ = 'Asia/Tokyo';
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as matchers from '@testing-library/jest-dom/matchers';
+
+expect.extend(matchers);
 import React from 'react';
 
 vi.mock('lucide-react', () => {
@@ -15,6 +18,13 @@ vi.mock('lucide-react', () => {
 import { render, screen } from '@testing-library/react';
 import MessageItem from '@/components/MessageItem';
 import type { ChatMessage } from '@/types/chat';
+
+const formatTokyoTime = (iso: string) =>
+  new Intl.DateTimeFormat('ja-JP', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Tokyo',
+  }).format(new Date(iso));
 
 describe('MessageItem minimal harness', () => {
   it('smoke: basic expectation', () => {
@@ -116,9 +126,12 @@ describe('MessageItem edited entry indicators', () => {
       />
     );
 
-    expect(screen.getByText('10:00')).toBeInTheDocument();
+    const createdAtText = formatTokyoTime(message.createdAt);
+    const updatedAtText = formatTokyoTime(message.updatedAt!);
+
+    expect(screen.getByText(createdAtText)).toBeInTheDocument();
     expect(
-      screen.getByText((content) => content.includes('最終更新 10:00'))
+      screen.getByText((content) => content.includes(`最終更新 ${updatedAtText}`))
     ).toBeInTheDocument();
   });
 });

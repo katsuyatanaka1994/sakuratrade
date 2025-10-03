@@ -225,6 +225,7 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
     messageId: string;
     originalText: string;
   } | null>(null);
+  const [editingTextDraft, setEditingTextDraft] = useState('');
   
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -235,6 +236,7 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
         messageId: message.id,
         originalText: message.content
       });
+      setEditingTextDraft(message.content);
       onChatInputChange(message.content);
       return;
     }
@@ -248,6 +250,7 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
           messageId: chatMessage.id,
           originalText: chatMessage.text
         });
+        setEditingTextDraft(chatMessage.text);
         onChatInputChange(chatMessage.text);
         break;
         
@@ -269,8 +272,16 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
     }
   }, [onChatInputChange]);
 
+  const handleChatInputValueChange = useCallback((value: string) => {
+    if (editingTextMessage) {
+      setEditingTextDraft(value);
+    }
+    onChatInputChange(value);
+  }, [editingTextMessage, onChatInputChange]);
+
   const handleCancelTextEdit = useCallback(() => {
     setEditingTextMessage(null);
+    setEditingTextDraft('');
     onChatInputChange('');
   }, [onChatInputChange]);
 
@@ -281,6 +292,9 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
     }
 
     const messageId = editingTextMessage.messageId;
+    if (messageSnapshots.current.has(messageId)) {
+      return;
+    }
     const optimisticUpdatedAt = new Date().toISOString();
     const optimisticResult = applyOptimisticUpdate(messageId, (message) => ({
       ...message,
@@ -314,6 +328,7 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
       finalizeMessageUpdate(messageId, finalMessage);
 
       setEditingTextMessage(null);
+      setEditingTextDraft('');
       onChatInputChange('');
 
       if (chatId) {
@@ -331,6 +346,7 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
       } else {
         showToast.error('メッセージの更新に失敗しました', { description: errorMessage });
       }
+      setEditingTextDraft(editingTextMessage.originalText);
       onChatInputChange(editingTextMessage.originalText);
       console.error('Failed to update text message:', error);
     } finally {
@@ -559,8 +575,8 @@ const MessageEditIntegration: React.FC<MessageEditIntegrationProps> = ({
       {/* Chat Input */}
       <div className="border-t border-gray-200 p-4">
         <ChatInputCard
-          value={chatInput}
-          onChange={onChatInputChange}
+          value={editingTextMessage ? editingTextDraft : chatInput}
+          onChange={handleChatInputValueChange}
           onSubmit={handleTextMessageSubmit}
           onFileUpload={onFileUpload}
           isLoading={isLoading || isUpdating}

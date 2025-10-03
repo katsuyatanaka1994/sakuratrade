@@ -86,6 +86,14 @@ describe('EditEntryModal', () => {
     );
   };
 
+  const submitForm = () => {
+    const form = screen.getByTestId('modal-edit-entry').querySelector('form');
+    if (!form) {
+      throw new Error('edit entry form element was not found');
+    }
+    fireEvent.submit(form);
+  };
+
   test('prefills form with latest server values', async () => {
     (positionsApi.fetchPositionById as Mock).mockResolvedValue(mockPosition);
 
@@ -144,7 +152,7 @@ describe('EditEntryModal', () => {
 
     fireEvent.change(screen.getByTestId('input-price'), { target: { value: '1650' } });
 
-    fireEvent.click(screen.getByTestId('btn-submit-update'));
+    submitForm();
 
     await waitFor(() => {
       expect(positionsApi.updatePositionEntry).toHaveBeenCalled();
@@ -180,7 +188,7 @@ describe('EditEntryModal', () => {
 
     fireEvent.click(screen.getByTestId('toggle-regenerate'));
     fireEvent.change(screen.getByTestId('input-price'), { target: { value: '1700' } });
-    fireEvent.click(screen.getByTestId('btn-submit-update'));
+    submitForm();
 
     await waitFor(() => {
       expect(aiRegeneration.regeneratePositionAnalysis).not.toHaveBeenCalled();
@@ -207,7 +215,7 @@ describe('EditEntryModal', () => {
     );
 
     fireEvent.change(screen.getByTestId('input-price'), { target: { value: '1510' } });
-    fireEvent.click(screen.getByTestId('btn-submit-update'));
+    submitForm();
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalledWith(
@@ -264,7 +272,7 @@ describe('EditEntryModal', () => {
       target: { value: '追加メモ' },
     });
 
-    fireEvent.click(screen.getByTestId('btn-submit-update'));
+    submitForm();
 
     await waitFor(() => {
       expect(aiRegeneration.regeneratePositionAnalysis).not.toHaveBeenCalled();
@@ -277,9 +285,14 @@ describe('EditEntryModal', () => {
     });
   });
 
-  test('does not resend plan when only quantity changes', async () => {
+  test('resends plan when only quantity changes', async () => {
     (positionsApi.fetchPositionById as Mock).mockResolvedValue(mockPosition);
-    (positionsApi.updatePositionEntry as Mock).mockResolvedValue({ position: mockPosition });
+    (positionsApi.updatePositionEntry as Mock).mockResolvedValue({
+      position: {
+        ...mockPosition,
+        qtyTotal: 150,
+      },
+    });
 
     const onSave = vi.fn();
 
@@ -298,12 +311,22 @@ describe('EditEntryModal', () => {
     });
 
     fireEvent.change(screen.getByTestId('input-size'), { target: { value: '150' } });
-    fireEvent.click(screen.getByTestId('btn-submit-update'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('plan-status')).toHaveTextContent('再生成予定');
+    });
+
+    submitForm();
 
     await waitFor(() => {
       expect(onSave).toHaveBeenCalled();
-      expect(sendPositionUpdateMessagesMock).not.toHaveBeenCalled();
-      expect(screen.getByTestId('plan-status')).toHaveTextContent('変更なし');
+      expect(sendPositionUpdateMessagesMock).toHaveBeenCalledTimes(1);
+      expect(sendPositionUpdateMessagesMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ qtyTotal: 150 }),
+        expect.objectContaining({ qtyChanged: true }),
+        expect.any(Object)
+      );
     });
   });
 });

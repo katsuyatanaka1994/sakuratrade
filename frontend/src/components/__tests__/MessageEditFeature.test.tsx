@@ -64,7 +64,7 @@ describe('MessageEditFeature', () => {
     render(<MessageEditContainer {...mockProps} />);
     
     expect(screen.getByText('テストメッセージ')).toBeInTheDocument();
-    expect(screen.getByText(/建値入力しました/)).toBeInTheDocument();
+    expect(screen.getByText(/建値を入力しました/)).toBeInTheDocument();
     expect(screen.getByText(/決済しました/)).toBeInTheDocument();
   });
 
@@ -86,8 +86,8 @@ describe('MessageEditFeature', () => {
     
     await waitFor(() => {
       expect(screen.getByText('メッセージを編集中')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('テストメッセージ')).toBeInTheDocument();
     });
+    expect(await screen.findByDisplayValue('テストメッセージ')).toBeInTheDocument();
   });
 
   test('opens entry modal when clicking edit on ENTRY message', async () => {
@@ -97,9 +97,12 @@ describe('MessageEditFeature', () => {
     fireEvent.click(editButtons[1]);
     
     await waitFor(() => {
-      expect(screen.getByText('📈 建値（ENTRY）を編集')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('9984')).toBeInTheDocument();
+      expect(screen.getByText('建値を編集')).toBeInTheDocument();
     });
+    const priceInput = await screen.findByTestId('input-price');
+    expect(priceInput).toHaveValue(15870);
+    const qtyInput = await screen.findByTestId('input-size');
+    expect(qtyInput).toHaveValue(100);
   });
 
   test('opens exit modal when clicking edit on EXIT message', async () => {

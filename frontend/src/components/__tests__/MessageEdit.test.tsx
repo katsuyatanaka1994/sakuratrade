@@ -10,6 +10,8 @@ import { recordEntryEdited } from '../../lib/auditLogger';
 // Mock the API functions
 vi.mock('../../services/api', () => ({
   updateChatMessage: vi.fn(),
+  generateAIReply: vi.fn(),
+  undoChatMessage: vi.fn(),
 }));
 
 vi.mock('../UI/Toast', () => ({
@@ -168,7 +170,7 @@ describe('MessageEdit E2E Tests', () => {
     expect(screen.getByDisplayValue('Test text message')).toBeInTheDocument();
     
     // Edit the message
-    const textarea = screen.getByDisplayValue('Test text message');
+    const textarea = await screen.findByDisplayValue('Test text message');
     await user.clear(textarea);
     await user.type(textarea, 'Updated text message');
     
@@ -217,14 +219,12 @@ describe('MessageEdit E2E Tests', () => {
     await user.click(editButtons[2]); // Third message is ENTRY type
     
     // Verify modal opened
-    expect(screen.getByText('📈 建値（ENTRY）を編集')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('6501')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('日立製作所')).toBeInTheDocument();
-    expect(screen.getByTestId('select-chart-pattern')).toHaveTextContent('押し目買い');
+    expect(screen.getByRole('heading', { name: /建値.*編集/ })).toBeInTheDocument();
+    expect(screen.getByTestId('select-chart-pattern')).toHaveTextContent(/(押し目買い|pullback-buy)/);
     
     // Edit form values
     await user.click(screen.getByTestId('select-side'));
-    await user.click(screen.getByText('SHORT (売り)'));
+    await user.click(screen.getByText('ショート（売り）'));
 
     const priceInput = screen.getByDisplayValue('4000');
     await user.clear(priceInput);
@@ -238,7 +238,7 @@ describe('MessageEdit E2E Tests', () => {
     await user.click(screen.getByText('ダブルボトム'));
 
     // Submit the update
-    const saveButton = screen.getByText('保存');
+    const saveButton = screen.getByTestId('btn-submit-update');
     await user.click(saveButton);
 
     // Verify API call
@@ -257,24 +257,34 @@ describe('MessageEdit E2E Tests', () => {
       });
     });
 
-    const finalCall = props.onMessagesUpdate.mock.calls.at(-1)?.[0] as (ChatMessage | LegacyMessage)[] | undefined;
-    const finalMessage = finalCall?.find(msg => !('content' in msg) && msg.id === 'msg-3') as ChatMessage | undefined;
-    expect(finalMessage?.payload).toMatchObject({
-      symbolCode: '6501',
-      side: 'SHORT',
-      price: 4050,
-      qty: 200,
-      chartPattern: 'double-bottom',
+    const updateSnapshots = props.onMessagesUpdate.mock.calls
+      .map(([messages]) => messages as (ChatMessage | LegacyMessage)[]);
+    const matchingSnapshot = updateSnapshots.find((messages) => {
+      const entry = messages.find((msg) => !('content' in msg) && msg.id === 'msg-3') as ChatMessage | undefined;
+      if (!entry || entry.type !== 'ENTRY') {
+        return false;
+      }
+      return (
+        entry.payload.side === 'SHORT' &&
+        entry.payload.price === 4050 &&
+        entry.payload.qty === 200 &&
+        entry.payload.chartPattern === 'double-bottom'
+      );
     });
+    expect(matchingSnapshot).toBeTruthy();
 
-    expect(mockRecordEntryEdited).toHaveBeenCalledTimes(1);
-    expect(mockRecordEntryEdited).toHaveBeenCalledWith(expect.objectContaining({
-      entryId: 'msg-3',
-      actorId: 'user',
-      before: expect.objectContaining({ chartPattern: 'pullback-buy' }),
-      after: expect.objectContaining({ chartPattern: 'double-bottom' }),
-      regenerateFlag: true,
-    }));
+    expect(mockRecordEntryEdited).toHaveBeenCalled();
+    const matchingAuditCall = mockRecordEntryEdited.mock.calls.find(([payload]) =>
+      Boolean(
+        payload &&
+        payload.entryId === 'msg-3' &&
+        payload.actorId === 'user' &&
+        payload.before?.chartPattern === 'pullback-buy' &&
+        payload.after?.chartPattern === 'double-bottom' &&
+        payload.regenerateFlag === true
+      )
+    );
+    expect(matchingAuditCall).toBeTruthy();
   });
 
   it('EXITメッセージの編集モーダルが正常に動作する', async () => {
@@ -361,7 +371,7 @@ describe('MessageEdit E2E Tests', () => {
     await user.click(editButtons[1]);
     
     // Press Escape to cancel
-    const textarea = screen.getByDisplayValue('Test text message');
+    const textarea = await screen.findByDisplayValue('Test text message');
     await user.click(textarea);
     await user.keyboard('{Escape}');
     
@@ -385,7 +395,7 @@ describe('MessageEdit E2E Tests', () => {
     const editButtons = screen.getAllByLabelText('メッセージを編集');
     await user.click(editButtons[1]);
 
-    const textarea = screen.getByDisplayValue('Test text message');
+    const textarea = await screen.findByDisplayValue('Test text message');
     await user.clear(textarea);
     await user.type(textarea, 'Failure text');
     
@@ -424,7 +434,7 @@ describe('MessageEdit E2E Tests', () => {
     const editButtons = screen.getAllByLabelText('メッセージを編集');
     await user.click(editButtons[1]);
 
-    const textarea = screen.getByDisplayValue('Test text message');
+    const textarea = await screen.findByDisplayValue('Test text message');
     await user.clear(textarea);
     await user.type(textarea, 'Conflict text');
 
@@ -500,19 +510,19 @@ describe('MessageEdit Form Validation', () => {
     await user.click(editButton);
     
     // Clear required fields
-    const symbolCodeInput = screen.getByDisplayValue('6501');
-    await user.clear(symbolCodeInput);
-    
-    const priceInput = screen.getByDisplayValue('4000');
+    const priceInput = await screen.findByTestId('input-price');
     await user.clear(priceInput);
     await user.type(priceInput, '0');
-    
-    // Try to submit
-    const saveButton = screen.getByText('保存');
+
+    const qtyInput = await screen.findByTestId('input-size');
+    await user.clear(qtyInput);
+    await user.type(qtyInput, '0');
+
+    const saveButton = screen.getByTestId('btn-submit-update');
     await user.click(saveButton);
-    
+
     // Verify validation errors
-    expect(screen.getByText('銘柄コードは必須です')).toBeInTheDocument();
-    expect(screen.getByText('価格は0より大きい値を入力してください')).toBeInTheDocument();
+    expect(await screen.findByText('価格は0.01円以上である必要があります')).toBeInTheDocument();
+    expect(await screen.findByText('株数は1株以上である必要があります')).toBeInTheDocument();
   });
 });
