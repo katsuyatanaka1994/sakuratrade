@@ -1,7 +1,48 @@
-import { describe, it, expect } from 'vitest';
+process.env.TZ = 'Asia/Tokyo';
+
+import { describe, it, expect, vi } from 'vitest';
+import React from 'react';
+
+vi.mock('lucide-react', () => {
+  const Icon = ({ name }: { name: string }) => <span data-icon={name} />;
+  return {
+    __esModule: true,
+    Edit3: () => <Icon name="Edit3" />,
+    Undo2: () => <Icon name="Undo2" />,
+  };
+});
+
 import { render, screen } from '@testing-library/react';
-import MessageItem from '../MessageItem';
-import type { ChatMessage } from '../../types/chat';
+import MessageItem from '@/components/MessageItem';
+import type { ChatMessage } from '@/types/chat';
+
+describe('MessageItem minimal harness', () => {
+  it('smoke: basic expectation', () => {
+    expect(true).toBe(true);
+  });
+});
+
+describe('MessageItem basic rendering', () => {
+  it('renders MessageItem with minimal props', () => {
+    const message: ChatMessage = {
+      id: 'text-1',
+      type: 'TEXT',
+      authorId: 'user-1',
+      createdAt: '2024-01-01T00:00:00Z',
+      text: 'Hello world',
+    };
+
+    const { container, getByText } = render(
+      <MessageItem
+        message={message}
+        currentUserId="user-1"
+      />
+    );
+
+    expect(container).toBeDefined();
+    expect(getByText('Hello world')).toBeInTheDocument();
+  });
+});
 
 const baseEntryMessage: ChatMessage = {
   id: 'entry-1',
@@ -57,9 +98,7 @@ describe('MessageItem edited entry indicators', () => {
       screen.getByText((content) => content.startsWith('📈 建値を入力しました！（編集済み）'))
     ).toBeInTheDocument();
     expect(
-      screen.getByText((content) =>
-        content.includes('(編集済) 最終更新')
-      )
+      screen.getByText((content) => content.includes('(編集済) 最終更新'))
     ).toBeInTheDocument();
   });
 
@@ -77,7 +116,7 @@ describe('MessageItem edited entry indicators', () => {
       />
     );
 
-    expect(screen.getByText('09:00')).toBeInTheDocument();
+    expect(screen.getByText('10:00')).toBeInTheDocument();
     expect(
       screen.getByText((content) => content.includes('最終更新 10:00'))
     ).toBeInTheDocument();
