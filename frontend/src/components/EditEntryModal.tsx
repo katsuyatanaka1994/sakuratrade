@@ -32,7 +32,7 @@ import {
   regeneratePositionAnalysis,
   handleAIRegenerationFailure,
 } from '../lib/aiRegeneration';
-import { CHART_PATTERNS } from '../constants/chartPatterns';
+import { CHART_PATTERNS, CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
 import { showToast } from './UI/Toast';
 import {
   calculatePositionMetrics,
@@ -847,7 +847,11 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
                   disabled={prefillLoading || isSubmitting || isLoading}
                 >
                   <SelectTrigger id="chartPattern" data-testid="select-chart-pattern">
-                    <SelectValue placeholder="選択しない" />
+                    <SelectValue placeholder="選択しない">
+                      {field.value
+                        ? CHART_PATTERN_LABEL_MAP[field.value as ChartPattern] ?? field.value
+                        : '選択しない'}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">選択しない</SelectItem>

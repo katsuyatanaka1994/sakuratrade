@@ -21,7 +21,12 @@ describe('EntryDeleteDialog', () => {
     expect(
       screen.getByText('この建値メッセージを削除するとチャットから完全に消去されます。')
     ).toBeInTheDocument();
-    expect(screen.getByText('銘柄: 7203 トヨタ')).toBeInTheDocument();
+    expect(
+      screen.getByText((content) => content.includes('銘柄: 7203 トヨタ'))
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText((content) => content.includes('数量: 100株'))
+    ).toBeInTheDocument();
   });
 
   test('fires confirm handler when destructive button is clicked', () => {

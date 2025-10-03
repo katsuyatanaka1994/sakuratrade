@@ -51,12 +51,12 @@ describe('symbols utils', () => {
     expect(latest).toBe('9984'); // ソフトバンクグループが検出される
   });
 
-  test('getLatestSymbolFromChat with mixed name and code context', () => {
+  test('getLatestSymbolFromChat skips short names per new spec', () => {
     const msgs = [
       { id:'1', chatId:'a', text:'フジクラ（5803）について', createdAt: 100 },
       { id:'2', chatId:'a', text:'トヨタの業績が良い', createdAt: 200 },
     ];
     const latest = getLatestSymbolFromChat(msgs as any, dict);
-    expect(latest).toBe('7203'); // トヨタが最新
+    expect(latest).toBe('5803'); // 短い銘柄名は検出されないため直近の検出はフジクラ
   });
 });

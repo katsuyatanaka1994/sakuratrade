@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+src/__diagnose__/
 *.local
 
 # Editor directories and files

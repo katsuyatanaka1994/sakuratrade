@@ -4,6 +4,13 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import { TextDecoder, TextEncoder } from 'node:util';
 
+import { routerDomStub, resetRouterDomStub } from './test-utils/stubs/router';
+import {
+  resetToastStub,
+  ToastProvider as MockToastProvider,
+  useToast as useToastStub,
+} from './test-utils/stubs/toast';
+
 const DEFAULT_API_BASE_URL = 'http://localhost:8000';
 
 process.env.NODE_ENV = process.env.NODE_ENV ?? 'test';
@@ -34,33 +41,19 @@ if (typeof globalThis.TextDecoder === 'undefined') {
   (globalThis as any).TextDecoder = TextDecoder;
 }
 
-const ensureLocalStorage = () => {
-  const store = new Map<string, string>();
-  return {
-    getItem: vi.fn((key: string) => (store.has(key) ? store.get(key)! : null)),
-    setItem: vi.fn((key: string, value: string) => { store.set(key, String(value)); }),
-    removeItem: vi.fn((key: string) => { store.delete(key); }),
-    clear: vi.fn(() => { store.clear(); }),
-    key: vi.fn((index: number) => Array.from(store.keys())[index] ?? null),
-    get length() {
-      return store.size;
-    },
-  } as unknown as Storage;
-};
-
-Object.defineProperty(globalThis, 'localStorage', {
-  value: ensureLocalStorage(),
-  configurable: true,
-  writable: true,
-});
-
 beforeEach(() => {
   fetchMock.mockImplementation(defaultFetchImplementation);
 });
 
 afterEach(() => {
   localStorage.clear();
+  sessionStorage?.clear?.();
+  resetRouterDomStub();
+  resetToastStub();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
+  vi.clearAllTimers();
+  vi.useRealTimers();
 });
 
 // ===== Test env polyfills for Radix/MUI =====
@@ -210,24 +203,7 @@ vi.mock('@/services/api', () => ({
   })),
 }));
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-  const mockLocation = {
-    pathname: '/',
-    search: '',
-    hash: '',
-    state: null,
-    key: 'mock-location-key',
-  };
-  const stub = {
-    ...actual,
-    useNavigate: vi.fn(() => vi.fn()),
-    useLocation: vi.fn(() => mockLocation),
-    useParams: vi.fn(() => ({})),
-    useSearchParams: vi.fn(() => [new URLSearchParams(), vi.fn()]),
-  };
-  return stub;
-});
+vi.mock('react-router-dom', () => routerDomStub);
 
 vi.mock('@/components/UI/button', () => {
   const React = require('react');
@@ -274,6 +250,11 @@ vi.mock('@/components/UI/input', () => {
 
 vi.mock('@/components/UI/label', () => ({
   Label: ({ children, ...rest }: any) => createElement('label', { ...rest }, children),
+}));
+
+vi.mock('@/components/ToastContainer', () => ({
+  ToastProvider: MockToastProvider,
+  useToast: useToastStub,
 }));
 
 // TODO: extend allowlists per tag so swapping to button/input keeps the same filtering guarantees
@@ -717,18 +698,35 @@ vi.mock('@/components/UI/select', () => {
 });
 
 vi.mock('lucide-react', () => {
-  const cache: Record<string, any> = {};
+  const React = require('react');
+  const cache = new Map<string, React.ComponentType<any>>();
+
   const createIcon = (name: string) => {
-    if (!cache[name]) {
-      cache[name] = ({ children, ...props }: any) => createElement('span', { 'data-icon': name, ...props }, children);
+    if (!cache.has(name)) {
+      const Icon = React.forwardRef<SVGSVGElement, React.SVGProps<SVGSVGElement>>((props, ref) =>
+        React.createElement('svg', {
+          ref,
+          'data-lucide-mock': name,
+          'aria-hidden': props['aria-hidden'] ?? true,
+          focusable: props.focusable ?? 'false',
+          role: props.role ?? 'img',
+          ...props,
+        })
+      );
+      Icon.displayName = `LucideMock(${name})`;
+      cache.set(name, Icon);
     }
-    return cache[name];
+    return cache.get(name)!;
   };
 
   return new Proxy({ __esModule: true, default: {} }, {
     get(target, prop: string | symbol) {
-      if (typeof prop !== 'string') return Reflect.get(target, prop);
-      if (prop in target) return (target as any)[prop];
+      if (typeof prop !== 'string') {
+        return Reflect.get(target, prop);
+      }
+      if (prop in target) {
+        return (target as any)[prop];
+      }
       const icon = createIcon(prop);
       (target as any)[prop] = icon;
       return icon;
