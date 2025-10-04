@@ -5,9 +5,7 @@ export default defineConfig({
     projects: [
       {
         extends: './frontend/vitest.config.ts',
-        test: {
-          root: './frontend',
-        },
+        root: './frontend',
       },
     ],
   },

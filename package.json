@@ -48,7 +48,7 @@
     "vitest": "^3.2.4"
   },
   "scripts": {
-    "test": "vitest --config vitest.config.ts",
-    "test:watch": "vitest --config vitest.config.ts --watch"
+    "test": "vitest run",
+    "test:watch": "vitest"
   }
 }
