@@ -458,6 +458,10 @@ export function recordSettlement(exitMessageId: string, record: Omit<SettlementR
   saveSettlementHistory();
 }
 
+export function getSettlementRecord(exitMessageId: string): SettlementRecord | undefined {
+  return state.settlementHistory[exitMessageId];
+}
+
 // Undo settlement using the recorded history; returns true if applied
 export function unsettle(exitMessageId: string): boolean {
   const rec = state.settlementHistory[exitMessageId];
