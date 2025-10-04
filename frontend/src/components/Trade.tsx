@@ -2670,9 +2670,15 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
 
     // ボットメッセージ：取引プラン
-    const planSeed = createPlanLegacyMessage(price, qty, entrySide, planConfig, {
-      relatedEntryId: entryMessageId,
-    });
+    const planSeed = createPlanLegacyMessage(
+      createdPosition.avgPrice,
+      createdPosition.qtyTotal,
+      createdPosition.side,
+      planConfig,
+      {
+        relatedEntryId: entryMessageId,
+      }
+    );
     const planMessage: Message = {
       id: planSeed.id,
       type: 'bot',
