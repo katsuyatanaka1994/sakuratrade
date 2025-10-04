@@ -25,7 +25,7 @@ import { getLatestSymbolFromChat, loadSymbols } from '../utils/symbols';
 import type { ChatMsg } from '../utils/symbols';
 import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
 import { useToast } from './ToastContainer';
-import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, getLongShortQty, updatePosition, recordSettlement as positionsRecordSettlement, unsettle as positionsUnsettle, getState as getPositionsState, removeEntryLot, deletePosition as storeDeletePosition } from '../store/positions';
+import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, getLongShortQty, updatePosition, recordSettlement as positionsRecordSettlement, getSettlementRecord, unsettle as positionsUnsettle, getState as getPositionsState, removeEntryLot, deletePosition as storeDeletePosition } from '../store/positions';
 import type { TradeSnapshot } from '../store/positions';
 import { recordEntryDeleted, recordEntryEdited } from '../lib/auditLogger';
 import type { EntryAuditSnapshot } from '../lib/auditLogger';
@@ -148,6 +148,14 @@ type EntryFormState = {
   memo: string;
 };
 
+const normalizeSymbolCode = (raw: string): string => {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const [first] = trimmed.split(/[\s　]+/);
+  return first ?? '';
+};
+
 const parseEntryMessage = (message: Message): ParsedEntryMessage | null => {
   if (!message.content.includes('建値入力しました')) return null;
   const content = message.content;
@@ -158,7 +166,7 @@ const parseEntryMessage = (message: Message): ParsedEntryMessage | null => {
 
   const symbolMatch = plainText.match(/銘柄[:：]\s*([^\n]+)/);
   const symbolText = symbolMatch ? symbolMatch[1].trim() : '';
-  const symbolCode = symbolText ? symbolText.split(' ')[0] : '';
+  const symbolCode = normalizeSymbolCode(symbolText);
   const positionMatch = plainText.match(/ポジションタイプ[:：]\s*([^\n]+)/);
   const positionText = positionMatch ? positionMatch[1].trim() : '';
   const side: 'LONG' | 'SHORT' = positionText.includes('ショート') || positionText.includes('SHORT') ? 'SHORT' : 'LONG';
@@ -189,6 +197,30 @@ const parseEntryMessage = (message: Message): ParsedEntryMessage | null => {
   };
 };
 
+const parseExitMessageContent = (content: string): { symbolCode: string; side: 'LONG' | 'SHORT' } | null => {
+  if (typeof content !== 'string' || !includesExitMessage(content)) {
+    return null;
+  }
+
+  const plainText = content
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\r/g, '');
+
+  const symbolMatch = plainText.match(/銘柄[:：]\s*([^\n]+)/);
+  const symbolText = symbolMatch ? symbolMatch[1].trim() : '';
+  const symbolCode = normalizeSymbolCode(symbolText);
+  if (!symbolCode) {
+    return null;
+  }
+
+  const positionMatch = plainText.match(/ポジションタイプ[:：]\s*([^\n]+)/);
+  const positionText = positionMatch ? positionMatch[1].trim() : '';
+  const side: 'LONG' | 'SHORT' = positionText.includes('ショート') || positionText.includes('SHORT') ? 'SHORT' : 'LONG';
+
+  return { symbolCode, side };
+};
+
 const auditNote = (note?: string) => (note ? note.slice(0, 120) : undefined);
 
 // Image preview attachment type for chat input
@@ -207,6 +239,30 @@ const includesExitMessage = (content: string) =>
 // Feature flag: allow editing from chat bubbles (ENTRY/EXIT/TEXT)
 const ENABLE_CHAT_BUBBLE_EDIT = true;
 const ENTRY_ACTION_DISABLED_REASON = '決済済みのため操作できません';
+const SETTLED_ENTRIES_STORAGE_KEY = 'trade_settled_entries_v1';
+
+const loadSettledEntriesFromStorage = (): Set<string> => {
+  if (typeof window === 'undefined') {
+    return new Set();
+  }
+
+  try {
+    const stored = window.localStorage.getItem(SETTLED_ENTRIES_STORAGE_KEY);
+    if (!stored) {
+      return new Set();
+    }
+
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed)) {
+      const ids = parsed.filter((id): id is string => typeof id === 'string' && id.length > 0);
+      return new Set(ids);
+    }
+  } catch (error) {
+    console.warn('Failed to load settled entry IDs from storage:', error);
+  }
+
+  return new Set();
+};
 
 // MessageBubble Component with improved style & timestamp below bubble
 const MessageBubble: React.FC<{
@@ -273,7 +329,21 @@ const MessageBubble: React.FC<{
     const settled = isEntrySettled?.(message) ?? false;
     const canEditFinal = entryCanEdit ?? !settled;
     const canDeleteFinal = entryCanDelete ?? !settled;
-    const reasons = entryDisabledReason ?? (settled ? { edit: ENTRY_ACTION_DISABLED_REASON, delete: ENTRY_ACTION_DISABLED_REASON } : undefined);
+    const rawReasons = entryDisabledReason ?? (settled ? { edit: ENTRY_ACTION_DISABLED_REASON, delete: ENTRY_ACTION_DISABLED_REASON } : undefined);
+    const reasons = (() => {
+      if (!rawReasons) return undefined;
+      if (typeof rawReasons === 'string') {
+        return rawReasons === ENTRY_ACTION_DISABLED_REASON ? undefined : rawReasons;
+      }
+      const cleaned = {
+        edit: rawReasons.edit && rawReasons.edit !== ENTRY_ACTION_DISABLED_REASON ? rawReasons.edit : undefined,
+        delete: rawReasons.delete && rawReasons.delete !== ENTRY_ACTION_DISABLED_REASON ? rawReasons.delete : undefined,
+      };
+      if (!cleaned.edit && !cleaned.delete) {
+        return undefined;
+      }
+      return cleaned;
+    })();
 
     return {
       canEdit: canEditFinal,
@@ -507,7 +577,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   
   // Track settled entries by message ID
-  const [settledEntries, setSettledEntries] = useState<Set<string>>(new Set());
+  const [settledEntries, setSettledEntries] = useState<Set<string>>(() => loadSettledEntriesFromStorage());
   
   // Helper function to mark an ENTRY as settled
   const markEntryAsSettled = (messageId: string) => {
@@ -518,6 +588,16 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       return newSet;
     });
   };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const ids = Array.from(settledEntries);
+      window.localStorage.setItem(SETTLED_ENTRIES_STORAGE_KEY, JSON.stringify(ids));
+    } catch (error) {
+      console.warn('Failed to persist settled entry IDs to storage:', error);
+    }
+  }, [settledEntries]);
 
   // Helper function to check if ENTRY is settled (closed)
   const isEntrySettled = (message: Message): boolean => {
@@ -1241,6 +1321,18 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
     setUndoingIds(prev => new Set(prev).add(message.id));
 
+    const exitDetails = parseExitMessageContent(message.content);
+    const settlementRecord = getSettlementRecord(message.id);
+    const targetSymbolCode = settlementRecord?.symbol ?? exitDetails?.symbolCode;
+    const targetSide = settlementRecord?.side ?? exitDetails?.side;
+    const reenableEntryActions = () => {
+      if (!targetSymbolCode || !targetSide) return;
+      clearSettledEntriesFor(targetSymbolCode, targetSide);
+      setTimeout(() => {
+        refreshEntryActionState();
+      }, 100);
+    };
+
     // 事前に、直後の「損益情報」ボットメッセージを特定
     const previous = messages;
     const exitIndex = previous.findIndex(m => m.id === message.id);
@@ -1258,6 +1350,8 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         const ok = positionsUnsettle(message.id);
         if (!ok) {
           console.warn('No settlement record found for undo, position not modified');
+        } else {
+          reenableEntryActions();
         }
       } catch (e) {
         console.warn('Failed to unsettle position after undo:', e);
@@ -1275,6 +1369,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         if (ok) {
           // 直後の「損益情報」ボットメッセージも削除（ローカル cleanup）
           if (nextPnlMessageId) removeMessagesByIds([nextPnlMessageId]);
+          reenableEntryActions();
           showToast('success', 'ポジションを復元しました。');
         } else {
           // 履歴が無ければ元に戻す
@@ -1304,6 +1399,43 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isCreatingChat, setIsCreatingChat] = useState(false); // チャット作成中フラグ
+  const refreshEntryActionState = useCallback(() => {
+    setMessages(prevMessages => [...prevMessages]);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('resize'));
+    }
+  }, [setMessages]);
+  const clearSettledEntriesFor = useCallback(
+    (symbolCode: string, side: 'LONG' | 'SHORT') => {
+      const normalizedTarget = normalizeSymbolCode(symbolCode);
+      if (!normalizedTarget) return;
+
+      setSettledEntries(prev => {
+        if (!prev.size) return prev;
+
+        const next = new Set(prev);
+        let changed = false;
+
+        messages.forEach(entryMessage => {
+          if (entryMessage.type !== 'user') return;
+          if (typeof entryMessage.content !== 'string' || !entryMessage.content.includes('建値入力しました')) return;
+
+          const parsed = parseEntryMessage(entryMessage);
+          if (!parsed) return;
+
+          const entryCode = normalizeSymbolCode(parsed.symbolCode);
+          if (entryCode && entryCode === normalizedTarget && parsed.side === side) {
+            if (next.delete(entryMessage.id)) {
+              changed = true;
+            }
+          }
+        });
+
+        return changed ? next : prev;
+      });
+    },
+    [messages, setSettledEntries]
+  );
   
   // Restore last selected file on mount
   useEffect(() => {
@@ -2043,6 +2175,17 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     const toRemove = messages.filter(m => ids.includes(m.id));
     const urls = toRemove.flatMap(m => typeof m.content === 'string' ? getBlobUrlsFromHtml(m.content) : []);
     setMessages(prev => prev.filter(m => !ids.includes(m.id)));
+    setSettledEntries(prev => {
+      if (!prev.size) return prev;
+      const next = new Set(prev);
+      let changed = false;
+      ids.forEach(id => {
+        if (next.delete(id)) {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
     if (urls.length) setTimeout(() => { urls.forEach(u => { try { URL.revokeObjectURL(u); } catch {} }); }, 0);
   };
 
@@ -2840,6 +2983,19 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           ...prev,
           convertChatMessageToTradeMessage(newMessage)
         ]);
+        try {
+          positionsRecordSettlement(newMessage.id, {
+            symbol: exitSymbol,
+            side: exitSide,
+            chatId: exitChatId || currentChatId || undefined,
+            exitPrice: price,
+            exitQty: qty,
+            realizedPnl: settleResult?.realizedPnl || 0,
+            matchedLots: (settleResult?.details?.matchedLots || []).map((l: any) => ({ lotPrice: l.lotPrice, qty: l.qty })),
+          });
+        } catch (e) {
+          console.warn('Failed to record settlement history (success):', e);
+        }
       } else {
         console.error('Failed to create EXIT message:', response.statusText);
         // フォールバックで既存のメッセージ形式を使用
@@ -2982,8 +3138,19 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     setImageError('');
     
     // Mark related ENTRY messages as settled when position is fully closed
-    console.log(`🔍 DEBUG: Settlement check - settleResult exists: ${!!settleResult}, has tradeSnapshot: ${!!settleResult?.tradeSnapshot}`);
-    if (settleResult?.tradeSnapshot) {
+    const didClosePosition = (() => {
+      if (!settleResult) {
+        return false;
+      }
+      if (settleResult.position === null) {
+        return true;
+      }
+      const qty = settleResult.position?.qtyTotal;
+      return typeof qty === 'number' && qty <= 0;
+    })();
+
+    console.log(`🔍 DEBUG: Settlement check - settleResult exists: ${!!settleResult}, has tradeSnapshot: ${!!settleResult?.tradeSnapshot}, didClosePosition: ${didClosePosition}`);
+    if (settleResult?.tradeSnapshot || didClosePosition) {
       console.log(`🔍 DEBUG: Position fully closed, marking ENTRY messages as settled for ${exitSymbol} ${exitSide}`);
       console.log(`🔍 DEBUG: Checking ${messages.length} messages for settlement marking`);
       // Find and mark ENTRY messages for this symbol and side as settled
@@ -3014,19 +3181,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         }
       });
     } else {
-      console.log(`🔍 DEBUG: No tradeSnapshot found, not marking entries as settled`);
+      console.log(`🔍 DEBUG: No complete settlement detected, not marking entries as settled`);
     }
     
     // Force re-render to update edit icon visibility for settled ENTRY messages
     // The isEntrySettled function will now return true for messages related to the settled position
     setTimeout(() => {
       console.log(`🔍 DEBUG: Forcing re-render. Current settled entries:`, Array.from(settledEntries));
-      setMessages(prevMessages => {
-        console.log(`🔍 DEBUG: Re-rendering ${prevMessages.length} messages`);
-        return [...prevMessages]; // Shallow copy to trigger re-render
-      });
-      // Force all message components to re-evaluate their settled state
-      window.dispatchEvent(new Event('resize')); // Trigger any layout recalculations
+      refreshEntryActionState();
     }, 100);
   };
 
