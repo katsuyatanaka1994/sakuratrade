@@ -47,6 +47,23 @@ app/
 uvicorn app.main:app --reload
 ```
 
+---
+
+## Backend 開発ルール
+
+サーバサイドの Python コードを変更した場合は、必ず backend コンテナを再起動してください。
+
+```bash
+docker compose restart backend
+```
+
+- 対象コード例:
+  - app/routers/*
+  - app/models.py
+  - app/database.py
+  - app/main.py
+- 理由: backend コンテナは --reload オプションを付けずに実行しているため、コード変更が自動反映されません。再起動を忘れると古いコードが動き続け、デバッグが混乱します。
+
 ## 📦 インポートルール
 
 - プロジェクト内の参照は `from app.<module> import ...` 形式に統一しています。

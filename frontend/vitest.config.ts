@@ -34,6 +34,8 @@ export default defineConfig({
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
+      'tests/e2e/**',
+      '**/tests/e2e/**',
       '**/e2e/**',
       '**/*.e2e.{ts,tsx}',
       '**/__e2e__/**',

@@ -1489,10 +1489,11 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
     
     setIsCreatingChat(true);
-    
+
+    const currentChats = chats;
+
     try {
       // 最新のchats状態を使ってユニークな名前を生成
-      const currentChats = chats;
       const defaultName = generateUniqueChatName(currentChats);
       console.log('🆕 新規チャット作成開始:', defaultName);
       // バックエンドAPIでチャット作成
@@ -1538,7 +1539,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       
       // エラー時はローカルのみでチャット作成（フォールバック）
       const fallbackId = `chat_${Date.now()}`;
-      const fallbackName = generateUniqueChatName();
+      const fallbackName = generateUniqueChatName(currentChats);
       const newChat: Chat = {
         id: fallbackId,
         name: fallbackName,
@@ -2669,9 +2670,15 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
 
     // ボットメッセージ：取引プラン
-    const planSeed = createPlanLegacyMessage(price, qty, entrySide, planConfig, {
-      relatedEntryId: entryMessageId,
-    });
+    const planSeed = createPlanLegacyMessage(
+      createdPosition.avgPrice,
+      createdPosition.qtyTotal,
+      createdPosition.side,
+      planConfig,
+      {
+        relatedEntryId: entryMessageId,
+      }
+    );
     const planMessage: Message = {
       id: planSeed.id,
       type: 'bot',

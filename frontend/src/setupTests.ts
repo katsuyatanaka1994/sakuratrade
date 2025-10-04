@@ -1,4 +1,3 @@
-import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, vi } from 'vitest';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
