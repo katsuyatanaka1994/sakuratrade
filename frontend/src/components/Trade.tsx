@@ -2684,20 +2684,6 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       if (response.ok) {
         const newMessage = await response.json();
         entryMessageForTimeline = convertChatMessageToTradeMessage(newMessage);
-        // 決済履歴を紐づけ（UNDOで厳密復元に使用）
-        try {
-          positionsRecordSettlement(newMessage.id, {
-            symbol: exitSymbol,
-            side: exitSide,
-            chatId: exitChatId || currentChatId || undefined,
-            exitPrice: price,
-            exitQty: qty,
-            realizedPnl: settleResult?.realizedPnl || 0,
-            matchedLots: (settleResult?.details?.matchedLots || []).map((l: any) => ({ lotPrice: l.lotPrice, qty: l.qty })),
-          });
-        } catch (e) {
-          console.warn('Failed to record settlement history:', e);
-        }
       } else {
         console.error('Failed to create ENTRY message:', response.statusText);
         entryMessageForTimeline = createFallbackEntryMessage();
@@ -2799,7 +2785,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       symbolName = parts.slice(1).join(' ');
     }
     
-    const createdPosition = positionsEntry(symbolCodeForPosition, entryPositionType === 'long' ? 'LONG' : 'SHORT', price, qty, symbolName || undefined, chatIdForEntry);
+    const createdPosition = positionsEntry(
+      symbolCodeForPosition,
+      entryPositionType === 'long' ? 'LONG' : 'SHORT',
+      price,
+      qty,
+      symbolName || undefined,
+      chatIdForEntry
+    );
 
     // AI成功時のみ画像IDを紐付け（初回エントリー限定）
     if (attachChart) {
@@ -2815,7 +2808,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
 
     // ボットメッセージ：取引プラン
-    const planSeed = createPlanLegacyMessage(price, qty, entrySide, planConfig, {
+    const seedPrice = createdPosition?.avgPrice ?? price;
+    const seedQty = createdPosition?.qtyTotal ?? qty;
+    const planSeed = createPlanLegacyMessage(seedPrice, seedQty, entrySide, planConfig, {
       relatedEntryId: entryMessageId,
     });
     const planMessage: Message = {
