@@ -16,7 +16,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./app:/app
+      - ./app:/srv/app
+      - ./alembic:/srv/alembic
+      - ./alembic.ini:/srv/alembic.ini
     environment:
       DATABASE_URL_SYNC: postgresql://postgres:password@db:5432/gptset_dev
       DATABASE_URL: postgresql+asyncpg://postgres:password@db:5432/gptset_dev
