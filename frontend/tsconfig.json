@@ -2,17 +2,38 @@
   "compilerOptions": {
     "baseUrl": "./src",
     "paths": {
-      "@/*": ["./*"],
-      "@components/*": ["components/*"],
-      "@services/*": ["services/*"],
-      "@styles/*": ["Styles/*"],
-      "@supabase/*": ["supabase/*"],
-      "@utils/*": ["utils/*"]
-    }
+      "@/*": [
+        "./*"
+      ],
+      "@components/*": [
+        "components/*"
+      ],
+      "@services/*": [
+        "services/*"
+      ],
+      "@styles/*": [
+        "Styles/*"
+      ],
+      "@supabase/*": [
+        "supabase/*"
+      ],
+      "@utils/*": [
+        "utils/*"
+      ]
+    },
+    "jsx": "react-jsx",
+    "types": [
+      "vitest/globals",
+      "vite/client"
+    ]
   },
   "files": [],
   "references": [
-    { "path": "./tsconfig.app.json" },
-    { "path": "./tsconfig.node.json" }
+    {
+      "path": "./tsconfig.app.json"
+    },
+    {
+      "path": "./tsconfig.node.json"
+    }
   ]
 }

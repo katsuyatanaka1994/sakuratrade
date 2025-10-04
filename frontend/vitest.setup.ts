@@ -1,9 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 import { expect, vi } from 'vitest';
-import * as testingLibraryMatchers from '@testing-library/jest-dom/matchers';
+import * as matchers from '@testing-library/jest-dom/matchers';
 
-// Ensure Testing Library matchers are always registered for Vitest runs
-expect.extend(testingLibraryMatchers);
+expect.extend(matchers);
 
 type StorageKey = 'localStorage' | 'sessionStorage';
 
