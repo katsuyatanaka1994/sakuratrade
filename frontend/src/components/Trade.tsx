@@ -201,8 +201,12 @@ interface ChatImage {
   type: ChatImageType;
 }
 
+const includesExitMessage = (content: string) =>
+  content.includes('約定しました') || content.includes('決済しました');
+
 // Feature flag: allow editing from chat bubbles (ENTRY/EXIT/TEXT)
 const ENABLE_CHAT_BUBBLE_EDIT = true;
+const ENTRY_ACTION_DISABLED_REASON = '決済済みのため操作できません';
 
 // MessageBubble Component with improved style & timestamp below bubble
 const MessageBubble: React.FC<{
@@ -242,11 +246,11 @@ const MessageBubble: React.FC<{
     typeof message.content === 'string' && (
       message.content.includes('建値を更新しました') ||
       message.content.includes('建値入力しました') ||
-      message.content.includes('決済しました')
+      includesExitMessage(message.content)
     );
   const isEligibleForEdit = ENABLE_CHAT_BUBBLE_EDIT && isUser && !isTradeAction && !isUserUpdateNotice && !hasInlineImages;
   // EXIT bubble detection and 30-min window for Undo icon visibility
-  const isExitBubble = Boolean(isTradeAction && typeof message.content === 'string' && message.content.includes('決済しました'));
+  const isExitBubble = Boolean(isTradeAction && typeof message.content === 'string' && includesExitMessage(message.content));
   const canUndoWindow = (() => {
     try {
       const ts = new Date(message.timestamp).getTime();
@@ -269,7 +273,7 @@ const MessageBubble: React.FC<{
     const settled = isEntrySettled?.(message) ?? false;
     const canEditFinal = entryCanEdit ?? !settled;
     const canDeleteFinal = entryCanDelete ?? !settled;
-    const reasons = entryDisabledReason;
+    const reasons = entryDisabledReason ?? (settled ? { edit: ENTRY_ACTION_DISABLED_REASON, delete: ENTRY_ACTION_DISABLED_REASON } : undefined);
 
     return {
       canEdit: canEditFinal,
@@ -660,7 +664,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       if (message.content.includes('建値入力しました')) {
         // ENTRY message - open entry modal with prefill
         handleEntryEdit(message);
-      } else if (message.content.includes('決済しました')) {
+      } else if (includesExitMessage(message.content)) {
         // EXIT message - open exit modal with prefill
         handleExitEdit(message);
       }
@@ -913,7 +917,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
   const handleExitEdit = (message: Message) => {
     // Parse message content to extract exit data
-    // Format: "✅ 決済しました！<br/>銘柄: SYMBOL NAME<br/>ポジションタイプ: LONG/SHORT<br/>決済価格: PRICE円<br/>数量: QTY株"
+    // Format: "✅ 約定しました！<br/>銘柄: SYMBOL NAME<br/>ポジションタイプ: LONG/SHORT<br/>決済価格: PRICE円<br/>数量: QTY株"
     const content = message.content;
     
     // Extract symbol
@@ -1174,7 +1178,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     const positionText = exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）';
     
     // Update the message content
-    const newContent = `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${positionText}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`;
+    const newContent = `✅ 約定しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${positionText}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株`;
     
     // Update message in state
     setMessages(prev => prev.map(msg => 
@@ -1221,7 +1225,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
   const [undoingIds, setUndoingIds] = useState<Set<string>>(new Set());
   const handleMessageUndo = async (message: Message) => {
-    if (!message.isTradeAction || typeof message.content !== 'string' || !message.content.includes('決済しました')) return;
+    if (!message.isTradeAction || typeof message.content !== 'string' || !includesExitMessage(message.content)) return;
     if (undoingIds.has(message.id)) return; // 冪等
 
     // 時間制限（30分）
@@ -1488,11 +1492,10 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
     
     setIsCreatingChat(true);
-
-    const currentChats = chats;
-
+    
     try {
       // 最新のchats状態を使ってユニークな名前を生成
+      const currentChats = chats;
       const defaultName = generateUniqueChatName(currentChats);
       console.log('🆕 新規チャット作成開始:', defaultName);
       // バックエンドAPIでチャット作成
@@ -1538,7 +1541,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       
       // エラー時はローカルのみでチャット作成（フォールバック）
       const fallbackId = `chat_${Date.now()}`;
-      const fallbackName = generateUniqueChatName(currentChats);
+      const fallbackName = generateUniqueChatName();
       const newChat: Chat = {
         id: fallbackId,
         name: fallbackName,
@@ -2669,15 +2672,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
 
     // ボットメッセージ：取引プラン
-    const planSeed = createPlanLegacyMessage(
-      createdPosition.avgPrice,
-      createdPosition.qtyTotal,
-      createdPosition.side,
-      planConfig,
-      {
-        relatedEntryId: entryMessageId,
-      }
-    );
+    const planSeed = createPlanLegacyMessage(price, qty, entrySide, planConfig, {
+      relatedEntryId: entryMessageId,
+    });
     const planMessage: Message = {
       id: planSeed.id,
       type: 'bot',
@@ -2854,7 +2851,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
             id: localId,
             type: 'user' as const,
             isTradeAction: true,
-            content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${fallbackMemoLine}`,
+            content: `✅ 約定しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${fallbackMemoLine}`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           }
         ]);
@@ -2884,7 +2881,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           id: localId,
           type: 'user' as const,
           isTradeAction: true,
-          content: `✅ 決済しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${fallbackMemoLine}`,
+          content: `✅ 約定しました！<br/>銘柄: ${exitSymbol} ${symbolName}<br/>ポジションタイプ: ${exitSide === 'LONG' ? 'ロング（買い）' : 'ショート（売り）'}<br/>決済価格: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${fallbackMemoLine}`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         }
       ]);
@@ -3170,7 +3167,9 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                       const settled = isEntrySettled(message);
                       const canEdit = explicit?.canEdit ?? !settled;
                       const canDelete = explicit?.canDelete ?? !settled;
-                      const reason = explicit?.reasons;
+                      const reason = explicit?.reasons ?? (settled
+                        ? { edit: ENTRY_ACTION_DISABLED_REASON, delete: ENTRY_ACTION_DISABLED_REASON }
+                        : undefined);
 
                       entryActionProps = {
                         canEdit,
