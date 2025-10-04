@@ -203,7 +203,6 @@ interface ChatImage {
 
 // Feature flag: allow editing from chat bubbles (ENTRY/EXIT/TEXT)
 const ENABLE_CHAT_BUBBLE_EDIT = true;
-const ENTRY_ACTION_DISABLED_REASON = '決済済みのため操作できません';
 
 // MessageBubble Component with improved style & timestamp below bubble
 const MessageBubble: React.FC<{
@@ -270,7 +269,7 @@ const MessageBubble: React.FC<{
     const settled = isEntrySettled?.(message) ?? false;
     const canEditFinal = entryCanEdit ?? !settled;
     const canDeleteFinal = entryCanDelete ?? !settled;
-    const reasons = entryDisabledReason ?? (settled ? { edit: ENTRY_ACTION_DISABLED_REASON, delete: ENTRY_ACTION_DISABLED_REASON } : undefined);
+    const reasons = entryDisabledReason;
 
     return {
       canEdit: canEditFinal,
@@ -3165,9 +3164,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                       const settled = isEntrySettled(message);
                       const canEdit = explicit?.canEdit ?? !settled;
                       const canDelete = explicit?.canDelete ?? !settled;
-                      const reason = explicit?.reasons ?? (settled
-                        ? { edit: ENTRY_ACTION_DISABLED_REASON, delete: ENTRY_ACTION_DISABLED_REASON }
-                        : undefined);
+                      const reason = explicit?.reasons;
 
                       entryActionProps = {
                         canEdit,

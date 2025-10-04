@@ -1,8 +1,11 @@
-import { defineConfig, mergeConfig } from 'vitest/config';
-import frontendConfig from './frontend/vitest.config';
+import { defineConfig, defineProject } from 'vitest/config';
 
-export default mergeConfig(frontendConfig, defineConfig({
+export default defineConfig({
   test: {
-    root: './frontend',
+    projects: [
+      defineProject({
+        extends: './frontend/vitest.config.ts',
+      }),
+    ],
   },
-}));
+});
