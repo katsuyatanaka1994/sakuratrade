@@ -48,6 +48,11 @@ export interface Position {
   version: number;
   chartImageId?: string | null;
   aiFeedbacked?: boolean;
+  note?: string;
+  memo?: string;
+  chartPattern?: string;
+  chartPatternLabel?: string;
+  patterns?: string[];
 }
 
 export interface SymbolGroup {
@@ -82,6 +87,14 @@ interface PositionsState {
   settlementHistory: Record<string, SettlementRecord>;
   failedJournalQueue: Array<{ tradeSnapshot: TradeSnapshot; timestamp: string; retryCount: number }>;
   tradeEntries: Map<string, string>;
+}
+
+export interface PositionMetadata {
+  note?: string;
+  memo?: string;
+  chartPattern?: string;
+  chartPatternLabel?: string;
+  patterns?: string[];
 }
 
 type Listener = () => void;
@@ -144,10 +157,41 @@ const buildPosition = (
 
 export const getState = () => state;
 
+const applyMetadata = (position: Position, metadata?: PositionMetadata) => {
+  if (!metadata) return;
+  if ('note' in metadata) {
+    position.note = metadata.note;
+    if (!('memo' in metadata)) {
+      position.memo = metadata.note;
+    }
+  }
+  if ('memo' in metadata) {
+    position.memo = metadata.memo;
+  }
+  if ('chartPattern' in metadata) {
+    position.chartPattern = metadata.chartPattern;
+  }
+  if ('chartPatternLabel' in metadata) {
+    position.chartPatternLabel = metadata.chartPatternLabel;
+  }
+  if ('patterns' in metadata) {
+    position.patterns = metadata.patterns;
+  }
+};
+
 export const entry = vi.fn(
-  (symbol: string, side: Side, price: number, qty: number, name?: string, chatId?: string) => {
+  (
+    symbol: string,
+    side: Side,
+    price: number,
+    qty: number,
+    name?: string,
+    chatId?: string,
+    metadata?: PositionMetadata,
+  ) => {
     const key = makePositionKey(symbol, side, chatId);
     const position = buildPosition(symbol, side, price, qty, name, chatId);
+    applyMetadata(position, metadata);
     state.positions.set(key, position);
     notifyListeners();
     return position;
@@ -188,6 +232,28 @@ export const syncPositionFromServer = vi.fn((position: Position) => {
   state.positions.set(key, { ...position });
   notifyListeners();
   return position;
+});
+
+export const syncPositionsBatch = vi.fn((positions: Position[]) => {
+  positions.forEach((position) => {
+    const key = makePositionKey(position.symbol, position.side, position.chatId);
+    state.positions.set(key, { ...position });
+  });
+  notifyListeners();
+});
+
+export const removePositionsByKeys = vi.fn((keys: string[]) => {
+  keys.forEach((identifierKey) => {
+    state.positions.delete(identifierKey);
+  });
+  notifyListeners();
+});
+
+export const applyPositionsSnapshot = vi.fn((positions: Position[]) => {
+  state.positions = new Map(
+    positions.map((position) => [makePositionKey(position.symbol, position.side, position.chatId), { ...position }]),
+  );
+  notifyListeners();
 });
 
 export const settle = vi.fn(
@@ -317,6 +383,9 @@ export const __resetPositionsStub = () => {
   removeEntryLot.mockReset();
   updatePosition.mockReset();
   syncPositionFromServer.mockReset();
+  syncPositionsBatch.mockReset();
+  removePositionsByKeys.mockReset();
+  applyPositionsSnapshot.mockReset();
   settle.mockReset();
   recordSettlement.mockReset();
   unsettle.mockReset();
@@ -337,6 +406,9 @@ export default {
   removeEntryLot,
   updatePosition,
   syncPositionFromServer,
+  syncPositionsBatch,
+  removePositionsByKeys,
+  applyPositionsSnapshot,
   settle,
   recordSettlement,
   unsettle,

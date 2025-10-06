@@ -56,6 +56,19 @@ export default function Header() {
             </Button>
 
             <Button
+              variant={isActive('/positions') ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => handleNavigation('/positions')}
+              className={`h-8 px-4 rounded-full ${
+                isActive('/positions')
+                  ? 'bg-[#5ED0E8] text-white hover:bg-[#5ED0E8]/90'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              保有ポジション
+            </Button>
+
+            <Button
               variant={isActive('/trade-records') ? 'default' : 'ghost'}
               size="sm"
               onClick={() => handleNavigation('/trade-records')}

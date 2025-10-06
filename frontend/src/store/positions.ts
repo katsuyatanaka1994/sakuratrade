@@ -57,15 +57,102 @@ export interface Position {
   // Chart analysis linkage
   chartImageId?: string | null;
   aiFeedbacked?: boolean;
+  note?: string;
+  memo?: string;
+  chartPattern?: string;
+  chartPatternLabel?: string;
+  patterns?: string[];
 }
 export interface SymbolGroup { symbol: string; name?: string; positions: Position[] }
 
+export interface PositionMetadata {
+  note?: string;
+  memo?: string;
+  chartPattern?: string;
+  chartPatternLabel?: string;
+  patterns?: string[];
+}
+
+const CLOSED_STATUS = new Set(['closed', 'CLOSED']);
+
+function normaliseStatus(status?: string | null): 'OPEN' | 'CLOSED' {
+  if (!status) return 'OPEN';
+  return CLOSED_STATUS.has(status) ? 'CLOSED' : status.toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN';
+}
+
+function isClosed(status?: string | null): boolean {
+  return normaliseStatus(status) === 'CLOSED';
+}
+
+function normaliseIncomingPosition(position: Position): Position {
+  return {
+    ...position,
+    qtyTotal: Number.isFinite(position.qtyTotal) ? position.qtyTotal : Number(position.qtyTotal) || 0,
+    avgPrice: Number.isFinite(position.avgPrice) ? position.avgPrice : Number(position.avgPrice) || 0,
+    realizedPnl: Number.isFinite(position.realizedPnl) ? position.realizedPnl : Number(position.realizedPnl) || 0,
+    updatedAt: position.updatedAt || new Date().toISOString(),
+    status: normaliseStatus(position.status),
+    version: Number.isFinite(position.version) ? position.version : 1,
+  };
+}
+
+function applyMetadata(position: Position, metadata?: PositionMetadata) {
+  if (!metadata) return;
+
+  if ('note' in metadata) {
+    position.note = metadata.note;
+    if (!('memo' in metadata)) {
+      position.memo = metadata.note;
+    }
+  }
+
+  if ('memo' in metadata) {
+    position.memo = metadata.memo;
+  }
+
+  if ('chartPattern' in metadata) {
+    position.chartPattern = metadata.chartPattern;
+  }
+
+  if ('chartPatternLabel' in metadata) {
+    position.chartPatternLabel = metadata.chartPatternLabel;
+  }
+
+  if ('patterns' in metadata) {
+    position.patterns = metadata.patterns;
+  }
+}
+
 type Listener = () => void;
 const listeners = new Set<Listener>();
-function notify() { 
+let pendingNotify = false;
+let batching = false;
+
+function triggerNotify() {
   listeners.forEach(fn => fn()); 
   // Save to localStorage whenever state changes
   savePositionsToStorage();
+}
+
+function notify() {
+  if (batching) {
+    pendingNotify = true;
+    return;
+  }
+  triggerNotify();
+}
+
+function runInBatch(fn: () => void) {
+  batching = true;
+  try {
+    fn();
+  } finally {
+    batching = false;
+    if (pendingNotify) {
+      pendingNotify = false;
+      triggerNotify();
+    }
+  }
 }
 export function subscribe(fn: Listener) { listeners.add(fn); return () => listeners.delete(fn); }
 
@@ -242,7 +329,15 @@ if (typeof window !== 'undefined') {
   (window as any).clearAllPositions = clearAllPositions;
 }
 
-export function entry(symbol: string, side: Side, price: number, qty: number, name?: string, chatId?: string): Position {
+export function entry(
+  symbol: string,
+  side: Side,
+  price: number,
+  qty: number,
+  name?: string,
+  chatId?: string,
+  metadata?: PositionMetadata,
+): Position {
   if (price <= 0 || qty <= 0 || !Number.isInteger(qty)) throw new Error('invalid entry');
   const k = key(symbol, side, chatId);
   let p = state.positions.get(k);
@@ -252,7 +347,23 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   const isInitialEntry = !p || p.qtyTotal === 0;
   
   if (!p) {
-    p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId, status: 'OPEN', ownerId: 'current_user', version: 1, chartImageId: null, aiFeedbacked: false };
+    p = {
+      symbol,
+      side,
+      qtyTotal: 0,
+      avgPrice: 0,
+      lots: [],
+      realizedPnl: 0,
+      updatedAt: now,
+      name,
+      chatId,
+      status: 'OPEN',
+      ownerId: 'current_user',
+      version: 1,
+      chartImageId: null,
+      aiFeedbacked: false,
+    };
+    applyMetadata(p, metadata);
     state.positions.set(k, p);
   }
   
@@ -268,6 +379,7 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   p.qtyTotal = newQty;
   p.lots.push({ price, qtyRemaining: qty, time: now });
   p.updatedAt = now;
+  applyMetadata(p, metadata);
   notify();
   return p;
 }
@@ -345,26 +457,82 @@ export function updatePosition(symbol: string, side: Side, updates: Partial<Posi
   return updatedPosition;
 }
 
-export function syncPositionFromServer(position: Position): Position | null {
+function syncPositionFromServerInternal(position: Position): { changed: boolean; result: Position | null } {
   const identifierKey = makePositionKey(position.symbol, position.side, position.chatId);
+  const normalised = normaliseIncomingPosition(position);
 
-  if (position.qtyTotal <= 0) {
+  if (normalised.qtyTotal <= 0 || isClosed(normalised.status)) {
     const existed = state.positions.delete(identifierKey);
-    if (existed) {
-      notify();
-    }
-    return null;
+    return { changed: existed, result: null };
   }
 
-  const normalisedPosition: Position = {
-    ...position,
-    updatedAt: position.updatedAt || new Date().toISOString(),
-    status: position.status ?? 'OPEN',
-  };
+  state.positions.set(identifierKey, normalised);
+  return { changed: true, result: normalised };
+}
 
-  state.positions.set(identifierKey, normalisedPosition);
+export function syncPositionFromServer(position: Position): Position | null {
+  const { changed, result } = syncPositionFromServerInternal(position);
+  if (changed) {
+    notify();
+  }
+  return result;
+}
+
+export function syncPositionsBatch(positions: Position[]): void {
+  if (!positions.length) {
+    return;
+  }
+
+  let changed = false;
+  runInBatch(() => {
+    positions.forEach((position) => {
+      const { changed: didChange } = syncPositionFromServerInternal(position);
+      if (didChange) {
+        changed = true;
+      }
+    });
+  });
+
+  if (changed) {
+    notify();
+  }
+}
+
+export function removePositionsByKeys(keys: string[]): void {
+  if (!keys.length) {
+    return;
+  }
+  let changed = false;
+  runInBatch(() => {
+    keys.forEach((identifierKey) => {
+      if (state.positions.delete(identifierKey)) {
+        changed = true;
+      }
+    });
+  });
+
+  if (changed) {
+    notify();
+  }
+}
+
+export function applyPositionsSnapshot(positions: Position[]): void {
+  const next = new Map<string, Position>();
+
+  positions.forEach((position) => {
+    const normalised = normaliseIncomingPosition(position);
+    if (normalised.qtyTotal <= 0 || isClosed(normalised.status)) {
+      return;
+    }
+    const identifierKey = makePositionKey(normalised.symbol, normalised.side, normalised.chatId);
+    next.set(identifierKey, normalised);
+  });
+
+  runInBatch(() => {
+    state.positions = next;
+  });
+
   notify();
-  return normalisedPosition;
 }
 
 export function settle(symbol: string, side: Side, price: number, qty: number, chatId?: string) {

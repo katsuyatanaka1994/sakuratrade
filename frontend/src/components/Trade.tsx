@@ -25,8 +25,9 @@ import { getLatestSymbolFromChat, loadSymbols } from '../utils/symbols';
 import type { ChatMsg } from '../utils/symbols';
 import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
 import { useToast } from './ToastContainer';
-import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, getLongShortQty, updatePosition, recordSettlement as positionsRecordSettlement, getSettlementRecord, unsettle as positionsUnsettle, getState as getPositionsState, removeEntryLot, deletePosition as storeDeletePosition } from '../store/positions';
-import type { TradeSnapshot } from '../store/positions';
+import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, getLongShortQty, updatePosition, recordSettlement as positionsRecordSettlement, getSettlementRecord, unsettle as positionsUnsettle, getState as getPositionsState, removeEntryLot, deletePosition as storeDeletePosition, makePositionKey } from '../store/positions';
+import type { TradeSnapshot, Position } from '../store/positions';
+import { featureFlags } from '../lib/features';
 import { recordEntryDeleted, recordEntryEdited } from '../lib/auditLogger';
 import type { EntryAuditSnapshot } from '../lib/auditLogger';
 import { convertChatMessageToTradeMessage } from '../utils/messageAdapter';
@@ -99,6 +100,19 @@ const extractStockName = (message: string): string | null => {
   }
   
   return null;
+};
+
+type PositionsLiveEventPayload =
+  | { type: 'positions.upsert'; payload: Position }
+  | { type: 'positions.removed'; payload: { symbol: string; side: Position['side']; chatId?: string | null } }
+  | { type: 'positions.snapshot.request' };
+
+const emitPositionsLiveEvent = (detail: PositionsLiveEventPayload) => {
+  if (typeof window === 'undefined') return;
+  if (featureFlags.livePositions) {
+    window.dispatchEvent(new CustomEvent('positions.live', { detail }));
+  }
+  window.dispatchEvent(new Event('positions-changed'));
 };
 
 // Helper functions will be defined inside the component
@@ -938,9 +952,23 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           );
         }
         if (!removed) {
-          storeDeletePosition(parsed.symbolCode, parsed.side, chatContext);
+          removed = storeDeletePosition(parsed.symbolCode, parsed.side, chatContext);
         }
-        window.dispatchEvent(new Event('positions-changed'));
+        const positionKey = makePositionKey(parsed.symbolCode, parsed.side, chatContext);
+        const latestPosition = getPositionsState().positions.get(positionKey);
+
+        if (latestPosition && latestPosition.qtyTotal > 0) {
+          emitPositionsLiveEvent({ type: 'positions.upsert', payload: latestPosition });
+        } else if (removed) {
+          emitPositionsLiveEvent({
+            type: 'positions.removed',
+            payload: {
+              symbol: parsed.symbolCode,
+              side: parsed.side,
+              chatId: chatContext ?? null,
+            },
+          });
+        }
 
         const beforeSnapshot: EntryAuditSnapshot = {
           symbolCode: parsed.symbolCode,
@@ -1126,12 +1154,17 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         avgPrice: price,
         qtyTotal: qty,
         updatedAt: new Date().toISOString(),
+        note: memoForPayload,
+        memo: memoForPayload,
+        chartPattern: chartPatternValue,
+        chartPatternLabel: patternLabel ?? undefined,
+        patterns: patternLabel ? [patternLabel] : undefined,
       },
       currentChatId || undefined
     );
 
     if (linkedPosition) {
-      window.dispatchEvent(new Event('positions-changed'));
+      emitPositionsLiveEvent({ type: 'positions.upsert', payload: linkedPosition });
     }
 
     setIsUpdating(true);
@@ -1203,25 +1236,45 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         );
       }
 
-      // Apply new entry lots only when qty remains positive
+      let resultingPosition: Position | null = null;
+
       if (qty > 0) {
-        positionsEntry(
+        resultingPosition = positionsEntry(
           symbolCodeForPayload,
           entryPositionType === 'long' ? 'LONG' : 'SHORT',
           price,
           qty,
           symbolNameForPayload,
-          chatContext
+          chatContext,
+          {
+            note: memoForPayload,
+            memo: memoForPayload,
+            chartPattern: chartPatternValue,
+            chartPatternLabel: patternLabel ?? undefined,
+            patterns: patternLabel ? [patternLabel] : undefined,
+          }
         );
       } else {
-        storeDeletePosition(
+        const removed = storeDeletePosition(
           symbolCodeForPayload,
           entryPositionType === 'long' ? 'LONG' : 'SHORT',
           chatContext
         );
+        if (removed) {
+          emitPositionsLiveEvent({
+            type: 'positions.removed',
+            payload: {
+              symbol: symbolCodeForPayload,
+              side: entryPositionType === 'long' ? 'LONG' : 'SHORT',
+              chatId: chatContext ?? null,
+            },
+          });
+        }
       }
 
-      window.dispatchEvent(new Event('positions-changed'));
+      if (resultingPosition) {
+        emitPositionsLiveEvent({ type: 'positions.upsert', payload: resultingPosition });
+      }
     } catch (error) {
       console.error('Failed to update ENTRY message:', error);
       // Keep optimistic update but warn in console for follow-up.
@@ -2791,8 +2844,19 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       price,
       qty,
       symbolName || undefined,
-      chatIdForEntry
+      chatIdForEntry,
+      {
+        note: memoForPayload,
+        memo: memoForPayload,
+        chartPattern: chartPatternValue,
+        chartPatternLabel: patternLabel ?? undefined,
+        patterns: patternLabel ? [patternLabel] : undefined,
+      }
     );
+
+    if (createdPosition) {
+      emitPositionsLiveEvent({ type: 'positions.upsert', payload: createdPosition });
+    }
 
     // AI成功時のみ画像IDを紐付け（初回エントリー限定）
     if (attachChart) {
