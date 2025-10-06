@@ -179,11 +179,9 @@ const PositionsPage: React.FC = () => {
 
   const effectiveError = hydrationError ?? (liveEnabled ? liveError : null);
   const connectionMessage = liveEnabled
-    ? connectionState === 'connected'
-      ? ''
-      : reconnecting
-        ? 'リアルタイム接続を再試行しています…'
-        : 'リアルタイム更新は一時停止中です'
+    ? reconnecting
+      ? 'リアルタイム接続を再試行しています…'
+      : ''
     : 'リアルタイム更新は無効化されています。';
 
   return (
