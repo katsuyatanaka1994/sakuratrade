@@ -1,4 +1,4 @@
-import type { Position, Side } from '../../store/positions';
+import type { Position, Side, PositionNoteEntry } from '../../store/positions';
 import { resolveApiBaseUrl } from '../env';
 
 const API_BASE_URL = resolveApiBaseUrl('/api');
@@ -64,6 +64,10 @@ export type ServerPosition = Position & {
     noteId?: string;
     note_id?: string;
     text?: string | null;
+    updatedAt?: string | null;
+    updated_at?: string | null;
+    timestamp?: string | null;
+    time?: string | null;
     createdAt?: string;
     created_at?: string;
     source?: string | null;
@@ -106,20 +110,93 @@ const normaliseLot = (raw: ServerPosition['lots'][number], fallbackPrice: number
   };
 };
 
-const extractNoteText = (raw: ServerPosition): string | undefined => {
-  const direct = raw.memo ?? raw.note;
-  if (typeof direct === 'string' && direct.trim().length > 0) {
-    return direct.trim();
-  }
+const extractNoteEntries = (raw: ServerPosition): PositionNoteEntry[] => {
+  const entries: PositionNoteEntry[] = [];
+  const seen = new Set<string>();
+
+  const normaliseTimestamp = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const parsed = Date.parse(trimmed);
+    if (!Number.isNaN(parsed)) {
+      return new Date(parsed).toISOString();
+    }
+    return trimmed;
+  };
+
+  const push = (value: unknown, fallbackTimestamp?: unknown) => {
+    if (!value) return;
+    let text: string | undefined;
+    let timestamp: string | undefined;
+
+    if (typeof value === 'string') {
+      text = value;
+      timestamp = normaliseTimestamp(fallbackTimestamp);
+    } else if (typeof (value as { text?: unknown }).text === 'string') {
+      text = (value as { text: string }).text;
+      const candidate = value as { updatedAt?: unknown; updated_at?: unknown; timestamp?: unknown; time?: unknown; createdAt?: unknown; created_at?: unknown };
+      timestamp = normaliseTimestamp(candidate.updatedAt)
+        ?? normaliseTimestamp(candidate.updated_at)
+        ?? normaliseTimestamp(candidate.timestamp)
+        ?? normaliseTimestamp(candidate.time)
+        ?? normaliseTimestamp(candidate.createdAt)
+        ?? normaliseTimestamp(candidate.created_at)
+        ?? normaliseTimestamp(fallbackTimestamp);
+    } else if (typeof (value as { memo?: unknown }).memo === 'string') {
+      text = (value as { memo: string }).memo;
+      const candidate = value as { updatedAt?: unknown; updated_at?: unknown; timestamp?: unknown; time?: unknown; createdAt?: unknown; created_at?: unknown };
+      timestamp = normaliseTimestamp(candidate.updatedAt)
+        ?? normaliseTimestamp(candidate.updated_at)
+        ?? normaliseTimestamp(candidate.timestamp)
+        ?? normaliseTimestamp(candidate.time)
+        ?? normaliseTimestamp(candidate.createdAt)
+        ?? normaliseTimestamp(candidate.created_at)
+        ?? normaliseTimestamp(fallbackTimestamp);
+    }
+
+    if (!text) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const key = `${trimmed}__${timestamp ?? ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    entries.push({ text: trimmed, updatedAt: timestamp });
+  };
+
+  const baseTimestamp = normaliseTimestamp((raw as any).memoUpdatedAt ?? (raw as any).memo_updated_at ?? raw.updatedAt ?? raw.updated_at);
+
+  push(raw.memo, baseTimestamp);
+  push(raw.note, normaliseTimestamp((raw as any).noteUpdatedAt ?? (raw as any).note_updated_at ?? raw.updatedAt ?? raw.updated_at));
 
   if (Array.isArray(raw.notes)) {
-    const noteCandidate = raw.notes.find((note) => note && typeof note.text === 'string' && note.text.trim().length > 0);
-    if (noteCandidate?.text) {
-      return noteCandidate.text.trim();
-    }
+    raw.notes.forEach((note) => {
+      push(note, raw.updatedAt ?? raw.updated_at);
+    });
   }
 
-  return undefined;
+  const memoHistory = (raw as { memo_history?: unknown; memoHistory?: unknown }).memo_history
+    ?? (raw as { memo_history?: unknown; memoHistory?: unknown }).memoHistory;
+  if (Array.isArray(memoHistory)) {
+    memoHistory.forEach((entry) => {
+      push(entry, raw.updatedAt ?? raw.updated_at);
+    });
+  }
+
+  entries.sort((a, b) => {
+    if (a.updatedAt && b.updatedAt) {
+      const aTime = Date.parse(a.updatedAt);
+      const bTime = Date.parse(b.updatedAt);
+      if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
+        return bTime - aTime;
+      }
+    }
+    if (a.updatedAt && !b.updatedAt) return -1;
+    if (!a.updatedAt && b.updatedAt) return 1;
+    return 0;
+  });
+
+  return entries;
 };
 
 const extractPatterns = (raw: ServerPosition, chartPatternLabel?: string): string[] | undefined => {
@@ -180,8 +257,9 @@ export const normaliseServerPosition = (raw: ServerPosition): Position | null =>
     return null;
   }
 
-  const note = raw.note ?? raw.memo;
-  const memoText = extractNoteText(raw);
+  const noteEntries = extractNoteEntries(raw);
+  const primaryNote = noteEntries[0];
+  const memoText = noteEntries.length > 0 ? noteEntries.map((entry) => entry.text).join('\n') : undefined;
   const patterns = extractPatterns(raw, chartPatternLabel);
   const lotsSource = Array.isArray(raw.lots) && raw.lots.length > 0
     ? raw.lots.map(lot => normaliseLot(lot, avgPrice, updatedAt))
@@ -214,8 +292,9 @@ export const normaliseServerPosition = (raw: ServerPosition): Position | null =>
     version,
     chartImageId: raw.chartImageId ?? raw.chart_image_id ?? null,
     aiFeedbacked: raw.aiFeedbacked ?? raw.ai_feedbacked ?? false,
-    note: memoText,
+    note: primaryNote ? primaryNote.text : undefined,
     memo: memoText,
+    notes: noteEntries.length > 0 ? noteEntries : undefined,
     chartPattern: typeof chartPattern === 'string' ? chartPattern : undefined,
     chartPatternLabel: typeof chartPatternLabel === 'string' ? chartPatternLabel : undefined,
     patterns,

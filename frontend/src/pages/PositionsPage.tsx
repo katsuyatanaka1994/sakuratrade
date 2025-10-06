@@ -6,6 +6,7 @@ import {
   makePositionKey,
   applyPositionsSnapshot,
   type Position,
+  type PositionNoteEntry,
 } from '../store/positions';
 import { CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
 import { fetchPositionsList } from '../lib/api/positions';
@@ -26,6 +27,7 @@ const toCardData = (position: Position): HoldingPositionCardData => {
   const extended = position as Position & {
     note?: string;
     memo?: string;
+    notes?: PositionNoteEntry[];
     chartPattern?: string;
     chartPatternLabel?: string;
     patterns?: string[];
@@ -54,6 +56,46 @@ const toCardData = (position: Position): HoldingPositionCardData => {
       ? extended.memo.trim()
       : undefined;
 
+  const normalisedNotes = Array.isArray(extended.notes)
+    ? extended.notes
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return null;
+          const textValue = typeof (entry as { text?: unknown }).text === 'string'
+            ? (entry as { text: string }).text.trim()
+            : undefined;
+          if (!textValue) return null;
+          const updatedAtValue = (entry as { updatedAt?: unknown }).updatedAt;
+          return {
+            text: textValue,
+            updatedAt: typeof updatedAtValue === 'string' && updatedAtValue.trim().length > 0
+              ? updatedAtValue.trim()
+              : undefined,
+          };
+        })
+        .filter((entry): entry is { text: string; updatedAt?: string } => Boolean(entry))
+    : [];
+
+  const memoEntries = (() => {
+    if (normalisedNotes.length > 0) {
+      return [...normalisedNotes].sort((a, b) => {
+        if (a.updatedAt && b.updatedAt) {
+          const aTime = Date.parse(a.updatedAt);
+          const bTime = Date.parse(b.updatedAt);
+          if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
+            return bTime - aTime;
+          }
+        }
+        if (a.updatedAt && !b.updatedAt) return -1;
+        if (!a.updatedAt && b.updatedAt) return 1;
+        return 0;
+      });
+    }
+    if (note) {
+      return [{ text: note, updatedAt: position.updatedAt }];
+    }
+    return [] as { text: string; updatedAt?: string }[];
+  })();
+
   const chatKey = position.chatId;
   const identifier = chatKey
     ? makePositionKey(position.symbol, position.side, chatKey)
@@ -71,6 +113,7 @@ const toCardData = (position: Position): HoldingPositionCardData => {
     quantity: position.qtyTotal,
     patterns: patternChips,
     memo: note,
+    memoEntries: memoEntries.length > 0 ? memoEntries : undefined,
     updatedAt: position.updatedAt,
     chatLink: position.chatId ? `/trade?chat=${encodeURIComponent(position.chatId)}` : '/trade',
   };

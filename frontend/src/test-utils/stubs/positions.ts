@@ -51,6 +51,7 @@ export interface Position {
   aiFeedbacked?: boolean;
   note?: string;
   memo?: string;
+  notes?: string[];
   chartPattern?: string;
   chartPatternLabel?: string;
   patterns?: string[];
@@ -161,20 +162,50 @@ const buildPosition = (
   name,
   chatId,
   version: 1,
+  chartImageId: null,
+  aiFeedbacked: false,
+  note: undefined,
+  memo: undefined,
+  notes: [],
+  chartPattern: undefined,
+  chartPatternLabel: undefined,
+  patterns: undefined,
 });
 
 export const getState = () => state;
 
 const applyMetadata = (position: Position, metadata?: PositionMetadata) => {
   if (!metadata) return;
+
+  const appendNotes = (value: unknown) => {
+    const values = Array.isArray(value) ? value : [value];
+    values.forEach((entry) => {
+      if (typeof entry !== 'string') return;
+      const trimmed = entry.trim();
+      if (!trimmed) return;
+      if (!position.notes) {
+        position.notes = [trimmed];
+        return;
+      }
+      if (!position.notes.includes(trimmed)) {
+        position.notes.push(trimmed);
+      }
+    });
+  };
+
   if ('note' in metadata) {
     position.note = metadata.note;
     if (!('memo' in metadata)) {
       position.memo = metadata.note;
     }
+    appendNotes(metadata.note);
   }
   if ('memo' in metadata) {
     position.memo = metadata.memo;
+    appendNotes(metadata.memo);
+  }
+  if ('notes' in metadata) {
+    appendNotes(metadata.notes);
   }
   if ('chartPattern' in metadata) {
     position.chartPattern = metadata.chartPattern;

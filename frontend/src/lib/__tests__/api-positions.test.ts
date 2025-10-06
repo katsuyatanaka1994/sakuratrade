@@ -70,4 +70,31 @@ describe('normaliseServerPosition', () => {
     const position = normaliseServerPosition(payload as typeof basePayload);
     expect(position).toBeNull();
   });
+
+  it('normalises memo entries and timestamps', () => {
+    const payload = {
+      ...basePayload,
+      memo: 'メインメモ',
+      memo_updated_at: '2025-09-12T03:00:00Z',
+      notes: [
+        { text: '古いメモ', created_at: '2025-09-11T12:00:00Z' },
+        { text: '最新メモ', updated_at: '2025-09-12T12:00:00Z' },
+        { text: '古いメモ', created_at: '2025-09-11T12:00:00Z' },
+      ],
+      memo_history: [
+        { memo: '履歴メモ', timestamp: '2025-09-10T09:00:00Z' },
+      ],
+    } as const;
+
+    const position = normaliseServerPosition(payload as typeof basePayload);
+    expect(position).not.toBeNull();
+    expect(position?.notes).toEqual([
+      { text: '最新メモ', updatedAt: '2025-09-12T12:00:00.000Z' },
+      { text: 'メインメモ', updatedAt: '2025-09-12T03:00:00.000Z' },
+      { text: '古いメモ', updatedAt: '2025-09-11T12:00:00.000Z' },
+      { text: '履歴メモ', updatedAt: '2025-09-10T09:00:00.000Z' },
+    ]);
+    expect(position?.note).toBe('最新メモ');
+    expect(position?.memo).toBe('最新メモ\nメインメモ\n古いメモ\n履歴メモ');
+  });
 });

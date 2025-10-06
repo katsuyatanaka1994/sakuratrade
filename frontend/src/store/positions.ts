@@ -40,6 +40,7 @@ interface FailedJournalEntry {
 const FAILED_JOURNAL_QUEUE_KEY = 'failed_journal_queue';
 
 export interface Lot { price: number; qtyRemaining: number; time: string }
+export interface PositionNoteEntry { text: string; updatedAt?: string }
 export interface Position {
   symbol: string;
   side: Side;
@@ -60,6 +61,7 @@ export interface Position {
   aiFeedbacked?: boolean;
   note?: string;
   memo?: string;
+  notes?: PositionNoteEntry[];
   chartPattern?: string;
   chartPatternLabel?: string;
   patterns?: string[];
@@ -69,6 +71,7 @@ export interface SymbolGroup { symbol: string; name?: string; positions: Positio
 export interface PositionMetadata {
   note?: string;
   memo?: string;
+  notes?: PositionNoteEntry[];
   chartPattern?: string;
   chartPatternLabel?: string;
   patterns?: string[];
@@ -100,15 +103,47 @@ function normaliseIncomingPosition(position: Position): Position {
 function applyMetadata(position: Position, metadata?: PositionMetadata) {
   if (!metadata) return;
 
+  const appendNoteEntries = (value: unknown) => {
+    const values = Array.isArray(value) ? value : [value];
+    values.forEach((entry) => {
+      if (!entry) return;
+      let candidate: PositionNoteEntry | null = null;
+      if (typeof entry === 'string') {
+        const trimmed = entry.trim();
+        if (!trimmed) return;
+        candidate = { text: trimmed };
+      } else if (typeof entry === 'object' && typeof (entry as PositionNoteEntry).text === 'string') {
+        const trimmed = (entry as PositionNoteEntry).text.trim();
+        if (!trimmed) return;
+        candidate = { text: trimmed, updatedAt: (entry as PositionNoteEntry).updatedAt };
+      }
+      if (!candidate) return;
+      if (!position.notes) {
+        position.notes = [candidate];
+        return;
+      }
+      const exists = position.notes.some((note) => note.text === candidate!.text && note.updatedAt === candidate!.updatedAt);
+      if (!exists) {
+        position.notes.push(candidate);
+      }
+    });
+  };
+
   if ('note' in metadata) {
     position.note = metadata.note;
     if (!('memo' in metadata)) {
       position.memo = metadata.note;
     }
+    appendNoteEntries(metadata.note);
   }
 
   if ('memo' in metadata) {
     position.memo = metadata.memo;
+    appendNoteEntries(metadata.memo);
+  }
+
+  if ('notes' in metadata) {
+    appendNoteEntries(metadata.notes);
   }
 
   if ('chartPattern' in metadata) {
