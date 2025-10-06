@@ -81,26 +81,15 @@ describe('UI チャット分離テスト', () => {
     expect(chat3After[0].positions[0].qtyTotal).toBe(300);
   });
 
-  it('chatId未指定の場合はdefaultとして扱われる', () => {
-    // chatId未指定でポジション建て
-    positionsStore.entry('AAPL', 'LONG', 150, 100);
-    
-    // chatId='default'の場合も同じように扱われる
-    const defaultGroups1 = positionsStore.getGroups();
-    const defaultGroups2 = positionsStore.getGroups(undefined);
-    
-    expect(defaultGroups1).toHaveLength(1);
-    expect(defaultGroups2).toHaveLength(1);
-    expect(defaultGroups1[0].positions[0].qtyTotal).toBe(100);
+  it('chatId未指定の場合はエラーになる', () => {
+    expect(() => {
+      positionsStore.entry('AAPL', 'LONG', 150, 100);
+    }).toThrow('[positions.store] chatId is required for position operations');
 
-    // 明示的にchatId指定した場合は分離される
-    positionsStore.entry('AAPL', 'LONG', 160, 200, undefined, 'chat1');
-    
-    const defaultAfter = positionsStore.getGroups();
-    const chat1After = positionsStore.getGroups('chat1');
-    
-    expect(defaultAfter[0].positions[0].qtyTotal).toBe(100);
-    expect(chat1After[0].positions[0].qtyTotal).toBe(200);
+    // getGroupsは引数がなくても例外を投げない
+    expect(() => {
+      positionsStore.getGroups();
+    }).not.toThrow();
   });
 
   it('ポジションカードの決済ボタンはchatId情報を渡す', () => {

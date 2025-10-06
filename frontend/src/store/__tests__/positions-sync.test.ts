@@ -8,6 +8,8 @@ import {
   type Position,
 } from '../positions';
 
+const CHAT_ID = 'chat-test-1';
+
 const basePosition = (overrides: Partial<Position>): Position => ({
   symbol: '7203',
   side: 'LONG' as const,
@@ -24,6 +26,7 @@ const basePosition = (overrides: Partial<Position>): Position => ({
   updatedAt: '2024-01-01T00:00:00Z',
   status: 'OPEN' as const,
   version: 1,
+  chatId: CHAT_ID,
   ...overrides,
 });
 
@@ -34,14 +37,14 @@ describe('positions snapshot and sync', () => {
 
   it('filters closed or empty positions when applying a snapshot', () => {
     applyPositionsSnapshot([
-      basePosition({ symbol: '7203', side: 'LONG', qtyTotal: 100, status: 'OPEN' }),
-      basePosition({ symbol: '7203', side: 'SHORT', qtyTotal: 0, status: 'OPEN' }),
-      basePosition({ symbol: '6758', side: 'LONG', qtyTotal: 50, status: 'CLOSED' }),
+      basePosition({ symbol: '7203', side: 'LONG', qtyTotal: 100, status: 'OPEN', chatId: CHAT_ID }),
+      basePosition({ symbol: '7203', side: 'SHORT', qtyTotal: 0, status: 'OPEN', chatId: CHAT_ID }),
+      basePosition({ symbol: '6758', side: 'LONG', qtyTotal: 50, status: 'CLOSED', chatId: CHAT_ID }),
     ]);
 
     const state = getState();
     expect(state.positions.size).toBe(1);
-    const key = makePositionKey('7203', 'LONG', undefined);
+    const key = makePositionKey('7203', 'LONG', CHAT_ID);
     expect(state.positions.get(key)?.qtyTotal).toBe(100);
   });
 

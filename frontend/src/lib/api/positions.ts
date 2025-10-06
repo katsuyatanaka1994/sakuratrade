@@ -159,6 +159,27 @@ export const normaliseServerPosition = (raw: ServerPosition): Position | null =>
     return null;
   }
 
+  const chatId = raw.chatId ?? raw.chat_id ?? raw.chat ?? undefined;
+  if (!chatId || typeof chatId !== 'string') {
+    console.warn('[positions] skipped position because chatId is missing', {
+      symbol,
+      side,
+      rawChatId: chatId,
+      positionId: raw.positionId ?? raw.position_id,
+    });
+    return null;
+  }
+
+  const positionId = raw.positionId ?? raw.position_id;
+  if (!positionId || typeof positionId !== 'string') {
+    console.warn('[positions] skipped position because positionId is missing', {
+      symbol,
+      side,
+      rawPositionId: positionId,
+    });
+    return null;
+  }
+
   const note = raw.note ?? raw.memo;
   const memoText = extractNoteText(raw);
   const patterns = extractPatterns(raw, chartPatternLabel);
@@ -185,7 +206,8 @@ export const normaliseServerPosition = (raw: ServerPosition): Position | null =>
     realizedPnl,
     updatedAt,
     name: typeof name === 'string' ? name : undefined,
-    chatId: raw.chatId ?? raw.chat_id ?? undefined,
+    chatId,
+    positionId,
     currentTradeId: raw.currentTradeId ?? raw.current_trade_id,
     status: normalizedStatus,
     ownerId: raw.ownerId ?? raw.owner_id,
@@ -256,6 +278,7 @@ export async function fetchPositionsList(): Promise<Position[]> {
           Boolean(
             position &&
               position.symbol &&
+              position.chatId &&
               position.qtyTotal > 0 &&
               position.status !== 'CLOSED',
           ),

@@ -236,7 +236,11 @@ export function usePositionsLive(options: PositionsLiveOptions = {}) {
 
   const queueRemoval = useCallback(
     (symbol: string, side: string, chatId?: string | null) => {
-      const identifierKey = makePositionKey(symbol, side as Position['side'], chatId ?? undefined);
+      if (!chatId) {
+        console.warn('[positions-live] Ignoring removal event without chatId', { symbol, side });
+        return;
+      }
+      const identifierKey = makePositionKey(symbol, side as Position['side'], chatId);
       pendingUpsertsRef.current.delete(identifierKey);
       pendingRemovalsRef.current.add(identifierKey);
       scheduleFlush();

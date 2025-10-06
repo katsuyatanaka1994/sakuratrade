@@ -50,6 +50,7 @@ export interface Position {
   updatedAt: string;
   name?: string;
   chatId?: string;
+  positionId?: string;
   currentTradeId?: string; // ULID for trade journal tracking
   status?: 'OPEN' | 'CLOSED'; // Position status for edit permissions
   ownerId?: string; // Owner ID for edit permissions
@@ -156,9 +157,16 @@ function runInBatch(fn: () => void) {
 }
 export function subscribe(fn: Listener) { listeners.add(fn); return () => listeners.delete(fn); }
 
-export const makePositionKey = (symbol: string, side: Side, chatId?: string | null) => `${symbol}:${side}:${chatId || 'default'}`;
+const ensureChatId = (chatId?: string | null) => {
+  if (!chatId) {
+    throw new Error('[positions.store] chatId is required for position operations');
+  }
+  return chatId;
+};
 
-const key = makePositionKey;
+export const makePositionKey = (symbol: string, side: Side, chatId: string) => `${symbol}:${side}:${chatId}`;
+
+const key = (symbol: string, side: Side, chatId?: string | null) => makePositionKey(symbol, side, ensureChatId(chatId));
 
 // localStorage keys for persistence
 const POSITIONS_STORAGE_KEY = 'positions_data';
@@ -179,6 +187,33 @@ function deserializePositions(data: string): Map<string, Position> {
     console.warn('Failed to deserialize positions:', error);
     return new Map();
   }
+}
+
+function purgePositionsWithoutChatId(map: Map<string, Position>): number {
+  let removed = 0;
+  for (const [key, position] of map.entries()) {
+    if (!position?.chatId) {
+      map.delete(key);
+      removed += 1;
+    }
+  }
+  if (removed > 0) {
+    console.warn(`[positions.store] Removed ${removed} position(s) without chatId from local storage`);
+  }
+  return removed;
+}
+
+function purgeClosedWithoutChatId(closed: Position[]): number {
+  const originalLength = closed.length;
+  const filtered = closed.filter(position => Boolean(position?.chatId));
+  if (filtered.length !== originalLength) {
+    const removed = originalLength - filtered.length;
+    console.warn(`[positions.store] Removed ${removed} closed position(s) without chatId from local storage`);
+    closed.length = 0;
+    closed.push(...filtered);
+    return removed;
+  }
+  return 0;
 }
 
 function savePositionsToStorage() {
@@ -212,10 +247,29 @@ function loadPositionsFromStorage() {
     const positionsData = localStorage.getItem(POSITIONS_STORAGE_KEY);
     const closedData = localStorage.getItem(CLOSED_POSITIONS_STORAGE_KEY);
     const historyData = localStorage.getItem(SETTLEMENT_HISTORY_KEY);
-    
+    const positions = positionsData ? deserializePositions(positionsData) : new Map<string, Position>();
+    const removedPositions = purgePositionsWithoutChatId(positions);
+    if (removedPositions > 0) {
+      try {
+        localStorage.setItem(POSITIONS_STORAGE_KEY, serializePositions(positions));
+      } catch (persistError) {
+        console.warn('[positions.store] Failed to persist sanitized positions:', persistError);
+      }
+    }
+
+    const closed = closedData ? JSON.parse(closedData) as Position[] : [];
+    const removedClosed = purgeClosedWithoutChatId(closed);
+    if (removedClosed > 0) {
+      try {
+        localStorage.setItem(CLOSED_POSITIONS_STORAGE_KEY, JSON.stringify(closed));
+      } catch (persistError) {
+        console.warn('[positions.store] Failed to persist sanitized closed positions:', persistError);
+      }
+    }
+
     return {
-      positions: positionsData ? deserializePositions(positionsData) : new Map<string, Position>(),
-      closed: closedData ? JSON.parse(closedData) : [],
+      positions,
+      closed,
       settlementHistory: historyData ? JSON.parse(historyData) as Record<string, SettlementRecord> : {}
     };
   } catch (error) {
@@ -339,7 +393,8 @@ export function entry(
   metadata?: PositionMetadata,
 ): Position {
   if (price <= 0 || qty <= 0 || !Number.isInteger(qty)) throw new Error('invalid entry');
-  const k = key(symbol, side, chatId);
+  const resolvedChatId = ensureChatId(chatId);
+  const k = makePositionKey(symbol, side, resolvedChatId);
   let p = state.positions.get(k);
   const now = new Date().toISOString();
   
@@ -356,7 +411,7 @@ export function entry(
       realizedPnl: 0,
       updatedAt: now,
       name,
-      chatId,
+      chatId: resolvedChatId,
       status: 'OPEN',
       ownerId: 'current_user',
       version: 1,
@@ -386,10 +441,17 @@ export function entry(
 
 export function removeEntryLot(symbol: string, side: Side, price: number, qty: number, chatId?: string): boolean {
   if (qty <= 0) return false;
-  const k = key(symbol, side, chatId);
+  let resolvedChatId: string;
+  try {
+    resolvedChatId = ensureChatId(chatId);
+  } catch (error) {
+    console.warn('[positions.store] removeEntryLot called without chatId', { symbol, side, chatId });
+    return false;
+  }
+  const k = makePositionKey(symbol, side, resolvedChatId);
   const position = state.positions.get(k);
   if (!position) {
-    console.warn('[positions.store] removeEntryLot: position not found', { symbol, side, chatId });
+    console.warn('[positions.store] removeEntryLot: position not found', { symbol, side, chatId: resolvedChatId });
     return false;
   }
 
@@ -433,11 +495,18 @@ export function removeEntryLot(symbol: string, side: Side, price: number, qty: n
 }
 
 export function updatePosition(symbol: string, side: Side, updates: Partial<Position>, chatId?: string): Position | null {
-  const k = key(symbol, side, chatId);
+  let resolvedChatId: string;
+  try {
+    resolvedChatId = ensureChatId(chatId);
+  } catch (error) {
+    console.warn('updatePosition called without chatId', { symbol, side, chatId });
+    return null;
+  }
+  const k = makePositionKey(symbol, side, resolvedChatId);
   const p = state.positions.get(k);
   
   if (!p) {
-    console.warn('Position not found for update:', { symbol, side, chatId });
+    console.warn('Position not found for update:', { symbol, side, chatId: resolvedChatId });
     return null;
   }
   
@@ -458,8 +527,16 @@ export function updatePosition(symbol: string, side: Side, updates: Partial<Posi
 }
 
 function syncPositionFromServerInternal(position: Position): { changed: boolean; result: Position | null } {
-  const identifierKey = makePositionKey(position.symbol, position.side, position.chatId);
+  let resolvedChatId: string;
+  try {
+    resolvedChatId = ensureChatId(position.chatId);
+  } catch (error) {
+    console.warn('[positions.store] syncPositionFromServer: missing chatId', position);
+    return { changed: false, result: null };
+  }
+  const identifierKey = makePositionKey(position.symbol, position.side, resolvedChatId);
   const normalised = normaliseIncomingPosition(position);
+  normalised.chatId = resolvedChatId;
 
   if (normalised.qtyTotal <= 0 || isClosed(normalised.status)) {
     const existed = state.positions.delete(identifierKey);
@@ -524,6 +601,10 @@ export function applyPositionsSnapshot(positions: Position[]): void {
     if (normalised.qtyTotal <= 0 || isClosed(normalised.status)) {
       return;
     }
+    if (!normalised.chatId) {
+      console.warn('[positions.store] applyPositionsSnapshot skipped position without chatId', normalised);
+      return;
+    }
     const identifierKey = makePositionKey(normalised.symbol, normalised.side, normalised.chatId);
     next.set(identifierKey, normalised);
   });
@@ -536,7 +617,8 @@ export function applyPositionsSnapshot(positions: Position[]): void {
 }
 
 export function settle(symbol: string, side: Side, price: number, qty: number, chatId?: string) {
-  const k = key(symbol, side, chatId);
+  const resolvedChatId = ensureChatId(chatId);
+  const k = makePositionKey(symbol, side, resolvedChatId);
   const p = state.positions.get(k);
   if (!p) throw new Error('ポジションが見つかりません');
   if (qty > p.qtyTotal) throw new Error(`決済数量が保有数量を超えています（保有: ${p.qtyTotal}株）`);
@@ -589,7 +671,7 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
 
       tradeSnapshot = {
         tradeId: p.currentTradeId,
-        chatId: chatId || 'default',
+        chatId: resolvedChatId,
         symbol,
         side,
         avgEntry: isFinite(avgEntry) ? avgEntry : 0,
@@ -703,34 +785,38 @@ export function getGroups(chatId?: string): SymbolGroup[] {
 }
 
 export function getLongShortQty(symbol: string, chatId?: string) {
-  const long = state.positions.get(key(symbol, 'LONG', chatId))?.qtyTotal ?? 0;
-  const short = state.positions.get(key(symbol, 'SHORT', chatId))?.qtyTotal ?? 0;
+  let resolvedChatId: string;
+  try {
+    resolvedChatId = ensureChatId(chatId);
+  } catch (error) {
+    return { long: 0, short: 0 };
+  }
+  const long = state.positions.get(makePositionKey(symbol, 'LONG', resolvedChatId))?.qtyTotal ?? 0;
+  const short = state.positions.get(makePositionKey(symbol, 'SHORT', resolvedChatId))?.qtyTotal ?? 0;
   return { long, short };
 }
 
 // Explicitly delete a position (user-initiated removal)
 export function deletePosition(symbol: string, side: Side, chatId?: string): boolean {
   console.log('[positions.store] deletePosition called', { symbol, side, chatId });
-  // Try exact key first
-  const tryKeys: string[] = [];
-  tryKeys.push(key(symbol, side, chatId));
-  // Fallbacks for legacy/default chatId
-  if (chatId && chatId !== 'default') {
-    tryKeys.push(key(symbol, side, 'default'));
+  let resolvedChatId: string;
+  try {
+    resolvedChatId = ensureChatId(chatId);
+  } catch (error) {
+    console.warn('[positions.store] deletePosition without chatId', { symbol, side, chatId });
+    return false;
   }
-  // As a last resort, search by symbol+side (ignore chatId)
-  const anyKey = Array.from(state.positions.keys()).find(k => k.startsWith(`${symbol}:${side}:`));
-  if (anyKey) tryKeys.push(anyKey);
 
-  for (const kpos of tryKeys) {
-    if (state.positions.has(kpos)) {
-      console.log('[positions.store] deleting key', kpos);
-      state.positions.delete(kpos);
-      notify();
-      return true;
-    }
+  const identifierKey = makePositionKey(symbol, side, resolvedChatId);
+
+  if (state.positions.has(identifierKey)) {
+    console.log('[positions.store] deleting key', identifierKey);
+    state.positions.delete(identifierKey);
+    notify();
+    return true;
   }
-  console.warn('[positions.store] deletePosition: no matching key found', { tryKeys, keys: Array.from(state.positions.keys()) });
+
+  console.warn('[positions.store] deletePosition: no matching key found', { identifierKey });
   return false;
 }
 

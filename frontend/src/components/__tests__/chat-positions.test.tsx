@@ -101,20 +101,14 @@ describe('チャット別ポジション分離テスト', () => {
     expect(chat2AfterSettle[0].positions[0].qtyTotal).toBe(200);
   });
 
-  it('chatIdなしの場合はdefaultとして扱われ後方互換性を保つ', () => {
-    // chatIdなしでポジション建て
-    positionsStore.entry('AAPL', 'LONG', 150, 100);
-    // chatId='default'と同じ扱い
-    positionsStore.entry('AAPL', 'LONG', 160, 100, undefined, undefined);
+  it('chatIdなしの場合はエラーになる', () => {
+    expect(() => {
+      positionsStore.entry('AAPL', 'LONG', 150, 100);
+    }).toThrow('[positions.store] chatId is required for position operations');
 
-    const defaultGroups = positionsStore.getGroups();
-    expect(defaultGroups).toHaveLength(1);
-    expect(defaultGroups[0].positions[0].qtyTotal).toBe(200);
-
-    // 決済も同様
     expect(() => {
       positionsStore.settle('AAPL', 'LONG', 170, 100);
-    }).not.toThrow();
+    }).toThrow('[positions.store] chatId is required for position operations');
   });
 
   it('getLongShortQtyはチャット別に動作する', () => {

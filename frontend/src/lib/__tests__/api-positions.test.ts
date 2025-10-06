@@ -6,6 +6,7 @@ const basePayload = {
   side: 'LONG',
   qtyTotal: 100,
   avgPrice: 1000,
+  positionId: 'pos-123',
   lots: [
     {
       price: 1000,
@@ -44,6 +45,29 @@ describe('normaliseServerPosition', () => {
     };
 
     const position = normaliseServerPosition(payload);
+    expect(position).toBeNull();
+  });
+
+  it('filters out positions without chatId', () => {
+    const payload = {
+      ...basePayload,
+      chatId: undefined,
+      chat_id: undefined,
+    } as const;
+
+    const position = normaliseServerPosition(payload as typeof basePayload);
+    expect(position).toBeNull();
+  });
+
+  it('filters out positions without positionId', () => {
+    const { positionId, ...rest } = basePayload;
+    const payload = {
+      ...rest,
+      positionId: undefined,
+      position_id: undefined,
+    } as const;
+
+    const position = normaliseServerPosition(payload as typeof basePayload);
     expect(position).toBeNull();
   });
 });

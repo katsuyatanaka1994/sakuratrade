@@ -10,6 +10,7 @@ const createPositionPayload = (overrides: Partial<positionsStore.Position> = {})
   side: 'LONG',
   qtyTotal: 100,
   avgPrice: 1000,
+  positionId: 'pos-123',
   lots: [
     {
       price: 1000,
@@ -130,5 +131,44 @@ describe('usePositionsLive (fallback mode)', () => {
     expect(snapshotSpy).toHaveBeenCalledWith([
       expect.objectContaining({ symbol: '7203', qtyTotal: 90 }),
     ]);
+  });
+
+  it('ignores unknown event types', () => {
+    const syncSpy = vi.spyOn(positionsStore, 'syncPositionsBatch').mockImplementation(() => {});
+    const removeSpy = vi.spyOn(positionsStore, 'removePositionsByKeys').mockImplementation(() => {});
+    vi.spyOn(api, 'fetchPositionsList').mockResolvedValue([]);
+
+    renderHook(() => usePositionsLive({ autoConnect: false }));
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('positions.live', {
+        detail: {
+          type: 'positions.unknown',
+          payload: createPositionPayload(),
+        },
+      }));
+    });
+
+    expect(syncSpy).not.toHaveBeenCalled();
+    expect(removeSpy).not.toHaveBeenCalled();
+  });
+
+  it('skips removal events without chatId', () => {
+    const removeSpy = vi.spyOn(positionsStore, 'removePositionsByKeys').mockImplementation(() => {});
+    vi.spyOn(positionsStore, 'syncPositionsBatch').mockImplementation(() => {});
+    vi.spyOn(api, 'fetchPositionsList').mockResolvedValue([]);
+
+    renderHook(() => usePositionsLive({ autoConnect: false }));
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('positions.live', {
+        detail: {
+          type: 'positions.removed',
+          payload: { symbol: '7203', side: 'LONG', chatId: null },
+        },
+      }));
+    });
+
+    expect(removeSpy).not.toHaveBeenCalled();
   });
 });

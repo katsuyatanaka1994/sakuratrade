@@ -42,6 +42,7 @@ export interface Position {
   updatedAt: string;
   name?: string;
   chatId?: string;
+  positionId?: string;
   currentTradeId?: string;
   status?: 'OPEN' | 'CLOSED';
   ownerId?: string;
@@ -126,8 +127,15 @@ export const subscribe = vi.fn((listener: Listener) => {
   };
 });
 
+const ensureChatId = (chatId?: string | null) => {
+  if (!chatId) {
+    throw new Error('[positions.stub] chatId is required');
+  }
+  return chatId;
+};
+
 export const makePositionKey = (symbol: string, side: Side, chatId?: string | null) =>
-  `${symbol}:${side}:${chatId ?? 'default'}`;
+  `${symbol}:${side}:${ensureChatId(chatId)}`;
 
 const buildPosition = (
   symbol: string,
@@ -189,8 +197,9 @@ export const entry = vi.fn(
     chatId?: string,
     metadata?: PositionMetadata,
   ) => {
-    const key = makePositionKey(symbol, side, chatId);
-    const position = buildPosition(symbol, side, price, qty, name, chatId);
+    const resolvedChatId = ensureChatId(chatId);
+    const key = makePositionKey(symbol, side, resolvedChatId);
+    const position = buildPosition(symbol, side, price, qty, name, resolvedChatId);
     applyMetadata(position, metadata);
     state.positions.set(key, position);
     notifyListeners();
@@ -200,7 +209,8 @@ export const entry = vi.fn(
 
 export const removeEntryLot = vi.fn(
   (symbol: string, side: Side, price: number, qty: number, chatId?: string) => {
-    const key = makePositionKey(symbol, side, chatId);
+    const resolvedChatId = ensureChatId(chatId);
+    const key = makePositionKey(symbol, side, resolvedChatId);
     const position = state.positions.get(key);
     if (!position) {
       return false;
@@ -215,7 +225,8 @@ export const removeEntryLot = vi.fn(
 
 export const updatePosition = vi.fn(
   (symbol: string, side: Side, updates: Partial<Position>, chatId?: string) => {
-    const key = makePositionKey(symbol, side, chatId);
+    const resolvedChatId = ensureChatId(chatId);
+    const key = makePositionKey(symbol, side, resolvedChatId);
     const position = state.positions.get(key);
     if (!position) {
       return null;
@@ -228,7 +239,7 @@ export const updatePosition = vi.fn(
 );
 
 export const syncPositionFromServer = vi.fn((position: Position) => {
-  const key = makePositionKey(position.symbol, position.side, position.chatId);
+  const key = makePositionKey(position.symbol, position.side, ensureChatId(position.chatId));
   state.positions.set(key, { ...position });
   notifyListeners();
   return position;
@@ -236,7 +247,7 @@ export const syncPositionFromServer = vi.fn((position: Position) => {
 
 export const syncPositionsBatch = vi.fn((positions: Position[]) => {
   positions.forEach((position) => {
-    const key = makePositionKey(position.symbol, position.side, position.chatId);
+    const key = makePositionKey(position.symbol, position.side, ensureChatId(position.chatId));
     state.positions.set(key, { ...position });
   });
   notifyListeners();
@@ -251,14 +262,15 @@ export const removePositionsByKeys = vi.fn((keys: string[]) => {
 
 export const applyPositionsSnapshot = vi.fn((positions: Position[]) => {
   state.positions = new Map(
-    positions.map((position) => [makePositionKey(position.symbol, position.side, position.chatId), { ...position }]),
+    positions.map((position) => [makePositionKey(position.symbol, position.side, ensureChatId(position.chatId)), { ...position }]),
   );
   notifyListeners();
 });
 
 export const settle = vi.fn(
   (symbol: string, side: Side, price: number, qty: number, chatId?: string) => {
-    const key = makePositionKey(symbol, side, chatId);
+    const resolvedChatId = ensureChatId(chatId);
+    const key = makePositionKey(symbol, side, resolvedChatId);
     const position = state.positions.get(key);
     if (position) {
       position.qtyTotal = Math.max(0, position.qtyTotal - qty);
@@ -273,7 +285,7 @@ export const settle = vi.fn(
       tradeSnapshot: position
         ? {
             tradeId: position.currentTradeId ?? `trade-${Date.now()}`,
-            chatId: position.chatId ?? chatId ?? 'default',
+            chatId: position.chatId ?? resolvedChatId,
             symbol: position.symbol,
             side: position.side,
             avgEntry: position.avgPrice,

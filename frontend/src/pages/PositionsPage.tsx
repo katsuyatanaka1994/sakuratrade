@@ -54,8 +54,16 @@ const toCardData = (position: Position): HoldingPositionCardData => {
       ? extended.memo.trim()
       : undefined;
 
+  const chatKey = position.chatId;
+  const identifier = chatKey
+    ? makePositionKey(position.symbol, position.side, chatKey)
+    : `${position.symbol}:${position.side}:unlinked`;
+  if (!chatKey) {
+    console.warn('[positions.page] position without chatId detected', position);
+  }
+
   return {
-    id: makePositionKey(position.symbol, position.side, position.chatId ?? null),
+    id: identifier,
     symbolCode: position.symbol,
     symbolName: position.name ?? position.symbol,
     side: position.side,
@@ -83,7 +91,13 @@ const PositionsPage: React.FC = () => {
   const { connectionState, lastError: liveError, reconnecting } = usePositionsLive({ autoConnect: liveEnabled });
 
   const refreshPositions = useCallback(() => {
-    setPositions(selectPositions());
+    const next = selectPositions();
+    setPositions(prev => {
+      if (prev.length === next.length && prev.every((position, index) => position === next[index])) {
+        return prev;
+      }
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -166,7 +180,7 @@ const PositionsPage: React.FC = () => {
   const effectiveError = hydrationError ?? (liveEnabled ? liveError : null);
   const connectionMessage = liveEnabled
     ? connectionState === 'connected'
-      ? 'リアルタイム更新を受信中'
+      ? ''
       : reconnecting
         ? 'リアルタイム接続を再試行しています…'
         : 'リアルタイム更新は一時停止中です'
@@ -175,8 +189,8 @@ const PositionsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F5F5F7] px-6 py-8">
       <div className="mx-auto w-full max-w-none">
-        <div className="mb-6" aria-live="polite" role="status">
-          {/* ヘッダー表示を省略 */}
+        <div className="mb-6 text-sm text-gray-600" aria-live="polite" role="status">
+          {connectionMessage || null}
         </div>
 
         {cardData.length === 0 ? (
