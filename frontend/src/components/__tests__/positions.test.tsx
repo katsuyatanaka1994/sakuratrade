@@ -323,11 +323,13 @@ describe('Position Store with ChatId', () => {
     expect(result.position?.qtyTotal).toBe(50);
   });
 
-  it('chatIdなしの場合は後方互換性を保つ', () => {
-    positionsStore.entry('AAPL', 'LONG', 150, 100);
+  it('chatIdなしの場合はエラーになる', () => {
+    expect(() => {
+      positionsStore.entry('AAPL', 'LONG', 150, 100);
+    }).toThrow('[positions.store] chatId is required for position operations');
 
-    const result = positionsStore.settle('AAPL', 'LONG', 160, 50);
-
-    expect(result.realizedPnl).toBe(500);
+    expect(() => {
+      positionsStore.settle('AAPL', 'LONG', 160, 50);
+    }).toThrow('[positions.store] chatId is required for position operations');
   });
 });

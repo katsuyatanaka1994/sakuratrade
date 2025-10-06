@@ -42,12 +42,19 @@ export interface Position {
   updatedAt: string;
   name?: string;
   chatId?: string;
+  positionId?: string;
   currentTradeId?: string;
   status?: 'OPEN' | 'CLOSED';
   ownerId?: string;
   version: number;
   chartImageId?: string | null;
   aiFeedbacked?: boolean;
+  note?: string;
+  memo?: string;
+  notes?: string[];
+  chartPattern?: string;
+  chartPatternLabel?: string;
+  patterns?: string[];
 }
 
 export interface SymbolGroup {
@@ -84,6 +91,14 @@ interface PositionsState {
   tradeEntries: Map<string, string>;
 }
 
+export interface PositionMetadata {
+  note?: string;
+  memo?: string;
+  chartPattern?: string;
+  chartPatternLabel?: string;
+  patterns?: string[];
+}
+
 type Listener = () => void;
 
 const listeners = new Set<Listener>();
@@ -113,8 +128,15 @@ export const subscribe = vi.fn((listener: Listener) => {
   };
 });
 
+const ensureChatId = (chatId?: string | null) => {
+  if (!chatId) {
+    throw new Error('[positions.stub] chatId is required');
+  }
+  return chatId;
+};
+
 export const makePositionKey = (symbol: string, side: Side, chatId?: string | null) =>
-  `${symbol}:${side}:${chatId ?? 'default'}`;
+  `${symbol}:${side}:${ensureChatId(chatId)}`;
 
 const buildPosition = (
   symbol: string,
@@ -140,14 +162,76 @@ const buildPosition = (
   name,
   chatId,
   version: 1,
+  chartImageId: null,
+  aiFeedbacked: false,
+  note: undefined,
+  memo: undefined,
+  notes: [],
+  chartPattern: undefined,
+  chartPatternLabel: undefined,
+  patterns: undefined,
 });
 
 export const getState = () => state;
 
+const applyMetadata = (position: Position, metadata?: PositionMetadata) => {
+  if (!metadata) return;
+
+  const appendNotes = (value: unknown) => {
+    const values = Array.isArray(value) ? value : [value];
+    values.forEach((entry) => {
+      if (typeof entry !== 'string') return;
+      const trimmed = entry.trim();
+      if (!trimmed) return;
+      if (!position.notes) {
+        position.notes = [trimmed];
+        return;
+      }
+      if (!position.notes.includes(trimmed)) {
+        position.notes.push(trimmed);
+      }
+    });
+  };
+
+  if ('note' in metadata) {
+    position.note = metadata.note;
+    if (!('memo' in metadata)) {
+      position.memo = metadata.note;
+    }
+    appendNotes(metadata.note);
+  }
+  if ('memo' in metadata) {
+    position.memo = metadata.memo;
+    appendNotes(metadata.memo);
+  }
+  if ('notes' in metadata) {
+    appendNotes(metadata.notes);
+  }
+  if ('chartPattern' in metadata) {
+    position.chartPattern = metadata.chartPattern;
+  }
+  if ('chartPatternLabel' in metadata) {
+    position.chartPatternLabel = metadata.chartPatternLabel;
+  }
+  if ('patterns' in metadata) {
+    position.patterns = metadata.patterns;
+  }
+};
+
 export const entry = vi.fn(
-  (symbol: string, side: Side, price: number, qty: number, name?: string, chatId?: string) => {
-    const key = makePositionKey(symbol, side, chatId);
-    const position = buildPosition(symbol, side, price, qty, name, chatId);
+  (
+    symbol: string,
+    side: Side,
+    price: number,
+    qty: number,
+    name?: string,
+    chatId?: string,
+    metadata?: PositionMetadata,
+  ) => {
+    const resolvedChatId = ensureChatId(chatId);
+    const key = makePositionKey(symbol, side, resolvedChatId);
+    const position = buildPosition(symbol, side, price, qty, name, resolvedChatId);
+    applyMetadata(position, metadata);
     state.positions.set(key, position);
     notifyListeners();
     return position;
@@ -156,7 +240,8 @@ export const entry = vi.fn(
 
 export const removeEntryLot = vi.fn(
   (symbol: string, side: Side, price: number, qty: number, chatId?: string) => {
-    const key = makePositionKey(symbol, side, chatId);
+    const resolvedChatId = ensureChatId(chatId);
+    const key = makePositionKey(symbol, side, resolvedChatId);
     const position = state.positions.get(key);
     if (!position) {
       return false;
@@ -171,7 +256,8 @@ export const removeEntryLot = vi.fn(
 
 export const updatePosition = vi.fn(
   (symbol: string, side: Side, updates: Partial<Position>, chatId?: string) => {
-    const key = makePositionKey(symbol, side, chatId);
+    const resolvedChatId = ensureChatId(chatId);
+    const key = makePositionKey(symbol, side, resolvedChatId);
     const position = state.positions.get(key);
     if (!position) {
       return null;
@@ -184,15 +270,38 @@ export const updatePosition = vi.fn(
 );
 
 export const syncPositionFromServer = vi.fn((position: Position) => {
-  const key = makePositionKey(position.symbol, position.side, position.chatId);
+  const key = makePositionKey(position.symbol, position.side, ensureChatId(position.chatId));
   state.positions.set(key, { ...position });
   notifyListeners();
   return position;
 });
 
+export const syncPositionsBatch = vi.fn((positions: Position[]) => {
+  positions.forEach((position) => {
+    const key = makePositionKey(position.symbol, position.side, ensureChatId(position.chatId));
+    state.positions.set(key, { ...position });
+  });
+  notifyListeners();
+});
+
+export const removePositionsByKeys = vi.fn((keys: string[]) => {
+  keys.forEach((identifierKey) => {
+    state.positions.delete(identifierKey);
+  });
+  notifyListeners();
+});
+
+export const applyPositionsSnapshot = vi.fn((positions: Position[]) => {
+  state.positions = new Map(
+    positions.map((position) => [makePositionKey(position.symbol, position.side, ensureChatId(position.chatId)), { ...position }]),
+  );
+  notifyListeners();
+});
+
 export const settle = vi.fn(
   (symbol: string, side: Side, price: number, qty: number, chatId?: string) => {
-    const key = makePositionKey(symbol, side, chatId);
+    const resolvedChatId = ensureChatId(chatId);
+    const key = makePositionKey(symbol, side, resolvedChatId);
     const position = state.positions.get(key);
     if (position) {
       position.qtyTotal = Math.max(0, position.qtyTotal - qty);
@@ -207,7 +316,7 @@ export const settle = vi.fn(
       tradeSnapshot: position
         ? {
             tradeId: position.currentTradeId ?? `trade-${Date.now()}`,
-            chatId: position.chatId ?? chatId ?? 'default',
+            chatId: position.chatId ?? resolvedChatId,
             symbol: position.symbol,
             side: position.side,
             avgEntry: position.avgPrice,
@@ -317,6 +426,9 @@ export const __resetPositionsStub = () => {
   removeEntryLot.mockReset();
   updatePosition.mockReset();
   syncPositionFromServer.mockReset();
+  syncPositionsBatch.mockReset();
+  removePositionsByKeys.mockReset();
+  applyPositionsSnapshot.mockReset();
   settle.mockReset();
   recordSettlement.mockReset();
   unsettle.mockReset();
@@ -337,6 +449,9 @@ export default {
   removeEntryLot,
   updatePosition,
   syncPositionFromServer,
+  syncPositionsBatch,
+  removePositionsByKeys,
+  applyPositionsSnapshot,
   settle,
   recordSettlement,
   unsettle,

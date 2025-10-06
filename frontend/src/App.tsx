@@ -8,6 +8,7 @@ import Trade from './components/Trade';
 import Settings from './components/Settings';
 import Support from './components/Support';
 import TradeRecordsPage from './pages/TradeRecordsPage';
+import PositionsPage from './pages/PositionsPage';
 import { ToastProvider } from './components/ToastContainer';
 import { initializeTelemetry, telemetryHelpers } from './lib/telemetry';
 
@@ -71,6 +72,7 @@ function AppContent() {
               />
             } 
           />
+          <Route path="/positions" element={<PositionsPage />} />
           <Route path="/trade-records" element={<TradeRecordsPage />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/support" element={<Support />} />

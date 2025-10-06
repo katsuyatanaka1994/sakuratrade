@@ -28,8 +28,11 @@ const useRouteErrorImpl = vi.fn(() => null);
 
 const passthrough = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
 
-const Link = React.forwardRef<HTMLAnchorElement, React.AnchorHTMLAttributes<HTMLAnchorElement>>(
-  ({ children, ...props }, ref) => React.createElement('a', { ref, ...props }, children)
+const Link = React.forwardRef<HTMLAnchorElement, React.AnchorHTMLAttributes<HTMLAnchorElement> & { to?: string }>(
+  ({ children, to, ...props }, ref) => {
+    const href = typeof to === 'string' ? to : props.href;
+    return React.createElement('a', { ref, href, ...props }, children);
+  }
 );
 Link.displayName = 'RouterLinkMock';
 

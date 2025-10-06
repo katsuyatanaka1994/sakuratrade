@@ -40,6 +40,7 @@ interface FailedJournalEntry {
 const FAILED_JOURNAL_QUEUE_KEY = 'failed_journal_queue';
 
 export interface Lot { price: number; qtyRemaining: number; time: string }
+export interface PositionNoteEntry { text: string; updatedAt?: string }
 export interface Position {
   symbol: string;
   side: Side;
@@ -50,6 +51,7 @@ export interface Position {
   updatedAt: string;
   name?: string;
   chatId?: string;
+  positionId?: string;
   currentTradeId?: string; // ULID for trade journal tracking
   status?: 'OPEN' | 'CLOSED'; // Position status for edit permissions
   ownerId?: string; // Owner ID for edit permissions
@@ -57,21 +59,149 @@ export interface Position {
   // Chart analysis linkage
   chartImageId?: string | null;
   aiFeedbacked?: boolean;
+  note?: string;
+  memo?: string;
+  notes?: PositionNoteEntry[];
+  chartPattern?: string;
+  chartPatternLabel?: string;
+  patterns?: string[];
 }
 export interface SymbolGroup { symbol: string; name?: string; positions: Position[] }
 
+export interface PositionMetadata {
+  note?: string;
+  memo?: string;
+  notes?: PositionNoteEntry[];
+  chartPattern?: string;
+  chartPatternLabel?: string;
+  patterns?: string[];
+}
+
+const CLOSED_STATUS = new Set(['closed', 'CLOSED']);
+
+function normaliseStatus(status?: string | null): 'OPEN' | 'CLOSED' {
+  if (!status) return 'OPEN';
+  return CLOSED_STATUS.has(status) ? 'CLOSED' : status.toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN';
+}
+
+function isClosed(status?: string | null): boolean {
+  return normaliseStatus(status) === 'CLOSED';
+}
+
+function normaliseIncomingPosition(position: Position): Position {
+  return {
+    ...position,
+    qtyTotal: Number.isFinite(position.qtyTotal) ? position.qtyTotal : Number(position.qtyTotal) || 0,
+    avgPrice: Number.isFinite(position.avgPrice) ? position.avgPrice : Number(position.avgPrice) || 0,
+    realizedPnl: Number.isFinite(position.realizedPnl) ? position.realizedPnl : Number(position.realizedPnl) || 0,
+    updatedAt: position.updatedAt || new Date().toISOString(),
+    status: normaliseStatus(position.status),
+    version: Number.isFinite(position.version) ? position.version : 1,
+  };
+}
+
+function applyMetadata(position: Position, metadata?: PositionMetadata) {
+  if (!metadata) return;
+
+  const appendNoteEntries = (value: unknown) => {
+    const values = Array.isArray(value) ? value : [value];
+    values.forEach((entry) => {
+      if (!entry) return;
+      let candidate: PositionNoteEntry | null = null;
+      if (typeof entry === 'string') {
+        const trimmed = entry.trim();
+        if (!trimmed) return;
+        candidate = { text: trimmed };
+      } else if (typeof entry === 'object' && typeof (entry as PositionNoteEntry).text === 'string') {
+        const trimmed = (entry as PositionNoteEntry).text.trim();
+        if (!trimmed) return;
+        candidate = { text: trimmed, updatedAt: (entry as PositionNoteEntry).updatedAt };
+      }
+      if (!candidate) return;
+      if (!position.notes) {
+        position.notes = [candidate];
+        return;
+      }
+      const exists = position.notes.some((note) => note.text === candidate!.text && note.updatedAt === candidate!.updatedAt);
+      if (!exists) {
+        position.notes.push(candidate);
+      }
+    });
+  };
+
+  if ('note' in metadata) {
+    position.note = metadata.note;
+    if (!('memo' in metadata)) {
+      position.memo = metadata.note;
+    }
+    appendNoteEntries(metadata.note);
+  }
+
+  if ('memo' in metadata) {
+    position.memo = metadata.memo;
+    appendNoteEntries(metadata.memo);
+  }
+
+  if ('notes' in metadata) {
+    appendNoteEntries(metadata.notes);
+  }
+
+  if ('chartPattern' in metadata) {
+    position.chartPattern = metadata.chartPattern;
+  }
+
+  if ('chartPatternLabel' in metadata) {
+    position.chartPatternLabel = metadata.chartPatternLabel;
+  }
+
+  if ('patterns' in metadata) {
+    position.patterns = metadata.patterns;
+  }
+}
+
 type Listener = () => void;
 const listeners = new Set<Listener>();
-function notify() { 
+let pendingNotify = false;
+let batching = false;
+
+function triggerNotify() {
   listeners.forEach(fn => fn()); 
   // Save to localStorage whenever state changes
   savePositionsToStorage();
 }
+
+function notify() {
+  if (batching) {
+    pendingNotify = true;
+    return;
+  }
+  triggerNotify();
+}
+
+function runInBatch(fn: () => void) {
+  batching = true;
+  try {
+    fn();
+  } finally {
+    batching = false;
+    if (pendingNotify) {
+      pendingNotify = false;
+      triggerNotify();
+    }
+  }
+}
 export function subscribe(fn: Listener) { listeners.add(fn); return () => listeners.delete(fn); }
 
-export const makePositionKey = (symbol: string, side: Side, chatId?: string | null) => `${symbol}:${side}:${chatId || 'default'}`;
+const ensureChatId = (chatId?: string | null) => {
+  if (!chatId) {
+    throw new Error('[positions.store] chatId is required for position operations');
+  }
+  return chatId;
+};
 
-const key = makePositionKey;
+export const makePositionKey = (symbol: string, side: Side, chatId: string) => `${symbol}:${side}:${chatId}`;
+
+const key = (symbol: string, side: Side, chatId?: string | null) => makePositionKey(symbol, side, ensureChatId(chatId));
 
 // localStorage keys for persistence
 const POSITIONS_STORAGE_KEY = 'positions_data';
@@ -92,6 +222,33 @@ function deserializePositions(data: string): Map<string, Position> {
     console.warn('Failed to deserialize positions:', error);
     return new Map();
   }
+}
+
+function purgePositionsWithoutChatId(map: Map<string, Position>): number {
+  let removed = 0;
+  for (const [key, position] of map.entries()) {
+    if (!position?.chatId) {
+      map.delete(key);
+      removed += 1;
+    }
+  }
+  if (removed > 0) {
+    console.warn(`[positions.store] Removed ${removed} position(s) without chatId from local storage`);
+  }
+  return removed;
+}
+
+function purgeClosedWithoutChatId(closed: Position[]): number {
+  const originalLength = closed.length;
+  const filtered = closed.filter(position => Boolean(position?.chatId));
+  if (filtered.length !== originalLength) {
+    const removed = originalLength - filtered.length;
+    console.warn(`[positions.store] Removed ${removed} closed position(s) without chatId from local storage`);
+    closed.length = 0;
+    closed.push(...filtered);
+    return removed;
+  }
+  return 0;
 }
 
 function savePositionsToStorage() {
@@ -125,10 +282,29 @@ function loadPositionsFromStorage() {
     const positionsData = localStorage.getItem(POSITIONS_STORAGE_KEY);
     const closedData = localStorage.getItem(CLOSED_POSITIONS_STORAGE_KEY);
     const historyData = localStorage.getItem(SETTLEMENT_HISTORY_KEY);
-    
+    const positions = positionsData ? deserializePositions(positionsData) : new Map<string, Position>();
+    const removedPositions = purgePositionsWithoutChatId(positions);
+    if (removedPositions > 0) {
+      try {
+        localStorage.setItem(POSITIONS_STORAGE_KEY, serializePositions(positions));
+      } catch (persistError) {
+        console.warn('[positions.store] Failed to persist sanitized positions:', persistError);
+      }
+    }
+
+    const closed = closedData ? JSON.parse(closedData) as Position[] : [];
+    const removedClosed = purgeClosedWithoutChatId(closed);
+    if (removedClosed > 0) {
+      try {
+        localStorage.setItem(CLOSED_POSITIONS_STORAGE_KEY, JSON.stringify(closed));
+      } catch (persistError) {
+        console.warn('[positions.store] Failed to persist sanitized closed positions:', persistError);
+      }
+    }
+
     return {
-      positions: positionsData ? deserializePositions(positionsData) : new Map<string, Position>(),
-      closed: closedData ? JSON.parse(closedData) : [],
+      positions,
+      closed,
       settlementHistory: historyData ? JSON.parse(historyData) as Record<string, SettlementRecord> : {}
     };
   } catch (error) {
@@ -242,9 +418,18 @@ if (typeof window !== 'undefined') {
   (window as any).clearAllPositions = clearAllPositions;
 }
 
-export function entry(symbol: string, side: Side, price: number, qty: number, name?: string, chatId?: string): Position {
+export function entry(
+  symbol: string,
+  side: Side,
+  price: number,
+  qty: number,
+  name?: string,
+  chatId?: string,
+  metadata?: PositionMetadata,
+): Position {
   if (price <= 0 || qty <= 0 || !Number.isInteger(qty)) throw new Error('invalid entry');
-  const k = key(symbol, side, chatId);
+  const resolvedChatId = ensureChatId(chatId);
+  const k = makePositionKey(symbol, side, resolvedChatId);
   let p = state.positions.get(k);
   const now = new Date().toISOString();
   
@@ -252,7 +437,23 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   const isInitialEntry = !p || p.qtyTotal === 0;
   
   if (!p) {
-    p = { symbol, side, qtyTotal: 0, avgPrice: 0, lots: [], realizedPnl: 0, updatedAt: now, name, chatId, status: 'OPEN', ownerId: 'current_user', version: 1, chartImageId: null, aiFeedbacked: false };
+    p = {
+      symbol,
+      side,
+      qtyTotal: 0,
+      avgPrice: 0,
+      lots: [],
+      realizedPnl: 0,
+      updatedAt: now,
+      name,
+      chatId: resolvedChatId,
+      status: 'OPEN',
+      ownerId: 'current_user',
+      version: 1,
+      chartImageId: null,
+      aiFeedbacked: false,
+    };
+    applyMetadata(p, metadata);
     state.positions.set(k, p);
   }
   
@@ -268,16 +469,24 @@ export function entry(symbol: string, side: Side, price: number, qty: number, na
   p.qtyTotal = newQty;
   p.lots.push({ price, qtyRemaining: qty, time: now });
   p.updatedAt = now;
+  applyMetadata(p, metadata);
   notify();
   return p;
 }
 
 export function removeEntryLot(symbol: string, side: Side, price: number, qty: number, chatId?: string): boolean {
   if (qty <= 0) return false;
-  const k = key(symbol, side, chatId);
+  let resolvedChatId: string;
+  try {
+    resolvedChatId = ensureChatId(chatId);
+  } catch (error) {
+    console.warn('[positions.store] removeEntryLot called without chatId', { symbol, side, chatId });
+    return false;
+  }
+  const k = makePositionKey(symbol, side, resolvedChatId);
   const position = state.positions.get(k);
   if (!position) {
-    console.warn('[positions.store] removeEntryLot: position not found', { symbol, side, chatId });
+    console.warn('[positions.store] removeEntryLot: position not found', { symbol, side, chatId: resolvedChatId });
     return false;
   }
 
@@ -321,11 +530,18 @@ export function removeEntryLot(symbol: string, side: Side, price: number, qty: n
 }
 
 export function updatePosition(symbol: string, side: Side, updates: Partial<Position>, chatId?: string): Position | null {
-  const k = key(symbol, side, chatId);
+  let resolvedChatId: string;
+  try {
+    resolvedChatId = ensureChatId(chatId);
+  } catch (error) {
+    console.warn('updatePosition called without chatId', { symbol, side, chatId });
+    return null;
+  }
+  const k = makePositionKey(symbol, side, resolvedChatId);
   const p = state.positions.get(k);
   
   if (!p) {
-    console.warn('Position not found for update:', { symbol, side, chatId });
+    console.warn('Position not found for update:', { symbol, side, chatId: resolvedChatId });
     return null;
   }
   
@@ -345,30 +561,99 @@ export function updatePosition(symbol: string, side: Side, updates: Partial<Posi
   return updatedPosition;
 }
 
-export function syncPositionFromServer(position: Position): Position | null {
-  const identifierKey = makePositionKey(position.symbol, position.side, position.chatId);
+function syncPositionFromServerInternal(position: Position): { changed: boolean; result: Position | null } {
+  let resolvedChatId: string;
+  try {
+    resolvedChatId = ensureChatId(position.chatId);
+  } catch (error) {
+    console.warn('[positions.store] syncPositionFromServer: missing chatId', position);
+    return { changed: false, result: null };
+  }
+  const identifierKey = makePositionKey(position.symbol, position.side, resolvedChatId);
+  const normalised = normaliseIncomingPosition(position);
+  normalised.chatId = resolvedChatId;
 
-  if (position.qtyTotal <= 0) {
+  if (normalised.qtyTotal <= 0 || isClosed(normalised.status)) {
     const existed = state.positions.delete(identifierKey);
-    if (existed) {
-      notify();
-    }
-    return null;
+    return { changed: existed, result: null };
   }
 
-  const normalisedPosition: Position = {
-    ...position,
-    updatedAt: position.updatedAt || new Date().toISOString(),
-    status: position.status ?? 'OPEN',
-  };
+  state.positions.set(identifierKey, normalised);
+  return { changed: true, result: normalised };
+}
 
-  state.positions.set(identifierKey, normalisedPosition);
+export function syncPositionFromServer(position: Position): Position | null {
+  const { changed, result } = syncPositionFromServerInternal(position);
+  if (changed) {
+    notify();
+  }
+  return result;
+}
+
+export function syncPositionsBatch(positions: Position[]): void {
+  if (!positions.length) {
+    return;
+  }
+
+  let changed = false;
+  runInBatch(() => {
+    positions.forEach((position) => {
+      const { changed: didChange } = syncPositionFromServerInternal(position);
+      if (didChange) {
+        changed = true;
+      }
+    });
+  });
+
+  if (changed) {
+    notify();
+  }
+}
+
+export function removePositionsByKeys(keys: string[]): void {
+  if (!keys.length) {
+    return;
+  }
+  let changed = false;
+  runInBatch(() => {
+    keys.forEach((identifierKey) => {
+      if (state.positions.delete(identifierKey)) {
+        changed = true;
+      }
+    });
+  });
+
+  if (changed) {
+    notify();
+  }
+}
+
+export function applyPositionsSnapshot(positions: Position[]): void {
+  const next = new Map<string, Position>();
+
+  positions.forEach((position) => {
+    const normalised = normaliseIncomingPosition(position);
+    if (normalised.qtyTotal <= 0 || isClosed(normalised.status)) {
+      return;
+    }
+    if (!normalised.chatId) {
+      console.warn('[positions.store] applyPositionsSnapshot skipped position without chatId', normalised);
+      return;
+    }
+    const identifierKey = makePositionKey(normalised.symbol, normalised.side, normalised.chatId);
+    next.set(identifierKey, normalised);
+  });
+
+  runInBatch(() => {
+    state.positions = next;
+  });
+
   notify();
-  return normalisedPosition;
 }
 
 export function settle(symbol: string, side: Side, price: number, qty: number, chatId?: string) {
-  const k = key(symbol, side, chatId);
+  const resolvedChatId = ensureChatId(chatId);
+  const k = makePositionKey(symbol, side, resolvedChatId);
   const p = state.positions.get(k);
   if (!p) throw new Error('ポジションが見つかりません');
   if (qty > p.qtyTotal) throw new Error(`決済数量が保有数量を超えています（保有: ${p.qtyTotal}株）`);
@@ -421,7 +706,7 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
 
       tradeSnapshot = {
         tradeId: p.currentTradeId,
-        chatId: chatId || 'default',
+        chatId: resolvedChatId,
         symbol,
         side,
         avgEntry: isFinite(avgEntry) ? avgEntry : 0,
@@ -535,34 +820,38 @@ export function getGroups(chatId?: string): SymbolGroup[] {
 }
 
 export function getLongShortQty(symbol: string, chatId?: string) {
-  const long = state.positions.get(key(symbol, 'LONG', chatId))?.qtyTotal ?? 0;
-  const short = state.positions.get(key(symbol, 'SHORT', chatId))?.qtyTotal ?? 0;
+  let resolvedChatId: string;
+  try {
+    resolvedChatId = ensureChatId(chatId);
+  } catch (error) {
+    return { long: 0, short: 0 };
+  }
+  const long = state.positions.get(makePositionKey(symbol, 'LONG', resolvedChatId))?.qtyTotal ?? 0;
+  const short = state.positions.get(makePositionKey(symbol, 'SHORT', resolvedChatId))?.qtyTotal ?? 0;
   return { long, short };
 }
 
 // Explicitly delete a position (user-initiated removal)
 export function deletePosition(symbol: string, side: Side, chatId?: string): boolean {
   console.log('[positions.store] deletePosition called', { symbol, side, chatId });
-  // Try exact key first
-  const tryKeys: string[] = [];
-  tryKeys.push(key(symbol, side, chatId));
-  // Fallbacks for legacy/default chatId
-  if (chatId && chatId !== 'default') {
-    tryKeys.push(key(symbol, side, 'default'));
+  let resolvedChatId: string;
+  try {
+    resolvedChatId = ensureChatId(chatId);
+  } catch (error) {
+    console.warn('[positions.store] deletePosition without chatId', { symbol, side, chatId });
+    return false;
   }
-  // As a last resort, search by symbol+side (ignore chatId)
-  const anyKey = Array.from(state.positions.keys()).find(k => k.startsWith(`${symbol}:${side}:`));
-  if (anyKey) tryKeys.push(anyKey);
 
-  for (const kpos of tryKeys) {
-    if (state.positions.has(kpos)) {
-      console.log('[positions.store] deleting key', kpos);
-      state.positions.delete(kpos);
-      notify();
-      return true;
-    }
+  const identifierKey = makePositionKey(symbol, side, resolvedChatId);
+
+  if (state.positions.has(identifierKey)) {
+    console.log('[positions.store] deleting key', identifierKey);
+    state.positions.delete(identifierKey);
+    notify();
+    return true;
   }
-  console.warn('[positions.store] deletePosition: no matching key found', { tryKeys, keys: Array.from(state.positions.keys()) });
+
+  console.warn('[positions.store] deletePosition: no matching key found', { identifierKey });
   return false;
 }
 

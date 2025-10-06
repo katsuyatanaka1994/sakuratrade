@@ -25,8 +25,9 @@ import { getLatestSymbolFromChat, loadSymbols } from '../utils/symbols';
 import type { ChatMsg } from '../utils/symbols';
 import { useSymbolSuggest } from '../hooks/useSymbolSuggest';
 import { useToast } from './ToastContainer';
-import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, getLongShortQty, updatePosition, recordSettlement as positionsRecordSettlement, getSettlementRecord, unsettle as positionsUnsettle, getState as getPositionsState, removeEntryLot, deletePosition as storeDeletePosition } from '../store/positions';
-import type { TradeSnapshot } from '../store/positions';
+import { entry as positionsEntry, settle as positionsSettle, submitJournalEntry, getLongShortQty, updatePosition, recordSettlement as positionsRecordSettlement, getSettlementRecord, unsettle as positionsUnsettle, getState as getPositionsState, removeEntryLot, deletePosition as storeDeletePosition, makePositionKey } from '../store/positions';
+import type { TradeSnapshot, Position } from '../store/positions';
+import { featureFlags } from '../lib/features';
 import { recordEntryDeleted, recordEntryEdited } from '../lib/auditLogger';
 import type { EntryAuditSnapshot } from '../lib/auditLogger';
 import { convertChatMessageToTradeMessage } from '../utils/messageAdapter';
@@ -99,6 +100,19 @@ const extractStockName = (message: string): string | null => {
   }
   
   return null;
+};
+
+type PositionsLiveEventPayload =
+  | { type: 'positions.upsert'; payload: Position }
+  | { type: 'positions.removed'; payload: { symbol: string; side: Position['side']; chatId?: string | null } }
+  | { type: 'positions.snapshot.request' };
+
+const emitPositionsLiveEvent = (detail: PositionsLiveEventPayload) => {
+  if (typeof window === 'undefined') return;
+  if (featureFlags.livePositions) {
+    window.dispatchEvent(new CustomEvent('positions.live', { detail }));
+  }
+  window.dispatchEvent(new Event('positions-changed'));
 };
 
 // Helper functions will be defined inside the component
@@ -926,21 +940,40 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
       const parsed = parseEntryMessage(target);
       if (parsed) {
-        const chatContext = currentChatId || undefined;
+        const chatContext = currentChatId;
         let removed = false;
-        if (parsed.price !== undefined && parsed.qty !== undefined) {
-          removed = removeEntryLot(
-            parsed.symbolCode,
-            parsed.side,
-            parsed.price,
-            parsed.qty,
-            chatContext
-          );
+        if (chatContext) {
+          if (parsed.price !== undefined && parsed.qty !== undefined) {
+            removed = removeEntryLot(
+              parsed.symbolCode,
+              parsed.side,
+              parsed.price,
+              parsed.qty,
+              chatContext
+            );
+          }
+          if (!removed) {
+            removed = storeDeletePosition(parsed.symbolCode, parsed.side, chatContext);
+          }
+
+          const positionKey = makePositionKey(parsed.symbolCode, parsed.side, chatContext);
+          const latestPosition = getPositionsState().positions.get(positionKey);
+
+          if (latestPosition && latestPosition.qtyTotal > 0) {
+            emitPositionsLiveEvent({ type: 'positions.upsert', payload: latestPosition });
+          } else if (removed) {
+            emitPositionsLiveEvent({
+              type: 'positions.removed',
+              payload: {
+                symbol: parsed.symbolCode,
+                side: parsed.side,
+                chatId: chatContext,
+              },
+            });
+          }
+        } else {
+          console.warn('Attempted to remove entry without chat context', parsed);
         }
-        if (!removed) {
-          storeDeletePosition(parsed.symbolCode, parsed.side, chatContext);
-        }
-        window.dispatchEvent(new Event('positions-changed'));
 
         const beforeSnapshot: EntryAuditSnapshot = {
           symbolCode: parsed.symbolCode,
@@ -1126,12 +1159,17 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         avgPrice: price,
         qtyTotal: qty,
         updatedAt: new Date().toISOString(),
+        note: memoForPayload,
+        memo: memoForPayload,
+        chartPattern: chartPatternValue,
+        chartPatternLabel: patternLabel ?? undefined,
+        patterns: patternLabel ? [patternLabel] : undefined,
       },
       currentChatId || undefined
     );
 
     if (linkedPosition) {
-      window.dispatchEvent(new Event('positions-changed'));
+      emitPositionsLiveEvent({ type: 'positions.upsert', payload: linkedPosition });
     }
 
     setIsUpdating(true);
@@ -1190,38 +1228,62 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         regenerateFlag: planTriggerChanged,
       });
 
-      const chatContext = currentChatId || undefined;
+      const chatContext = currentChatId;
 
-      // Remove previous lots if they existed
-      if (originalParsed?.qty && originalParsed.qty > 0 && originalParsed.price !== undefined) {
-        removeEntryLot(
-          originalParsed.symbolCode,
-          originalParsed.side,
-          originalParsed.price,
-          originalParsed.qty,
-          chatContext
-        );
-      }
+      if (chatContext) {
+        // Remove previous lots if they existed
+        if (originalParsed?.qty && originalParsed.qty > 0 && originalParsed.price !== undefined) {
+          removeEntryLot(
+            originalParsed.symbolCode,
+            originalParsed.side,
+            originalParsed.price,
+            originalParsed.qty,
+            chatContext
+          );
+        }
 
-      // Apply new entry lots only when qty remains positive
-      if (qty > 0) {
-        positionsEntry(
-          symbolCodeForPayload,
-          entryPositionType === 'long' ? 'LONG' : 'SHORT',
-          price,
-          qty,
-          symbolNameForPayload,
-          chatContext
-        );
+        let resultingPosition: Position | null = null;
+
+        if (qty > 0) {
+          resultingPosition = positionsEntry(
+            symbolCodeForPayload,
+            entryPositionType === 'long' ? 'LONG' : 'SHORT',
+            price,
+            qty,
+            symbolNameForPayload,
+            chatContext,
+            {
+              note: memoForPayload,
+              memo: memoForPayload,
+              chartPattern: chartPatternValue,
+              chartPatternLabel: patternLabel ?? undefined,
+              patterns: patternLabel ? [patternLabel] : undefined,
+            }
+          );
+        } else {
+          const removed = storeDeletePosition(
+            symbolCodeForPayload,
+            entryPositionType === 'long' ? 'LONG' : 'SHORT',
+            chatContext
+          );
+          if (removed) {
+            emitPositionsLiveEvent({
+              type: 'positions.removed',
+              payload: {
+                symbol: symbolCodeForPayload,
+                side: entryPositionType === 'long' ? 'LONG' : 'SHORT',
+                chatId: chatContext,
+              },
+            });
+          }
+        }
+
+        if (resultingPosition) {
+          emitPositionsLiveEvent({ type: 'positions.upsert', payload: resultingPosition });
+        }
       } else {
-        storeDeletePosition(
-          symbolCodeForPayload,
-          entryPositionType === 'long' ? 'LONG' : 'SHORT',
-          chatContext
-        );
+        console.warn('Attempted to update entry without a selected chat', editingMessageId);
       }
-
-      window.dispatchEvent(new Event('positions-changed'));
     } catch (error) {
       console.error('Failed to update ENTRY message:', error);
       // Keep optimistic update but warn in console for follow-up.
@@ -1453,8 +1515,17 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // Handle chat selection
     if (chatParam && chatParam !== currentChatId) {
       setCurrentChatId(chatParam);
+      try {
+        localStorage.setItem('currentChatId', chatParam);
+      } catch (error) {
+        console.warn('Failed to persist currentChatId from search params:', error);
+      }
+
+      const nextSearchParams = new URLSearchParams(searchParams);
+      nextSearchParams.delete('chat');
+      setSearchParams(nextSearchParams, { replace: true });
     }
-    
+
     // Handle message highlighting
     if (highlightParam) {
       setHighlightedMessageId(highlightParam);
@@ -2704,8 +2775,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // 成功した場合のみ初回エントリーのポジションにチャート画像IDを紐付け
     let attachChart: { imageId: string } | null = null;
     const symbolCodeForPosition = entryCode || entrySymbol.split(' ')[0];
-    const preQty = getLongShortQty(symbolCodeForPosition, currentChatId);
+    const chatIdForEntry = currentChatId;
+    if (!chatIdForEntry) {
+      console.warn('Attempted to create a position without selecting a chat');
+      return;
+    }
+    const preQty = getLongShortQty(symbolCodeForPosition, chatIdForEntry);
     const isInitialForSide = (entryPositionType === 'long' ? preQty.long : preQty.short) === 0;
+
     if (entryImageFile) {
       // 統合分析を実行
       try {
@@ -2718,9 +2795,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         formData.append('entry_price', price.toString());
         formData.append('position_type', entryPositionType === 'LONG' ? 'long' : 'short');
         formData.append('analysis_context', `建値入力: ${entrySymbol} ${positionText} ${price}円 ${qty}株`);
-        if (currentChatId) {
-          formData.append('chat_id', currentChatId);
-        }
+        formData.append('chat_id', chatIdForEntry);
 
         const apiUrl = getApiUrl();
         const response = await fetch(`${apiUrl}/api/v1/integrated-analysis`, {
@@ -2776,7 +2851,6 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
 
     // 右カラムのストアを更新
-    const chatIdForEntry = currentChatId || undefined;
     console.log('🎯 Creating position with chatId:', chatIdForEntry);
     // 銘柄名を抽出（"4661 オリエンタルランド"形式の場合）
     let symbolName = '';
@@ -2791,8 +2865,19 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
       price,
       qty,
       symbolName || undefined,
-      chatIdForEntry
+      chatIdForEntry,
+      {
+        note: memoForPayload,
+        memo: memoForPayload,
+        chartPattern: chartPatternValue,
+        chartPatternLabel: patternLabel ?? undefined,
+        patterns: patternLabel ? [patternLabel] : undefined,
+      }
     );
+
+    if (createdPosition) {
+      emitPositionsLiveEvent({ type: 'positions.upsert', payload: createdPosition });
+    }
 
     // AI成功時のみ画像IDを紐付け（初回エントリー限定）
     if (attachChart) {
@@ -2893,10 +2978,16 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     }
 
     // 右カラムのストアに決済を通知
+    const settleChatId = exitChatId || currentChatId;
+    if (!settleChatId) {
+      alert('チャットが選択されていないため決済できません');
+      return;
+    }
+
     let settleResult;
     try {
       console.log(`🔍 DEBUG: Attempting to settle position: symbol=${exitSymbol}, side=${exitSide}, price=${price}, qty=${qty}`);
-      settleResult = positionsSettle(exitSymbol, exitSide, price, qty, exitChatId || currentChatId || undefined);
+      settleResult = positionsSettle(exitSymbol, exitSide, price, qty, settleChatId);
       console.log(`🔍 DEBUG: Settle result:`, settleResult);
     } catch (e: any) {
       alert(e?.message || '決済に失敗しました');
@@ -2909,7 +3000,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // 1) Positions store の平均建値（カード表示と一致させる）
     try {
       const state = getPositionsState();
-      const posKey = `${exitSymbol}:${exitSide}:${exitChatId || currentChatId || 'default'}`;
+      const posKey = makePositionKey(exitSymbol, exitSide, settleChatId);
       const pos = state.positions.get(posKey);
       if (pos && typeof pos.avgPrice === 'number' && pos.avgPrice > 0) {
         entryVal = pos.avgPrice;

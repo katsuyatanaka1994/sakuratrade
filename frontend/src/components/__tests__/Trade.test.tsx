@@ -64,7 +64,7 @@ const resetPositionsStore = () => {
 };
 
 const submitEntry = async ({ symbol, price, qty }: { symbol: string; price: string; qty: string }) => {
-  await clickAsync(screen.getByText('建値入力'));
+  await clickAsync(screen.getByRole('button', { name: '建値入力' }));
   const heading = screen.getByText('建値入力', { selector: 'h2' });
   const dialog = heading.parentElement?.parentElement as HTMLElement;
   if (!dialog) {
@@ -152,14 +152,14 @@ test('コンポーネントが正常にレンダリングされる', async () =>
   await renderTrade();
 
   // Check if main buttons are rendered
-  expect(screen.getByText("建値入力")).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '建値入力' })).toBeInTheDocument();
   expect(screen.getByText("チャート画像をアップロード")).toBeInTheDocument();
 });
 
 test('建値入力モーダルが開く', async () => {
   await renderTrade();
 
-  await clickAsync(screen.getByText("建値入力"));
+  await clickAsync(screen.getByRole('button', { name: '建値入力' }));
 
   // Check if modal heading appears
   const modalHeading = screen.getByRole('heading', { name: '建値入力' });
