@@ -8,12 +8,7 @@ export type BaseMessage = {
   updatedAt?: string;
 };
 
-export type ChartPattern =
-  | 'pullback-buy'
-  | 'retest-short'
-  | 'breakout'
-  | 'double-bottom'
-  | 'trend-follow';
+export type ChartPattern = string;
 
 export type EntryPayload = {
   symbolCode: string;

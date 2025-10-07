@@ -18,6 +18,7 @@ export interface TradeSnapshot {
   pnlPct: number;
   holdMinutes: number;
   closedAt: string;
+  chartPattern?: string;
   feedback?: {
     text: string;
     tone: 'praise' | 'advice';
@@ -715,7 +716,8 @@ export function settle(symbol: string, side: Side, price: number, qty: number, c
         pnlAbs: isFinite(realized) ? realized : 0,
         pnlPct,
         holdMinutes,
-        closedAt: closeTime.replace(/\.\d{3}Z$/, 'Z')
+        closedAt: closeTime.replace(/\.\d{3}Z$/, 'Z'),
+        chartPattern: p.chartPattern,
       };
 
       // Clear trade tracking
@@ -948,6 +950,7 @@ export async function submitJournalEntry(tradeSnapshot: TradeSnapshot): Promise<
         next_actions: tradeSnapshot.feedback.nextActions,
         message_id: tradeSnapshot.feedback.messageId
       } : undefined,
+      pattern: tradeSnapshot.chartPattern,
       analysis: tradeSnapshot.analysis ? {
         score: tradeSnapshot.analysis.score,
         labels: tradeSnapshot.analysis.labels

@@ -1,9 +1,15 @@
 from fastapi import FastAPI
 
-from .routers import advice, images, trades
 
+def register_routers(app: FastAPI) -> None:
+    """Register application routers without triggering side effects on import."""
 
-def register_routers(app: FastAPI):
+    # Import locally to avoid side effects during Alembic migrations.
+    from .routers import advice, images, trades  # pylint: disable=import-outside-toplevel
+
     app.include_router(trades.router)
     app.include_router(images.router)
     app.include_router(advice.router)
+
+
+__all__ = ["register_routers"]

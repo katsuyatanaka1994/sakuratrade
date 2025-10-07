@@ -12,6 +12,7 @@ class TradeJournal(Base):
     chat_id = Column(String, nullable=False)
     symbol = Column(String, nullable=False)
     side = Column(String, nullable=False)  # LONG or SHORT
+    pattern = Column(String, nullable=True)
 
     # Trade metrics
     avg_entry = Column(Float, nullable=False)

@@ -377,8 +377,8 @@ export default function Dashboard() {
   const loadJournalEntries = async (filters: JournalFilters = {}) => {
     setJournalLoading(true);
     try {
-      const entries = await journalApi.getEntries(filters);
-      setJournalEntries(entries);
+      const response = await journalApi.getEntries(filters);
+      setJournalEntries(response.entries);
     } catch (error) {
       console.error('Failed to load journal entries:', error);
     } finally {

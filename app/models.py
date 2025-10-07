@@ -126,6 +126,7 @@ class TradeJournal(Base):
     chat_id: Mapped[str] = mapped_column(String, nullable=False)
     symbol: Mapped[str] = mapped_column(String, nullable=False)
     side: Mapped[str] = mapped_column(String, nullable=False)  # LONG or SHORT
+    pattern: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Trade metrics
     avg_entry: Mapped[float] = mapped_column(Float, nullable=False)
@@ -149,3 +150,31 @@ class TradeJournal(Base):
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    timeline_entries: Mapped[list["TradeJournalTimeline"]] = relationship(
+        back_populates="trade",
+        cascade="all, delete-orphan",
+        order_by="TradeJournalTimeline.occurred_at",
+    )
+
+
+class TradeJournalTimeline(Base):
+    __tablename__ = "trade_journal_timeline"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    trade_id: Mapped[str] = mapped_column(ForeignKey("trade_journal.trade_id"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    realized_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    thumb_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    supersedes_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    trade: Mapped[TradeJournal] = relationship(back_populates="timeline_entries")

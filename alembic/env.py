@@ -67,8 +67,13 @@ def run_migrations_online() -> None:
     from sqlalchemy import create_engine
 
     load_dotenv()
+
+    database_url = os.getenv("DATABASE_URL_SYNC") or config.get_main_option("sqlalchemy.url")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL_SYNC environment variable or sqlalchemy.url in alembic.ini must be set")
+
     connectable = create_engine(
-        os.getenv("DATABASE_URL_SYNC"),
+        database_url,
         poolclass=pool.NullPool,
     )
 

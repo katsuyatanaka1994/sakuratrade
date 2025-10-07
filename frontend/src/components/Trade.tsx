@@ -33,7 +33,8 @@ import type { EntryAuditSnapshot } from '../lib/auditLogger';
 import { convertChatMessageToTradeMessage } from '../utils/messageAdapter';
 import { undoChatMessage, updateChatMessage } from '../services/api';
 import { createChatMessage, generateAIReply } from '../services/api';
-import { CHART_PATTERNS, CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
+import { useChartPatterns } from '../hooks/useChartPatterns';
+import { CHART_PATTERNS } from '../constants/chartPatterns';
 import type { ChartPattern } from '../types/chat';
 import { loadTradePlanConfig, createPlanLegacyMessage } from '../utils/tradePlanMessage';
 
@@ -170,7 +171,10 @@ const normalizeSymbolCode = (raw: string): string => {
   return first ?? '';
 };
 
-const parseEntryMessage = (message: Message): ParsedEntryMessage | null => {
+const parseEntryMessage = (
+  message: Message,
+  patternOptions: ReadonlyArray<{ value: string; label: string }> = CHART_PATTERNS,
+): ParsedEntryMessage | null => {
   if (!message.content.includes('建値入力しました')) return null;
   const content = message.content;
   const plainText = content
@@ -189,7 +193,7 @@ const parseEntryMessage = (message: Message): ParsedEntryMessage | null => {
   const patternMatch = plainText.match(/チャートパターン[:：]\s*([^\n]+)/);
   const patternLabel = patternMatch ? patternMatch[1].trim() : undefined;
   const patternEntry = patternLabel
-    ? CHART_PATTERNS.find((pattern) => pattern.label === patternLabel)
+    ? patternOptions.find((pattern) => pattern.label === patternLabel)
     : undefined;
   const noteMatch = plainText.match(/(?:📝\s*|メモ[:：]\s*)([^\n]+)/);
   const tradeMatch = plainText.match(/取引ID[:：]\s*([^\n]+)/);
@@ -589,6 +593,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
   const [autoFilled, setAutoFilled] = useState(false);
   const [entryCode, setEntryCode] = useState('');
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const { patterns: chartPatterns, labelMap: chartPatternLabelMap } = useChartPatterns();
   
   // Track settled entries by message ID
   const [settledEntries, setSettledEntries] = useState<Set<string>>(() => loadSettledEntriesFromStorage());
@@ -813,7 +818,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     // Extract chart pattern label
     const patternMatch = plainText.match(/チャートパターン[:：]\s*([^\n]+)/);
     const patternLabel = patternMatch ? patternMatch[1].trim() : '';
-    const patternEntry = CHART_PATTERNS.find((p) => p.label === patternLabel);
+    const patternEntry = chartPatterns.find((p) => p.label === patternLabel);
     const chartPatternValue = patternEntry ? patternEntry.value : undefined;
 
     // Extract optional memo
@@ -938,7 +943,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
         return next;
       });
 
-      const parsed = parseEntryMessage(target);
+      const parsed = parseEntryMessage(target, chartPatterns);
       if (parsed) {
         const chatContext = currentChatId;
         let removed = false;
@@ -1081,14 +1086,14 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
 
     const originalMessage = messages.find(msg => msg.id === editingMessageId);
     const originalContent = originalMessage?.content || '';
-    const originalParsed = originalMessage ? parseEntryMessage(originalMessage) : null;
+    const originalParsed = originalMessage ? parseEntryMessage(originalMessage, chartPatterns) : null;
 
     const price = parseFloat(entryPrice);
     const qty = parseInt(entryQuantity, 10);
     const memoValue = entryMemo.trim();
     const memoForPayload = memoValue.length > 0 ? memoValue : undefined;
     const chartPatternValue = entryChartPattern === '' ? undefined : entryChartPattern;
-    const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
+    const patternLabel = chartPatternValue ? chartPatternLabelMap[chartPatternValue as ChartPattern] : null;
     const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
     const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
 
@@ -1482,7 +1487,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
           if (entryMessage.type !== 'user') return;
           if (typeof entryMessage.content !== 'string' || !entryMessage.content.includes('建値入力しました')) return;
 
-          const parsed = parseEntryMessage(entryMessage);
+          const parsed = parseEntryMessage(entryMessage, chartPatterns);
           if (!parsed) return;
 
           const entryCode = normalizeSymbolCode(parsed.symbolCode);
@@ -2705,7 +2710,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
     const memoValue = entryMemo.trim();
     const memoForPayload = memoValue.length > 0 ? memoValue : undefined;
     const chartPatternValue = entryChartPattern === '' ? undefined : entryChartPattern;
-    const patternLabel = chartPatternValue ? CHART_PATTERN_LABEL_MAP[chartPatternValue as ChartPattern] : null;
+    const patternLabel = chartPatternValue ? chartPatternLabelMap[chartPatternValue as ChartPattern] : null;
     const chartPatternLine = patternLabel ? `<br/>チャートパターン: ${patternLabel}` : '';
     const memoLine = memoForPayload ? `<br/>メモ: ${memoForPayload.replace(/\n/g, '<br/>')}` : '';
     const fallbackEntryContent = `📈 建値入力しました！<br/>銘柄: ${entrySymbol}<br/>ポジションタイプ: ${positionText}<br/>建値: ${price.toLocaleString()}円<br/>数量: ${qty.toLocaleString()}株${chartPatternLine}${memoLine}`;
@@ -3778,7 +3783,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                     <SelectValue placeholder="パターンを選択" />
                   </SelectTrigger>
                   <SelectContent className="z-[10000] bg-white border border-gray-200 shadow-lg">
-                    {CHART_PATTERNS.map((pattern) => (
+                    {chartPatterns.map((pattern) => (
                       <SelectItem key={pattern.value} value={pattern.value}>
                         {pattern.label}
                       </SelectItem>
@@ -3798,7 +3803,7 @@ const Trade: React.FC<TradeProps> = ({ isFileListVisible, selectedFile, setSelec
                 </button>
                 {entryChartPattern && (
                   <span className="text-xs text-gray-500">
-                    選択中: {CHART_PATTERN_LABEL_MAP[entryChartPattern]}
+                    選択中: {chartPatternLabelMap[entryChartPattern] ?? entryChartPattern}
                   </span>
                 )}
               </div>

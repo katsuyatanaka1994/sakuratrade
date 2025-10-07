@@ -32,7 +32,7 @@ import {
   regeneratePositionAnalysis,
   handleAIRegenerationFailure,
 } from '../lib/aiRegeneration';
-import { CHART_PATTERNS, CHART_PATTERN_LABEL_MAP } from '../constants/chartPatterns';
+import { useChartPatterns } from '../hooks/useChartPatterns';
 import { showToast } from './UI/Toast';
 import {
   calculatePositionMetrics,
@@ -139,8 +139,6 @@ const formatAmount = (value: number): string => {
 const MAX_PRICE = 99999999.99;
 const MAX_QTY = 100000000;
 
-const chartPatternValues = CHART_PATTERNS.map(pattern => pattern.value);
-
 const formSchema = z.object({
   symbolCode: z.string().min(1, '銘柄コードが不正です'),
   symbolName: z.string().optional().default(''),
@@ -171,14 +169,7 @@ const formSchema = z.object({
     .max(500, 'メモは500文字以内で入力してください')
     .optional()
     .default(''),
-  chartPattern: z
-    .string()
-    .optional()
-    .default('')
-    .refine(
-      (value) => value === '' || chartPatternValues.includes(value as ChartPattern),
-      'チャートパターンが不正です'
-    ),
+  chartPattern: z.string().optional().default(''),
   version: z
     .number({
       required_error: 'バージョン情報が不正です',
@@ -259,6 +250,7 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
   const [regenerateEnabled, setRegenerateEnabled] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPlanTriggerDirty, setIsPlanTriggerDirty] = useState(false);
+  const { patterns: chartPatterns, labelMap: chartPatternLabelMap } = useChartPatterns();
 
   const positionId = initialData?.positionId;
   const planConfig = useMemo(() => loadTradePlanConfig(), []);
@@ -849,13 +841,13 @@ const EditEntryModal: React.FC<EditEntryModalProps> = ({
                   <SelectTrigger id="chartPattern" data-testid="select-chart-pattern">
                     <SelectValue placeholder="選択しない">
                       {field.value
-                        ? CHART_PATTERN_LABEL_MAP[field.value as ChartPattern] ?? field.value
+                        ? chartPatternLabelMap[field.value as ChartPattern] ?? field.value
                         : '選択しない'}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">選択しない</SelectItem>
-                    {CHART_PATTERNS.map((pattern) => (
+                    {chartPatterns.map((pattern) => (
                       <SelectItem key={pattern.value} value={pattern.value}>
                         {pattern.label}
                       </SelectItem>

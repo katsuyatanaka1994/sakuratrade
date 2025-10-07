@@ -1,24 +1,16 @@
-import uuid
-from datetime import datetime
-from typing import List
+from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter
 
-from app.schemas.pattern import PatternResult
+from app.core.patterns import PATTERN_DEFINITIONS, PATTERN_VERSION
+from app.schemas.pattern import PatternCatalog, PatternDefinition
 
 router = APIRouter(prefix="/patterns", tags=["patterns"])
 
 
-@router.get("", response_model=List[PatternResult])
-async def list_patterns():
-    """ダミー: 空リストを返す"""
-    return []
+@router.get("", response_model=PatternCatalog)
+async def list_patterns() -> PatternCatalog:
+    """Return chart pattern catalog for frontend synchronisation."""
 
-
-@router.post("", response_model=PatternResult, status_code=status.HTTP_201_CREATED)
-async def create_pattern(payload: PatternResult):
-    """ダミー: 受信データを返しつつ ID と日時を補完"""
-    data = payload.model_dump()
-    data["patternId"] = str(data.get("patternId") or uuid.uuid4())
-    data["diagnosedAt"] = data.get("diagnosedAt") or datetime.utcnow().isoformat()
-    return PatternResult(**data)
+    patterns = [PatternDefinition(**definition) for definition in PATTERN_DEFINITIONS]
+    return PatternCatalog(pattern_version=PATTERN_VERSION, version=PATTERN_VERSION, patterns=patterns)
