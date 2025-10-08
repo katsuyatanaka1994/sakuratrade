@@ -7,7 +7,7 @@ import openai
 from schemas.indicators import IndicatorItem
 
 
-class GPTAnalyzer:
+class FrontendGPTAnalyzer:
     """GPT-4o による画像解析とテクニカル指標抽出クラス"""
 
     def __init__(self, api_key: str):

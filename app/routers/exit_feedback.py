@@ -1,17 +1,22 @@
-import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.settings import get_settings
 from app.database import get_async_db
 from app.schemas.exit_feedback import ExitFeedbackRequest, ExitFeedbackResponse
 from app.services.exit_feedback_service import ExitFeedbackService
 
 router = APIRouter()
 
-# 環境変数からOpenAI APIキーを取得
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+settings = get_settings()
+
+
+def _require_openai_key() -> str:
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    return settings.openai_api_key
 
 
 @router.post("/feedback/exit", response_model=ExitFeedbackResponse)
@@ -35,8 +40,7 @@ async def generate_exit_feedback(
     - HTML形式で視認性の高いフィードバックを返却
     """
 
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    api_key = _require_openai_key()
 
     try:
         # リクエストデータ作成
@@ -67,7 +71,7 @@ async def generate_exit_feedback(
             image_data = file_content
 
         # フィードバック生成サービス初期化
-        feedback_service = ExitFeedbackService(OPENAI_API_KEY)
+        feedback_service = ExitFeedbackService(api_key)
 
         # 決済フィードバック生成
         result = feedback_service.generate_exit_feedback(request, image_data)
@@ -87,7 +91,7 @@ async def feedback_status():
     """
     status = {
         "exit_feedback": "available",
-        "gpt_analysis": "available" if OPENAI_API_KEY else "unavailable",
+        "gpt_analysis": "available" if settings.openai_api_key else "unavailable",
         "template_system": "available",
     }
 

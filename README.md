@@ -41,11 +41,22 @@ app/
    pip install -r requirements.txt
    ```
 
+4. PostgreSQL を起動（SQLite はサポートしていません）
+   ```bash
+   # Docker 例
+   docker run --rm --name gptset-pg \
+     -e POSTGRES_USER=app_user -e POSTGRES_PASSWORD=app_pass -e POSTGRES_DB=app_db \
+     -p 5432:5432 -d postgres:16
+   ```
+   > Homebrew の場合は `brew services start postgresql@16` 後に `createdb app_db` を実行してください。
+
 ## 🚀 開発サーバーの起動
 
 ```bash
-uvicorn app.main:app --reload
+make run-dev
 ```
+
+> `.env` は開発専用です。`ENV=production` の場合は読み込まれません。
 
 ---
 
@@ -69,6 +80,42 @@ docker compose restart backend
 - プロジェクト内の参照は `from app.<module> import ...` 形式に統一しています。
 - モジュールを直接実行する際は `python -m app.<module_path>` を利用するとパス設定が不要です。
 - CI では `ruff` と `scripts/check_import_paths.py` が同ルールを検証します。
+
+---
+
+## ⚙️ 設定と環境変数
+
+- `.env.example` を `.env` にコピーしてローカル環境を構成します。
+- `ENV` は `development` のときのみ `.env` を読み込みます。`production` ではインフラ側の環境変数／Secret を使ってください。
+- 主なキー: `DATABASE_URL`（`postgresql+asyncpg://` 形式）、`LOG_LEVEL`、`OPENAI_API_KEY`、`DB_POOL_*` (接続プール調整)。
+- `Makefile` の `run-dev` ターゲットは `uvicorn app.main:app --reload --env-file .env` を実行します。`run-prod` ターゲットは `ENV=production` を付与した起動例です。
+
+---
+
+## 🗃️ データベースマイグレーション
+
+- サポート DB は PostgreSQL のみです。`DATABASE_URL` も `postgresql+asyncpg://` 形式に統一しています。
+- `.env.example` の DSN でユーザー名にスペースがある場合は URL エンコードを利用してください（例: `katsuya%20tanaka`）。
+- スキーマ適用は `make db-upgrade`（内部で `alembic upgrade head`）で行います。`create_all()` は使用しません。
+- 新しいモデル変更は `alembic revision --autogenerate -m "describe change"` でマイグレーションファイルを生成します。
+- 別 DSN へ直接適用したい場合は `alembic -x dburl=postgresql://user:pass@host/db upgrade head` を使用します。
+- マイグレーション実行時はアプリと同じ環境変数を利用し、`ENV=production` の場合でも `.env` は読まれません。
+
+### CI / ローカル検証のランブック
+
+```bash
+make db-reset          # dropdb --if-exists && createdb
+make db-upgrade        # alembic upgrade head
+make test              # pytest -q app/tests tests test_*.py
+make run-dev           # uvicorn app.main:app --reload --env-file .env
+```
+
+---
+
+## 🩺 ヘルスチェック
+
+- `GET /healthz` は起動時とリクエスト時に `SELECT 1` でDB疎通を確認します。
+- DB が停止している場合は HTTP 503 を返し、旧 `/health` も後方互換のため同じレスポンスを返します。
 
 ---
 

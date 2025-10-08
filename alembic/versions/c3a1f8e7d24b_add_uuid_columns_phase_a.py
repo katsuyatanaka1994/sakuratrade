@@ -1,4 +1,4 @@
-"""Add UUID companion columns (Phase A)
+"""introduce uuid companion columns with batch migration
 
 Revision ID: c3a1f8e7d24b
 Revises: 690ffec9e9e7
@@ -8,129 +8,155 @@ Create Date: 2025-10-08 11:45:00.000000
 
 from __future__ import annotations
 
+import os
 import uuid
+from typing import Iterable
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
-# revision identifiers, used by Alembic.
 revision = "c3a1f8e7d24b"
 down_revision = "690ffec9e9e7"
 branch_labels = None
 depends_on = None
 
+BATCH_SIZE = int(os.environ.get("MIGRATION_BATCH_SIZE", "1000"))
+LOCK_TIMEOUT = os.environ.get("MIGRATION_LOCK_TIMEOUT", "5s")
+UUID_TYPE = postgresql.UUID(as_uuid=False)
 
-UUID_LEN = 36
+
+def _set_lock_timeout(bind: sa.Connection) -> None:
+    if bind.dialect.name == "postgresql":
+        bind.execute(sa.text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
 
 
-def _add_column(table: str, column: str, *, fk: tuple[str, str] | None = None) -> None:
-    op.add_column(table, sa.Column(column, sa.String(length=UUID_LEN), nullable=True))
-    if fk:
-        op.create_foreign_key(
-            f"fk_{table}_{column}",
-            table,
-            fk[0],
-            [column],
-            [fk[1]],
+def _ensure_pgcrypto(bind: sa.Connection) -> None:
+    if bind.dialect.name == "postgresql":
+        bind.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+
+
+def _assign_random_uuid(
+    bind: sa.Connection,
+    *,
+    table: str,
+    pk_column: str,
+    uuid_column: str,
+) -> None:
+    last_pk = None
+    while True:
+        if last_pk is None:
+            rows = (
+                bind.execute(
+                    sa.text(
+                        f"SELECT {pk_column} AS pk FROM {table} "
+                        f"WHERE {uuid_column} IS NULL ORDER BY {pk_column} LIMIT :limit"
+                    ),
+                    {"limit": BATCH_SIZE},
+                )
+                .mappings()
+                .all()
+            )
+        else:
+            rows = (
+                bind.execute(
+                    sa.text(
+                        f"SELECT {pk_column} AS pk FROM {table} "
+                        f"WHERE {uuid_column} IS NULL AND {pk_column} > :last_pk "
+                        f"ORDER BY {pk_column} LIMIT :limit"
+                    ),
+                    {"limit": BATCH_SIZE, "last_pk": last_pk},
+                )
+                .mappings()
+                .all()
+            )
+
+        if not rows:
+            break
+
+        payload = [{"uuid": str(uuid.uuid4()), "pk": row["pk"]} for row in rows]
+        bind.execute(
+            sa.text(f"UPDATE {table} SET {uuid_column} = :uuid " f"WHERE {pk_column} = :pk"),
+            payload,
         )
+        last_pk = rows[-1]["pk"]
 
 
-def _drop_column(table: str, column: str) -> None:
-    try:
-        op.drop_constraint(f"fk_{table}_{column}", table, type_="foreignkey")
-    except sa.exc.DBAPIError:
-        pass
-    except sa.exc.OperationalError:
-        pass
-    op.drop_column(table, column)
+def _fill_child_uuid(bind: sa.Connection, table: str) -> None:
+    bind.execute(
+        sa.text(
+            f"""
+            UPDATE {table} AS child
+            SET trade_uuid = parent.trade_uuid
+            FROM trades AS parent
+            WHERE child.trade_uuid IS NULL
+              AND child.trade_id = parent.trade_id
+            """
+        )
+    )
+
+
+def _ensure_constraint(bind: sa.Connection, table: str, name: str, columns: Iterable[str]) -> None:
+    inspector = sa.inspect(bind)
+    existing = {constraint["name"] for constraint in inspector.get_unique_constraints(table)}
+    if name not in existing:
+        op.create_unique_constraint(name, table, list(columns))
 
 
 def upgrade() -> None:
-    _add_column("users", "user_uuid")
-    op.create_unique_constraint("uq_users_user_uuid", "users", ["user_uuid"])
-
-    _add_column("trades", "trade_uuid")
-    op.create_unique_constraint("uq_trades_trade_uuid", "trades", ["trade_uuid"])
-
-    _add_column("images", "trade_uuid", fk=("trades", "trade_uuid"))
-    _add_column("pattern_results", "trade_uuid", fk=("trades", "trade_uuid"))
-    _add_column("alerts", "trade_uuid", fk=("trades", "trade_uuid"))
-    _add_column("trade_journal", "trade_uuid")
-    op.create_unique_constraint("uq_trade_journal_trade_uuid", "trade_journal", ["trade_uuid"])
-
     bind = op.get_bind()
+    _set_lock_timeout(bind)
+    _ensure_pgcrypto(bind)
 
-    # ensure dummy user exists for tests/reference FKs
-    zero_uuid = uuid.UUID("00000000-0000-0000-0000-000000000000")
-    zero_email = "dummy-tester@gptset.local"
+    op.add_column("users", sa.Column("user_uuid", UUID_TYPE, nullable=True))
+    op.add_column("trades", sa.Column("trade_uuid", UUID_TYPE, nullable=True))
+    op.add_column("images", sa.Column("trade_uuid", UUID_TYPE, nullable=True))
+    op.add_column("pattern_results", sa.Column("trade_uuid", UUID_TYPE, nullable=True))
+    op.add_column("alerts", sa.Column("trade_uuid", UUID_TYPE, nullable=True))
+    op.add_column("trade_journal", sa.Column("trade_uuid", UUID_TYPE, nullable=True))
 
-    user_rows = bind.execute(sa.text("SELECT user_id, user_uuid FROM users")).mappings().all()
-    for row in user_rows:
-        user_id = row["user_id"]
-        try:
-            parsed = str(uuid.UUID(str(user_id)))
-        except Exception:
-            parsed = str(uuid.uuid4())
-        bind.execute(
-            sa.text("UPDATE users SET user_uuid = :uuid WHERE user_id = :user_id"),
-            {"uuid": parsed, "user_id": user_id},
-        )
+    _assign_random_uuid(bind, table="users", pk_column="user_id", uuid_column="user_uuid")
+    _assign_random_uuid(bind, table="trades", pk_column="trade_id", uuid_column="trade_uuid")
 
-    existing_zero = bind.execute(
-        sa.text("SELECT 1 FROM users WHERE user_id = :uid"),
-        {"uid": str(zero_uuid)},
-    ).first()
-    if existing_zero is None:
-        bind.execute(
-            sa.text("INSERT INTO users (user_id, user_uuid, email) VALUES (:uid, :uuid, :email)"),
-            {"uid": str(zero_uuid), "uuid": str(zero_uuid), "email": zero_email},
-        )
+    for table in ("images", "pattern_results", "alerts", "trade_journal"):
+        _fill_child_uuid(bind, table)
 
-    trade_rows = bind.execute(sa.text("SELECT trade_id, user_id FROM trades")).mappings().all()
-    for row in trade_rows:
-        trade_uuid = str(uuid.uuid4())
-        trade_id = row["trade_id"]
-        bind.execute(
-            sa.text("UPDATE trades SET trade_uuid = :uuid WHERE trade_id = :tid"),
-            {"uuid": trade_uuid, "tid": trade_id},
-        )
-        bind.execute(
-            sa.text("UPDATE images SET trade_uuid = :uuid WHERE trade_id = :tid"),
-            {"uuid": trade_uuid, "tid": trade_id},
-        )
-        bind.execute(
-            sa.text("UPDATE pattern_results SET trade_uuid = :uuid WHERE trade_id = :tid"),
-            {"uuid": trade_uuid, "tid": trade_id},
-        )
-        bind.execute(
-            sa.text("UPDATE alerts SET trade_uuid = :uuid WHERE trade_id = :tid"),
-            {"uuid": trade_uuid, "tid": trade_id},
-        )
+    _ensure_constraint(bind, "users", "uq_users_user_uuid", ["user_uuid"])
+    _ensure_constraint(bind, "trades", "uq_trades_trade_uuid", ["trade_uuid"])
 
-    journal_rows = bind.execute(sa.text("SELECT trade_id FROM trade_journal")).mappings().all()
-    for row in journal_rows:
-        trade_uuid = str(uuid.uuid4())
-        bind.execute(
-            sa.text("UPDATE trade_journal SET trade_uuid = :uuid WHERE trade_id = :tid"),
-            {"uuid": trade_uuid, "tid": row["trade_id"]},
-        )
+    op.create_foreign_key(
+        "fk_images_trade_uuid",
+        "images",
+        "trades",
+        ["trade_uuid"],
+        ["trade_uuid"],
+        ondelete="SET NULL",
+    )
+    op.create_foreign_key(
+        "fk_pattern_results_trade_uuid",
+        "pattern_results",
+        "trades",
+        ["trade_uuid"],
+        ["trade_uuid"],
+        ondelete="SET NULL",
+    )
+    op.create_foreign_key(
+        "fk_alerts_trade_uuid",
+        "alerts",
+        "trades",
+        ["trade_uuid"],
+        ["trade_uuid"],
+        ondelete="SET NULL",
+    )
+    op.create_foreign_key(
+        "fk_trade_journal_trade_uuid",
+        "trade_journal",
+        "trades",
+        ["trade_uuid"],
+        ["trade_uuid"],
+        ondelete="SET NULL",
+    )
 
 
 def downgrade() -> None:
-    try:
-        op.drop_constraint("uq_trade_journal_trade_uuid", "trade_journal", type_="unique")
-    except sa.exc.DBAPIError:
-        pass
-    except sa.exc.OperationalError:
-        pass
-    _drop_column("trade_journal", "trade_uuid")
-
-    _drop_column("alerts", "trade_uuid")
-    _drop_column("pattern_results", "trade_uuid")
-    _drop_column("images", "trade_uuid")
-
-    op.drop_constraint("uq_trades_trade_uuid", "trades", type_="unique")
-    _drop_column("trades", "trade_uuid")
-
-    op.drop_constraint("uq_users_user_uuid", "users", type_="unique")
-    _drop_column("users", "user_uuid")
+    raise RuntimeError("Downgrades are unsupported for UUID migration phase A")
