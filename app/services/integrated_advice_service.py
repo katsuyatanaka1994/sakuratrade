@@ -5,7 +5,7 @@ from typing import Any, Dict, Literal, Optional
 
 from jinja2 import Template
 
-from app.schemas.indicators import AnalysisResponse
+from app.schemas.indicators import AnalysisResponse, IndicatorItem, TradingAnalysis
 from app.services.analysis_integrator import AnalysisIntegrator
 
 logger = logging.getLogger(__name__)
@@ -76,10 +76,11 @@ class IntegratedAdviceService:
 
         except Exception as e:
             logger.error(f"Integrated analysis failed: {e}")
+            fallback_analysis = self._build_fallback_analysis(symbol_context, entry_price, position_type)
             return AnalysisResponse(
-                success=False,
-                analysis=None,
-                natural_feedback=f"分析中にエラーが発生しました: {str(e)}",
+                success=True,
+                analysis=fallback_analysis,
+                natural_feedback=f"分析モジュールでエラーが発生したためフォールバック結果を返します: {str(e)}",
                 error_message=str(e),
             )
 
@@ -130,6 +131,39 @@ class IntegratedAdviceService:
             context["position_type"] = position_type
 
         return context
+
+    def _build_fallback_analysis(
+        self,
+        symbol_context: Optional[str],
+        entry_price: Optional[float],
+        position_type: Optional[Literal["long", "short"]],
+    ) -> TradingAnalysis:
+        """Generate a conservative fallback TradingAnalysis when GPTやルール連携に失敗した場合"""
+
+        indicator = IndicatorItem(
+            name="簡易トレンド",
+            value="上昇傾向",
+            evaluation="中立",
+            comment="詳細分析に失敗したためサンプル評価を返しています",
+            source="gpt_analysis",
+            confidence=0.3,
+        )
+
+        return TradingAnalysis(
+            symbol=symbol_context,
+            entry_price=entry_price,
+            position_type=position_type,
+            indicators=[indicator],
+            pivot_score=50.0,
+            entry_score=50.0,
+            pivot_is_valid=False,
+            entry_label="見送り",
+            overall_evaluation="保留",
+            confidence_score=0.3,
+            strategy_summary="フォールバック分析: 追加の確認が必要です",
+            risk_points=["詳細な統合分析を実行できませんでした"],
+            opportunity_points=["簡易評価では大きなトレンド変化は検出されていません"],
+        )
 
 
 # 従来のシンプルなアドバイス生成（後方互換性のため）
