@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime
 from typing import List, Optional, Union
 from uuid import UUID
@@ -20,11 +19,15 @@ router = APIRouter(prefix="/trades", tags=["trades"])
 class TradeIn(BaseModel):
     tradeId: Optional[int] = None
     ticker: str
-    userId: str
+    userId: UUID
     side: str
     priceIn: float
     size: float
     enteredAt: datetime
+    stockCode: Optional[str] = None
+    quantity: Optional[int] = None
+    entryPrice: Optional[float] = None
+    description: Optional[str] = None
 
 
 class TradeOut(BaseModel):
@@ -42,18 +45,22 @@ class TradeOut(BaseModel):
 @router.post("", response_model=TradeOut, status_code=status.HTTP_201_CREATED)
 async def create_trade(payload: TradeIn, session: AsyncSession = Depends(get_session)):
     new_trade = Trade(
-        trade_id=uuid.uuid4(),
-        user_id=UUID(payload.userId),
+        user_id=payload.userId,
         ticker=payload.ticker,
         side=payload.side,
         price_in=payload.priceIn,
+        stock_code=payload.stockCode or payload.ticker,
+        quantity=payload.quantity or 0,
+        entry_price=payload.entryPrice or payload.priceIn,
         size=payload.size,
         entered_at=payload.enteredAt,
+        description=payload.description or "",
     )
     session.add(new_trade)
+    await session.flush()
+    refreshed = await session.get(Trade, new_trade.trade_id)
     await session.commit()
-    await session.refresh(new_trade)
-    return TradeOut.model_validate(new_trade)
+    return TradeOut.model_validate(refreshed)
 
 
 @router.get("", response_model=List[TradeOut])
