@@ -25,3 +25,8 @@ frontend/.env
 frontend/.env
 test.db
 app.db
+
+# Ignore build artifacts and misplaced files
+app/app/
+gptset.egg-info/
+
