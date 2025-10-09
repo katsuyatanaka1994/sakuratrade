@@ -8,6 +8,11 @@ Create Date: 2025-10-09 09:30:00.000000
 
 from __future__ import annotations
 
+revision = "7e3c9d9b02f0"
+down_revision = "c3a1f8e7d24b"
+branch_labels = None
+depends_on = None
+
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
