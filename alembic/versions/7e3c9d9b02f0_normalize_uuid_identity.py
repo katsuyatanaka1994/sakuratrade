@@ -123,51 +123,52 @@ def upgrade() -> None:
             """
         )
     )
-    op.execute(
-        sa.text(
-            """
-            DROP TRIGGER IF EXISTS trg_users_sync_uuid ON users;
-            CREATE TRIGGER trg_users_sync_uuid
-            BEFORE INSERT OR UPDATE ON users
-            FOR EACH ROW
-            EXECUTE FUNCTION sync_users_uuid();
-            """
-        )
+    op.execute(sa.text("DROP TRIGGER IF EXISTS trg_users_sync_uuid ON users"))
+
+
+op.execute(
+    sa.text(
+        "CREATE TRIGGER trg_users_sync_uuid "
+        "BEFORE INSERT OR UPDATE ON users "
+        "FOR EACH ROW "
+        "EXECUTE FUNCTION sync_users_uuid()"
     )
-
-    # Promote uuid columns to be authoritative
-    with op.batch_alter_table("trades") as batch_op:
-        batch_op.drop_column("user_id")
-        batch_op.alter_column("user_id_uuid", new_column_name="user_id", existing_type=UUID_TYPE)
-        batch_op.create_index("ix_trades_user_id", ["user_id"], unique=False)
-        batch_op.create_foreign_key("fk_trades_user_id", "users", ["user_id"], ["user_id"], ondelete="SET NULL")
-
-    with op.batch_alter_table("chats") as batch_op:
-        batch_op.drop_column("user_id")
-        batch_op.alter_column("user_id_uuid", new_column_name="user_id", existing_type=UUID_TYPE)
-        batch_op.create_index("ix_chats_user_id", ["user_id"], unique=False)
-        batch_op.create_foreign_key("fk_chats_user_id", "users", ["user_id"], ["user_id"], ondelete="SET NULL")
-
-    # Ensure trade UUIDs are enforced
-    op.alter_column("trades", "trade_uuid", nullable=False)
-    try:
-        op.drop_constraint("uq_trades_trade_uuid", "trades", type_="unique")
-    except Exception:  # noqa: BLE001
-        pass
-    op.create_unique_constraint("uq_trades_trade_uuid", "trades", ["trade_uuid"])
-    op.execute(sa.text("ALTER TABLE trades ALTER COLUMN trade_uuid SET DEFAULT gen_random_uuid()"))
-
-    with op.batch_alter_table("trade_journal") as batch_op:
-        try:
-            batch_op.drop_constraint("uq_trade_journal_trade_id", type_="unique")
-        except Exception:  # noqa: BLE001
-            pass
-        batch_op.alter_column("trade_uuid", existing_type=UUID_TYPE, nullable=False)
-        batch_op.create_unique_constraint("uq_trade_journal_trade_uuid", ["trade_uuid"])
-
-    # Remove legacy numeric id column from users
-    op.drop_column("users", "legacy_user_id")
+)
 
 
+# Promote uuid columns to be authoritative
+#     with op.batch_alter_table("trades") as batch_op:
+#         batch_op.drop_column("user_id")
+#         batch_op.alter_column("user_id_uuid", new_column_name="user_id", existing_type=UUID_TYPE)
+#         batch_op.create_index("ix_trades_user_id", ["user_id"], unique=False)
+#         batch_op.create_foreign_key("fk_trades_user_id", "users", ["user_id"], ["user_id"], ondelete="SET NULL")
+#
+#     with op.batch_alter_table("chats") as batch_op:
+#         batch_op.drop_column("user_id")
+#         batch_op.alter_column("user_id_uuid", new_column_name="user_id", existing_type=UUID_TYPE)
+#         batch_op.create_index("ix_chats_user_id", ["user_id"], unique=False)
+#         batch_op.create_foreign_key("fk_chats_user_id", "users", ["user_id"], ["user_id"], ondelete="SET NULL")
+#
+#     # Ensure trade UUIDs are enforced
+#     op.alter_column("trades", "trade_uuid", nullable=False)
+#     try:
+#         op.drop_constraint("uq_trades_trade_uuid", "trades", type_="unique")
+#     except Exception:  # noqa: BLE001
+#         pass
+#     op.create_unique_constraint("uq_trades_trade_uuid", "trades", ["trade_uuid"])
+#     op.execute(sa.text("ALTER TABLE trades ALTER COLUMN trade_uuid SET DEFAULT gen_random_uuid()"))
+#
+#     with op.batch_alter_table("trade_journal") as batch_op:
+#         try:
+#             batch_op.drop_constraint("uq_trade_journal_trade_id", type_="unique")
+#         except Exception:  # noqa: BLE001
+#             pass
+#         batch_op.alter_column("trade_uuid", existing_type=UUID_TYPE, nullable=False)
+#         batch_op.create_unique_constraint("uq_trade_journal_trade_uuid", ["trade_uuid"])
+#
+#     # Remove legacy numeric id column from users
+#     op.drop_column("users", "legacy_user_id")
+#
+#
 def downgrade() -> None:
     raise RuntimeError("Downgrade is unavailable for UUID normalization")
