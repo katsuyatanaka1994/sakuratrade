@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from app.db.types import JSONText, UUIDStr
+from app.db.types import JSONText
 
 
 class Base(DeclarativeBase):
@@ -16,8 +17,18 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    user_id: Mapped[UUID] = mapped_column(UUIDStr(), primary_key=True)
-    user_uuid: Mapped[UUID | None] = mapped_column(UUIDStr(), unique=True, default=uuid4, nullable=True)
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    user_uuid: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        unique=True,
+        default=uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     role: Mapped[str | None]
     plan: Mapped[str | None]
@@ -28,38 +39,45 @@ class User(Base):
 class Trade(Base):
     __tablename__ = "trades"
 
-    trade_id: Mapped[int] = mapped_column(primary_key=True)
-    trade_uuid: Mapped[UUID | None] = mapped_column(UUIDStr(), unique=True, default=uuid4, nullable=True)
-    user_id: Mapped[UUID] = mapped_column(UUIDStr(), ForeignKey("users.user_id"))
-    stock_code: Mapped[str]
-    ticker: Mapped[str]
-    side: Mapped[str]
-    quantity: Mapped[int]
-    price_in: Mapped[float]
-    entry_price: Mapped[float]
-    price_out: Mapped[float | None]
-    size: Mapped[float]
-    # 入力時刻（entry_at ではなく entered_at が正しいフィールド名）
-    entered_at: Mapped[datetime]
-    exited_at: Mapped[datetime | None]
-    description: Mapped[str]
+    trade_uuid: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    user_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.user_id"),
+        nullable=True,
+    )
+    stock_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    ticker: Mapped[str] = mapped_column(String, nullable=False)
+    side: Mapped[str] = mapped_column(String, nullable=False)
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    price_in: Mapped[float] = mapped_column(Float, nullable=False)
+    entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_out: Mapped[float | None] = mapped_column(Float, nullable=True)
+    size: Mapped[float] = mapped_column(Float, nullable=False)
+    entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    exited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    user: Mapped[User] = relationship(back_populates="trades", foreign_keys=[user_id])
+    user: Mapped[User | None] = relationship(back_populates="trades", foreign_keys=[user_id])
     images: Mapped[list["Image"]] = relationship(
         "Image",
         back_populates="trade",
-        foreign_keys="Image.trade_id",
+        foreign_keys="Image.trade_uuid",
     )
     pattern_result: Mapped["PatternResult"] = relationship(
         "PatternResult",
         back_populates="trade",
-        foreign_keys="PatternResult.trade_id",
+        foreign_keys="PatternResult.trade_uuid",
         uselist=False,
     )
     alerts: Mapped[list["Alert"]] = relationship(
         "Alert",
         back_populates="trade",
-        foreign_keys="Alert.trade_id",
+        foreign_keys="Alert.trade_uuid",
     )
 
 
@@ -67,16 +85,17 @@ class Image(Base):
     __tablename__ = "images"
 
     image_id: Mapped[int] = mapped_column(primary_key=True)
-    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.trade_id"))
-    trade_uuid: Mapped[UUID | None] = mapped_column(ForeignKey("trades.trade_uuid"), nullable=True)
-    s3_url: Mapped[str]
-    thumbnail_url: Mapped[str | None]
-    uploaded_at: Mapped[datetime]
+    trade_uuid: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("trades.trade_uuid"), nullable=True
+    )
+    s3_url: Mapped[str] = mapped_column(String, nullable=False)
+    thumbnail_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    trade: Mapped[Trade] = relationship(
+    trade: Mapped[Trade | None] = relationship(
         "Trade",
         back_populates="images",
-        foreign_keys=[trade_id],
+        foreign_keys=[trade_uuid],
     )
 
 
@@ -84,17 +103,18 @@ class PatternResult(Base):
     __tablename__ = "pattern_results"
 
     pattern_id: Mapped[int] = mapped_column(primary_key=True)
-    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.trade_id"))
-    trade_uuid: Mapped[UUID | None] = mapped_column(ForeignKey("trades.trade_uuid"), nullable=True)
-    rule: Mapped[str]
-    score: Mapped[float]
-    advice: Mapped[str | None]
-    diagnosed_at: Mapped[datetime]
+    trade_uuid: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("trades.trade_uuid"), nullable=True
+    )
+    rule: Mapped[str] = mapped_column(String, nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    advice: Mapped[str | None] = mapped_column(Text, nullable=True)
+    diagnosed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    trade: Mapped[Trade] = relationship(
+    trade: Mapped[Trade | None] = relationship(
         "Trade",
         back_populates="pattern_result",
-        foreign_keys=[trade_id],
+        foreign_keys=[trade_uuid],
     )
 
 
@@ -102,16 +122,17 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     alert_id: Mapped[int] = mapped_column(primary_key=True)
-    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.trade_id"))
-    trade_uuid: Mapped[UUID | None] = mapped_column(ForeignKey("trades.trade_uuid"), nullable=True)
-    type: Mapped[str]
-    target_price: Mapped[float]
-    triggered_at: Mapped[datetime | None]
+    trade_uuid: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("trades.trade_uuid"), nullable=True
+    )
+    type: Mapped[str] = mapped_column(String, nullable=False)
+    target_price: Mapped[float] = mapped_column(Float, nullable=False)
+    triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    trade: Mapped[Trade] = relationship(
+    trade: Mapped[Trade | None] = relationship(
         "Trade",
         back_populates="alerts",
-        foreign_keys=[trade_id],
+        foreign_keys=[trade_uuid],
     )
 
 
@@ -120,11 +141,13 @@ class Chat(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    user_id: Mapped[UUID | None] = mapped_column(UUIDStr(), ForeignKey("users.user_id"), nullable=True)
-    messages_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON形式でメッセージを格納
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # ソフトデリート用
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.user_id"), nullable=True)
+    messages_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # リレーション（必要に応じて）
     user: Mapped[User | None] = relationship("User", foreign_keys=[user_id])
@@ -153,12 +176,12 @@ class ChatMessage(Base):
 class TradeJournal(Base):
     __tablename__ = "trade_journal"
 
-    trade_id: Mapped[str] = mapped_column(String, primary_key=True, unique=True)
-    trade_uuid: Mapped[UUID | None] = mapped_column(UUIDStr(), nullable=True, unique=True)
-    user_id: Mapped[str | None] = mapped_column(String, nullable=True)  # For future user system
+    journal_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trade_uuid: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("trades.trade_uuid"), unique=True)
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("users.user_id"), nullable=True)
     chat_id: Mapped[str] = mapped_column(String, nullable=False)
     symbol: Mapped[str] = mapped_column(String, nullable=False)
-    side: Mapped[str] = mapped_column(String, nullable=False)  # LONG or SHORT
+    side: Mapped[str] = mapped_column(String, nullable=False)
 
     # Trade metrics
     avg_entry: Mapped[float] = mapped_column(Float, nullable=False)
@@ -167,18 +190,19 @@ class TradeJournal(Base):
     pnl_abs: Mapped[float] = mapped_column(Float, nullable=False)
     pnl_pct: Mapped[float] = mapped_column(Float, nullable=False)
     hold_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
-    closed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     # Feedback from chat
     feedback_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    feedback_tone: Mapped[str | None] = mapped_column(String, nullable=True)  # praise or advice
-    feedback_next_actions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string array
+    feedback_tone: Mapped[str | None] = mapped_column(String, nullable=True)
+    feedback_next_actions: Mapped[str | None] = mapped_column(Text, nullable=True)
     feedback_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Analysis data (optional)
-    analysis_score: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0-100
-    analysis_labels: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string array
+    analysis_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    analysis_labels: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Timestamps
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+    )

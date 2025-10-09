@@ -1,110 +1,43 @@
-import asyncio
 import os
-import pathlib
-import sqlite3
-import sys
-import uuid
+from uuid import UUID
 
 import pytest
-import sqlalchemy as sa
+import pytest_asyncio
+from sqlalchemy import text
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+from app.database import async_engine, async_session_factory
 
-TEST_DB_DIR = PROJECT_ROOT / ".pytest_db"
-TEST_DB_DIR.mkdir(parents=True, exist_ok=True)
-TEST_DB_PATH = TEST_DB_DIR / "test.db"
+os.environ.setdefault("ENV", "test")
 
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-os.environ.setdefault("APP_ENV", "test")
-os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_PATH}"
-os.environ.setdefault("DATABASE_URL_ASYNC", os.environ["DATABASE_URL"])
-
-try:
-    sqlite3.register_adapter(uuid.UUID, lambda u: str(u))
-except Exception:
-    pass
-
-DUMMY_USER = uuid.UUID("00000000-0000-0000-0000-000000000000")
+DUMMY_USER = UUID("00000000-0000-0000-0000-000000000000")
 
 
-@pytest.fixture
-def anyio_backend() -> str:
-    return "asyncio"
-
-
-@pytest.fixture(autouse=True)
-def _reset_db_between_tests():
-    """Ensure ORM metadata is applied freshly for each test run."""
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def verify_database_ready():
     try:
-        from app.db.base import Base  # type: ignore
-        from app.db.session import engine  # type: ignore
-    except Exception:
-        yield
-        return
-
-    async def _drop_create(async_engine):
-        async with async_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
-            await conn.run_sync(Base.metadata.create_all)
-            await conn.execute(
-                sa.text(
-                    """
-                    INSERT OR IGNORE INTO users (user_id, user_uuid, email)
-                    VALUES (:uid, :uuid, :email)
-                    """
-                ),
-                {
-                    "uid": str(DUMMY_USER),
-                    "uuid": str(DUMMY_USER),
-                    "email": "dummy@gptset.local",
-                },
-            )
-
-    def _drop_create_sync(sync_engine):
-        bind = getattr(sync_engine, "sync_engine", sync_engine)
-        Base.metadata.drop_all(bind=bind)
-        Base.metadata.create_all(bind=bind)
-        with bind.begin() as conn:
-            conn.execute(
-                sa.text(
-                    """
-                    INSERT OR IGNORE INTO users (user_id, user_uuid, email)
-                    VALUES (:uid, :uuid, :email)
-                    """
-                ),
-                {
-                    "uid": str(DUMMY_USER),
-                    "uuid": str(DUMMY_USER),
-                    "email": "dummy@gptset.local",
-                },
-            )
-
-    try:
-        if hasattr(engine, "begin") and callable(getattr(engine, "begin")):
-            asyncio.run(_drop_create(engine))
-        else:
-            _drop_create_sync(engine)
-
-        deps_engine = globals().get("engine_deps")
-        if deps_engine is not None:
-            if hasattr(deps_engine, "begin") and callable(getattr(deps_engine, "begin")):
-                asyncio.run(_drop_create(deps_engine))
-            else:
-                _drop_create_sync(deps_engine)
-    finally:
-        try:
-            if TEST_DB_PATH.exists():
-                TEST_DB_PATH.chmod(0o600)
-        except Exception:
-            pass
-        yield
+        async with async_engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:  # pragma: no cover - handled in test summary
+        pytest.skip(f"PostgreSQL database is not reachable: {exc}")
 
 
-@pytest.fixture
-def indicators():
-    return [
-        {"name": "RSI", "value": 75, "evaluation": "強気", "comment": "テスト用RSI"},
-        {"name": "トレンド", "value": "上昇トレンド", "evaluation": "強気", "comment": "テスト用トレンド"},
-    ]
+@pytest_asyncio.fixture(autouse=True)
+async def prepare_test_state():
+    async with async_session_factory() as session:
+        await session.execute(text("TRUNCATE trades CASCADE"))
+        await session.execute(text("TRUNCATE trade_journal CASCADE"))
+        await session.execute(text("TRUNCATE images CASCADE"))
+        await session.execute(text("TRUNCATE pattern_results CASCADE"))
+        await session.execute(text("TRUNCATE alerts CASCADE"))
+        await session.execute(
+            text(
+                """
+                INSERT INTO users (user_id, user_uuid, email)
+                VALUES (:uid, :uid, :email)
+                ON CONFLICT (user_id) DO NOTHING
+                """
+            ),
+            {"uid": str(DUMMY_USER), "email": "dummy@gptset.local"},
+        )
+        await session.commit()
+    yield

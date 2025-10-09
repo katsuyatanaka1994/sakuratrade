@@ -50,20 +50,17 @@ def upgrade() -> None:
                     }[name]
                 )
             )
-            op.alter_column("trades", name, nullable=False)
-        else:
-            if existing[name]["nullable"]:
-                bind.execute(
-                    sa.text(
-                        {
-                            "stock_code": "UPDATE trades SET stock_code = COALESCE(stock_code, ticker)",
-                            "quantity": "UPDATE trades SET quantity = COALESCE(quantity, 0)",
-                            "entry_price": "UPDATE trades SET entry_price = COALESCE(entry_price, price_in)",
-                            "description": "UPDATE trades SET description = COALESCE(description, '')",
-                        }[name]
-                    )
+        elif existing[name]["nullable"]:
+            bind.execute(
+                sa.text(
+                    {
+                        "stock_code": "UPDATE trades SET stock_code = COALESCE(stock_code, ticker)",
+                        "quantity": "UPDATE trades SET quantity = COALESCE(quantity, 0)",
+                        "entry_price": "UPDATE trades SET entry_price = COALESCE(entry_price, price_in)",
+                        "description": "UPDATE trades SET description = COALESCE(description, '')",
+                    }[name]
                 )
-                op.alter_column("trades", name, nullable=False)
+            )
 
 
 def downgrade() -> None:

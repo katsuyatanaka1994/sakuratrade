@@ -9,11 +9,8 @@ from app.main import app
 
 
 @pytest.mark.anyio
-async def test_create_trade(anyio_backend):
-    if anyio_backend != "asyncio":
-        pytest.skip("asyncio only")
+async def test_create_trade():
     payload = {
-        "tradeId": 1,
         "userId": "00000000-0000-0000-0000-000000000000",
         "ticker": "T",
         "side": "LONG",
@@ -25,3 +22,6 @@ async def test_create_trade(anyio_backend):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         res = await ac.post("/trades", json=payload)
     assert res.status_code == 201
+    data = res.json()
+    assert "tradeId" in data
+    assert data["userId"] == payload["userId"]

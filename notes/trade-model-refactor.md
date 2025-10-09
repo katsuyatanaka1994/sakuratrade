@@ -10,7 +10,7 @@
 
      | 項目 | SQLAlchemy `Trade` (型 / 必須) | FastAPI `TradeIn` 入力 | FastAPI `TradeOut` 出力 | 差分メモ |
      | --- | --- | --- | --- | --- |
-     | `trade_id` | `INTEGER` PK / required | `tradeId`: `int | None`（任意） | `tradeId`: `Union[int, UUID]` | API は UUID 想定、モデルは int 固定 |
+     | `trade_id` | `BIGINT` PK / required | `tradeId`: `int | None`（任意） | `tradeId`: `Union[int, UUID]` | API は UUID 想定、モデルは int 固定 |
      | `user_id` | `UUID` FK / required | `userId`: `str`（UUID文字列） | `userId`: `UUID` | 型は一致するが DB に対応ユーザーが存在しない |
      | `stock_code` | `String` / required | 送信されない | `Optional[str]` | モデル必須 / API 任意 |
      | `ticker` | `String` / required | `ticker`: `str` | `ticker`: `str` | 一致 |
@@ -24,71 +24,54 @@
      | `exited_at` | `DateTime` / optional | 送信されない | 返却されない | モデル optional / API 未使用 |
      | `description` | `String` / required | 送信されない | 返却されない | モデル必須 / API 未使用 |
 
-   - 既存 `app.db`（SQLite）調査結果
-     - `users` テーブル: 定義あり（主キー `CHAR(32)`）だがレコード 0 件。
-     - `trades` テーブル: 主キー `INTEGER`、上表の通り全カラム `NOT NULL` 指定多数。レコード 0 件。
-     - このためテスト投入時に `user_id` 外部キー不整合（ユーザー欠如）と、必須カラム欠落が同時発生する状態。
+   - 参考（旧 app.db 調査メモ）
+     - 旧 SQLite ではレコード 0 件だったため、テスト投入時は `user_id` 外部キー不整合と必須カラム不足が同時発生していた。
 
-2. **ターゲット仕様の決定** — ✅ 2025-10-08 方針確定
+2. **ターゲット仕様の決定** — ✅ 2025-10-08 方針確定（PostgreSQL 専用に更新）
    - 主キー・外部キー
-     - `trade_id` → `trade_uuid`（UUID v4）を論理主キーに昇格。SQLite テスト環境は 36 文字文字列、PostgreSQL など本番系は `UUID(as_uuid=True)` を使用できるよう TypeDecorator で吸収。
-     - `users` テーブルにも `user_uuid` を追加し、将来的にこちらを主キーへ昇格。現行の `CHAR(32)` 列は併存させる。
-     - `Image` / `PatternResult` / `Alert` / `TradeJournal` / `TradeJournalTimeline` は `trade_uuid` に外部キーを張り、既存の整数 `trade_id` は Phase A/B では併存維持。
+     - `trade_id` → `trade_uuid`（UUID v4）を論理主キーに昇格。PostgreSQL では `UUID` 型、テスト・開発も同様に Postgres を用いる。
+     - `users` テーブルにも `user_uuid` を追加し、`user_id`（BIGINT）→`user_uuid`（UUID）への移行を計画。旧列は Phase-A/normalize まで併存。
+     - `Image` / `PatternResult` / `Alert` / `TradeJournal` / `chats` / `chat_messages` は `trade_uuid` / `user_uuid` を参照。対象は FK を持つテーブルに限定。
    - 必須カラムの見直し
-     - `stock_code`, `quantity`, `entry_price`, `description` は API で未使用のため nullable + default `None` へ変更。将来利用する場合はバリデーション層で補完。
-     - `price_out`, `exited_at` は現状 optional のまま。`size`, `price_in`, `entered_at`, `ticker`, `side` は必須維持。
+     - `stock_code`, `quantity`, `entry_price`, `description` は API 未使用のため nullable 化を検討（最終仕様は FastAPI スキーマと同期させる）。
+     - `size`, `price_in`, `entered_at`, `ticker`, `side` は必須維持。`price_out`, `exited_at` は optional のまま。
    - スキーマ整合
      - Pydantic `TradeIn` を `userId`, `ticker`, `side`, `priceIn`, `size`, `enteredAt`, `stockCode?`, `quantity?`, `entryPrice?`, `description?` といった最小セットに整理。
      - `TradeOut` は `tradeId`（UUID 文字列）、`userId`（UUID 文字列）、その他フィールドを API で実際に返す項目だけに縮小。
    - 日付・TZ ポリシー
      - 全て UTC ISO8601 で管理。DB カラムは `DateTime(timezone=True)` に寄せ、SQLite では `TEXT` で扱う。
 
-3. **マイグレーション設計** — 進行中（草案固め）
-   - Phase A 用リビジョン（新規列の追加）
-     - `users` に `user_uuid CHAR(36)`、`trades` に `trade_uuid CHAR(36)` を追加（両方 nullable + unique）。
-     - 参照テーブル（`images`, `pattern_results`, `alerts`, `trade_journal`, `trade_journal_timeline`）にも `*_uuid` 列を追加。
-     - 追加後、Python ループで `uuid.uuid4()` を採番し `*_uuid` をバックフィル。
-     - 現状スキーマ調査メモ：`images`/`pattern_results`/`alerts` は `trade_id INTEGER NOT NULL`、`trade_journal` は `trade_id VARCHAR PRIMARY KEY`（既に文字列）。`trade_journal_timeline` は未作成（今後の計画で同時に作成 or UUID カラム追加時に作成要検討）。
-   - Phase B リビジョン（FK 追加＆NOT NULL 化）
-     - 新 UUID 列に `NOT NULL` と `UNIQUE` を付与。`trade_uuid` を新しい PK に昇格し、既存の int 列を `nullable=True` + index のみに格下げ。
-     - 各参照テーブルの FK を UUID 列に切り替え、旧 FK は残す or `SET NULL` に変更。
-   - Phase C リビジョン（撤去）
-     - アプリ切替後、旧 int 列＋制約・インデックスを drop。
-   - シード処理
-     - Phase A のマイグレーションで、テスト・開発向けに `users` へ `00000000-...` のダミーレコードを挿入（存在しない場合のみ）。
-   - 検証
-     - ローカル SQLite（`pytest` 用）と将来想定の PostgreSQL の両方を docker-compose 等で適用テストする。
+3. **マイグレーション設計** — ✅ PostgreSQL 向けに再構成済み
+   - `2f8dbe8b6d6c`: 初期スキーマ（BIGINT ベース）の正規 create。
+   - `690ffec9e9e7`: `trades` 追加カラムを idempotent に付与。
+   - `c3a1f8e7d24b`: UUID 併存 Phase-A。`users` / `trades` に UUID 列を追加し、`images` / `pattern_results` / `alerts` / `trade_journal` へバックフィル。`MIGRATION_BATCH_SIZE` / `MIGRATION_LOCK_TIMEOUT` でバッチ＆ロック制御。
+   - `7e3c9d9b02f0`: 正規化（UUID 主体）。`users.user_id` を UUID 主キーに入れ替え、同期トリガーを設置。`trades.trade_uuid` を NOT NULL + UNIQUE + default `gen_random_uuid()` とし、子テーブルの FK を UUID 列へ切り替え。
+   - `pgcrypto` 拡張を前提。必要に応じ `uuid-ossp` などへのフォールバック検討余地あり。
+   - テーブル範囲は `users / trades / images / pattern_results / alerts / trade_journal / chats / chat_messages`。将来的に他テーブルが追加された場合は同様の Phase を踏む。
 
-4. **コード調整** — TODO
-   - モデル
-     - `app/models.py`: `Trade.trade_uuid = mapped_column(UUIDStr, primary_key=True, default=uuid4)` を追加し、旧 `trade_id` は `legacy_trade_id` として保持。
-     - `Image`, `PatternResult`, `Alert`, `TradeJournal`, `TradeJournalTimeline` の FK を `trade_uuid` に差し替え。`User` にも `user_uuid` を追加し relationship を更新。
-   - TypeDecorator / ユーティリティ
-     - `app/db/types.py`（新規）に `UUIDStr` を実装し、SQLite/PG 両対応のシリアライズを統一。
-   - Pydantic & ルータ
-     - `app/schemas/trade.py`, `app/routers/trades.py` を UUID ベースにリファクタ。入力検証で不足フィールドには `None` を許容、DB への default を設定。
-     - レスポンスに `tradeId`（UUID文字列）と必須フィールドのみ返すよう調整。
-   - テスト
-     - `tests/conftest.py` にダミーユーザー投入フィクスチャ（`user_uuid` を固定発行）を追加。
-     - `tests/test_trades.py` を新スキーマに合わせて更新し、UUID を検証するアサーションを追加。
+4. **コード調整** — TODO（PostgreSQL 前提で再整理）
+   - モデル：`Trade.trade_uuid` を主キー化し、旧 BIGINT 列は移行完了後に削除。`User`・関連テーブルも UUID ベースに統一。
+   - TypeDecorator：SQLite 向け特殊処理は不要。`UUID` 型は native 利用。
+   - API & スキーマ：`TradeIn/TradeOut` を UUID / nullable フィールドの最新仕様に合わせる。
+   - テスト：PostgreSQL 接続前提。フィクスチャでダミー UUID ユーザーを投入。`make db-upgrade` 前提で pytest を実行。
 
-7. **フェーズ移行計画（Blue/Green タイプ）**
-   - **Phase A（併存追加）**: `*_uuid` 列を trades / users / 関連テーブルへ追加し、書き込みを整数＋UUID二重化。既存参照は両対応に改修。
-   - **Phase B（バックフィル）**: 全レコードへ UUID を採番して `*_uuid` 列を埋める。不整合データはダミー行や補正ルールで対応。
-   - **Phase C（切替）**: アプリを UUID 列基準に切替え、制約を UUID 列へ昇格。整数列は非 PK 化。
-   - **Phase D（撤去）**: 旧整数列・制約を削除。ロールバック手順をドキュメント化。
+7. **フェーズ移行計画（現行マイグレーションに合わせて更新）**
+   - **Phase A：初期スキーマ確立**（2f8dbe8b6d6c / 690ffec9e9e7）
+   - **Phase B：UUID 併存 + バックフィル**（c3a1f8e7d24b）
+   - **Phase C：UUID 主体へ正規化**（7e3c9d9b02f0） — 旧 BIGINT 列はこの段階で除去。
+   - **Phase D：追加インデックス調整や不要列の完全撤去** — 旧列が残る場合の最終掃除（今後の課題）。
 
 8. **実装分割の目安（小さな PR）**
-   1. 併存 UUID 列の追加（バックフィルと TypeDecorator 導入）
-   2. ルータ／Pydantic／テストを UUID 併存仕様へ対応
-   3. UUID 列を正式な PK / FK に昇格
-   4. 旧整数列撤去と最終クリーニング
-   5. ドキュメント更新（移行手順・ロールバック）
+   1. Alembic 履歴リライト + Settings 整備（完了）
+   2. ORM / スキーマ / API を UUID 主導に揃える
+   3. UUID 主体への最終切り替えに合わせた旧列削除・インデックス再調整
+   4. ドキュメント・運用手順（pgcrypto、Makefile、CI）整備
+   5. 後続で追加テーブルが出た場合は Phase-A/B 手順で拡張
 
 5. **検証**
-   - ローカルで `pip install -e '.[dev,sqlite]'` → `python -m pytest tests/test_trades.py tests/test_chat_message_delete.py` を実行し、全テストが成功することを確認。
-   - sqlite + async のテスト環境でもスキーマが正しく適用されることを確認。
-   - CI（GitHub Actions）でのフルテスト実行と結果確認。
+   - ローカル/CI とも PostgreSQL 16 を使用。`docker run postgres:16` で起動し `make db-reset && make db-upgrade && make test` を実行。
+   - `alembic -x dburl=... upgrade head` でテスト専用 DB へ適用可能。
+   - `/healthz` スモーク、`pytest -q app/tests tests test_*.py` がグリーンであることを確認。
 
 6. **ドキュメント / リリース準備**
    - README や開発手順書に、UUID 主キーへの変更・マイグレーション実行手順を追記。
@@ -103,5 +86,5 @@
 - 今後 `Trade` 以外のテーブル（`TradeJournal` 等）でも UUID 統一を進めるか。
 
 ## メモ
-- 既存テストは in-memory SQLite を使用しているため、UUID 型の扱いは `sqlalchemy.dialects.sqlite` の適切な型 or String カラム + バリデーションで代替できる。
-- マイグレーション設計時は、SQLite 限定ではなく本番 DB（PostgreSQL など）の方針も合わせて検討する。
+- すべてのテストは PostgreSQL 前提。SQLite 互換層は不要になった。
+- `pgcrypto` が利用できない環境では `uuid-ossp` もしくは Python `uuid4()` フォールバックの実装を検討する。

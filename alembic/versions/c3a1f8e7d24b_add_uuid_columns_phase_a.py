@@ -24,6 +24,7 @@ depends_on = None
 BATCH_SIZE = int(os.environ.get("MIGRATION_BATCH_SIZE", "1000"))
 LOCK_TIMEOUT = os.environ.get("MIGRATION_LOCK_TIMEOUT", "5s")
 UUID_TYPE = postgresql.UUID(as_uuid=False)
+UUID_SQL_FUNCTION = "gen_random_uuid()"
 
 
 def _set_lock_timeout(bind: sa.Connection) -> None:
@@ -31,9 +32,19 @@ def _set_lock_timeout(bind: sa.Connection) -> None:
         bind.execute(sa.text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
 
 
-def _ensure_pgcrypto(bind: sa.Connection) -> None:
-    if bind.dialect.name == "postgresql":
+def _ensure_uuid_extension(bind: sa.Connection) -> None:
+    global UUID_SQL_FUNCTION
+    if bind.dialect.name != "postgresql":
+        return
+    try:
         bind.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+        UUID_SQL_FUNCTION = "gen_random_uuid()"
+    except Exception:
+        try:
+            bind.execute(sa.text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
+            UUID_SQL_FUNCTION = "uuid_generate_v4()"
+        except Exception:
+            UUID_SQL_FUNCTION = None
 
 
 def _assign_random_uuid(
@@ -106,7 +117,7 @@ def _ensure_constraint(bind: sa.Connection, table: str, name: str, columns: Iter
 def upgrade() -> None:
     bind = op.get_bind()
     _set_lock_timeout(bind)
-    _ensure_pgcrypto(bind)
+    _ensure_uuid_extension(bind)
 
     op.add_column("users", sa.Column("user_uuid", UUID_TYPE, nullable=True))
     op.add_column("trades", sa.Column("trade_uuid", UUID_TYPE, nullable=True))
