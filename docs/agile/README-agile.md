@@ -1,4 +1,5 @@
 > CO-EDIT: このファイルは**人とCodexが協働**で更新します。本文は人が主導、下の **ASSIST** ブロックのみ Codex が自動更新します。
+> 対応表: [docs/agile/mapping.yml](./mapping.yml)（Codexはこの表に従ってAUTO側を更新します）
 > 境界の原本: [docs/agile/auto-manual-boundary.md](./auto-manual-boundary.md)
 
 # アジャイルドキュメントハブ

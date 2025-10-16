@@ -1,0 +1,8 @@
+# MANUAL: Codexが参照する対応表（ソース → AUTOファイル）
+version: 0.1
+mappings:
+  - id: openapi
+    # ← 後で実ファイルに合わせて差し替え。今は仮でOK
+    source: app/**/openapi*.yaml
+    target: docs/specs/openapi.yaml   # ← DS-1でAUTO管理にした先
+    mode: replace                     # 生成結果で置き換え（最小）
