@@ -1,3 +1,6 @@
+> CO-EDIT: このファイルは**人とCodexが協働**で更新します。本文は人が主導、下の **ASSIST** ブロックのみ Codex が自動更新します。
+> 境界の原本: [docs/agile/auto-manual-boundary.md](./auto-manual-boundary.md)
+
 # アジャイルドキュメントハブ
 
 - メンテナ (Codex):
@@ -5,6 +8,34 @@
 - 最終更新日:
 - スプリント / Issue:
 - 適用範囲: `docs/agile/`
+
+<!-- NOTE: メタデータセクション直後に配置する ASSIST ブロック。ステータスを最初に確認できるようにする -->
+## 進捗ステータス（自動サマリ）
+<!-- ASSIST-START:status -->
+<!-- Codex がスプリント進捗を要約して書き換える領域 -->
+<!-- ASSIST-END:status -->
+
+<!-- NOTE: 進捗の下に未消化タスクを並べることで、参照順を固定 -->
+## 未消化タスク（自動抽出）
+<!-- ASSIST-START:tickets -->
+<!-- Codex が PBI/issue から抽出した ToDo を列挙する領域 -->
+<!-- ASSIST-END:tickets -->
+
+<!-- NOTE: タスクの次に関連リンクを置き、参照の導線をまとめる -->
+## 参照リンク（自動整備）
+<!-- ASSIST-START:links -->
+<!-- Codex が関連PR/ドキュ/テストへのリンクを挿入する領域 -->
+<!-- ASSIST-END:links -->
+
+### 自動更新のトリガー（CodexがASSISTを編集する条件）
+- PRに `plan:sync` ラベルが付いたとき（設計同期）
+- `docs/agile/mapping.yml` が更新されたとき（対応表変更）
+- 手動実行: Actions `docsync-assist-update` の `Run workflow`
+- （任意）毎日 03:00（JST）の定期実行
+- PR作成時は上記トリガーに該当する場合、PR本文へ自動更新実行予定（ASSISTが空のままな理由など）を一言補足する
+
+> Codex は **ASSIST-START/END の範囲のみ**を書き換えます。本文は人が主導します。
+> 旧 `<!-- AUTO-START --> ... <!-- AUTO-END -->` が残っている場合は、対応する `<!-- ASSIST-START:* --> ... <!-- ASSIST-END:* -->` に置き換えてください。
 
 ## 更新タイミング
 - スプリント開始時にバックログリンクや担当情報を最新化する。
@@ -40,6 +71,7 @@
 - 各ファイルのメタデータ欄（作成者/レビュアー/最終更新日）は必ず更新する。
 - API契約変更時は `docs/specs/openapi.yaml` の差分と `api-specification.md` を同一PRに含める。
 - セキュリティ・非機能要件改定は `ci-specification.md` やテスト仕様への影響をレビューで確認する。
+- 旧AUTOマーカーを見つけた場合はASSISTマーカーへ置換した上で運用を揃える。
 
 ## 自動化のヒント
 - テンプレに従って記入することでCodexが差分検知・自動レビューしやすくなる。UI仕様のみ MANUAL 起動でCodexがテンプレを複製する。
