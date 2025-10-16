@@ -45,15 +45,11 @@ jobs:
           pip show ruff || true
           ruff --version || true
 
-      - name: Ruff (autofix)
-        run: |
-          ruff check . --fix
-          ruff format .
+      - name: Ruff lint (no fix)
+        run: ruff check .
 
-      - name: Fail if changes left
-        run: |
-          git update-index -q --refresh
-          git diff --exit-code || (echo "::error::Run 'ruff check --fix' locally and commit."; exit 1)
+      - name: Ruff format (check only)
+        run: ruff format . --check
 
       - name: Validate import prefixes
         run: python scripts/check_import_paths.py
