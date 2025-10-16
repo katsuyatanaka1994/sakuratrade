@@ -1,4 +1,3 @@
-trade-model-refactor.md
 # Trade モデル再設計 実行計画
 
 ## 目的
@@ -71,9 +70,8 @@ trade-model-refactor.md
 
 5. **検証**
    - ローカル/CI とも PostgreSQL 16 を使用。`docker run postgres:16` で起動し `make db-reset && make db-upgrade && make test` を実行。
-- `alembic -x dburl=... upgrade head` でテスト専用 DB へ適用可能。
-- `/healthz` スモーク、`pytest -q app/tests tests test_*.py` がグリーンであることを確認。
-- pytest フィクスチャでは同期エンジン (`sync_engine`) を使って DB をリセットし、asyncpg の `Connection._cancel` 警告が出ないことを `-W error::RuntimeWarning` で検証する。
+   - `alembic -x dburl=... upgrade head` でテスト専用 DB へ適用可能。
+   - `/healthz` スモーク、`pytest -q app/tests tests test_*.py` がグリーンであることを確認。
 
 6. **ドキュメント / リリース準備**
    - README や開発手順書に、UUID 主キーへの変更・マイグレーション実行手順を追記。
@@ -90,6 +88,3 @@ trade-model-refactor.md
 ## メモ
 - すべてのテストは PostgreSQL 前提。SQLite 互換層は不要になった。
 - `pgcrypto` が利用できない環境では `uuid-ossp` もしくは Python `uuid4()` フォールバックの実装を検討する。
-- Postgres の `TIMESTAMP WITH TIME ZONE` と Python 側 `datetime` の整合性を取るため、UTC aware への統一と `_utc_now()` ヘルパー追加で生成時刻を一本化。
-- `chat_messages.payload` および `trade_journal.*` の JSON カラムを TEXT に揃え、型不一致エラーを抑止する整備を実施。
-- Makefile と pytest フィクスチャを見直し、トランザクション／truncate ワークフローを安定させる設定に更新。

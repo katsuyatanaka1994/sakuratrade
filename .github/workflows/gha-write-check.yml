@@ -1,0 +1,37 @@
+name: gha-write-check
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          installation-id: ${{ secrets.GH_INSTALLATION_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Make a tiny change
+        run: |
+          echo "$(date -u) : smoke test ✅" >> DOCSYNC_SMOKELOG.md
+
+      - name: Create Draft PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          commit-message: "chore: docsync smoke test"
+          branch: "chore/docsync-smoke"
+          title: "docsync smoke test"
+          body: "Automated draft PR to verify write permissions."
+          draft: true
