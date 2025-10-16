@@ -1,0 +1,44 @@
+name: docsync-apply
+on:
+  workflow_dispatch:
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          installation-id: ${{ secrets.GH_INSTALLATION_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install pyyaml
+
+      - name: Apply mapping
+        run: python scripts/docsync_apply.py
+
+      - name: Create Draft PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          commit-message: "chore(docsync): apply mapping (openapi)"
+          branch: "chore/docsync-apply-openapi"
+          title: "docsync: update docs/specs/openapi.yaml"
+          body: "Automated Draft PR from mapping.yml (id: openapi)"
+          draft: true
+          add-paths: |
+            docs/specs/openapi.yaml
