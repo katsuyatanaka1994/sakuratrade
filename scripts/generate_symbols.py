@@ -291,7 +291,7 @@ def generate_symbols_json(excel_path, output_path=None):
         # サンプルデータを表示
         print("\nSample data:")
         for i, symbol in enumerate(symbols[:3]):
-            print(f"  {i+1}. {symbol}")
+            print(f"  {i + 1}. {symbol}")
 
         return True
 

@@ -241,6 +241,7 @@ async def create_message(chat_id: str, message: ChatMessageCreate, db: AsyncSess
             payload = message.payload.dict()
 
         now = _utc_now()
+        message_timestamp = now.replace(tzinfo=None)
 
         await db.execute(
             insert(ChatMessage).values(
@@ -250,7 +251,7 @@ async def create_message(chat_id: str, message: ChatMessageCreate, db: AsyncSess
                 author_id=message.author_id,
                 text=text,
                 payload=payload,
-                created_at=now,
+                created_at=message_timestamp,
             )
         )
 
@@ -350,7 +351,7 @@ async def update_message(
                 update_data["type"] = message_update.type
 
         now = _utc_now()
-        update_data["updated_at"] = now
+        update_data["updated_at"] = now.replace(tzinfo=None)
 
         # メッセージを更新
         update_stmt = update(ChatMessage).where(ChatMessage.id == message_id).values(**update_data)
