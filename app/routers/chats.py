@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,10 +20,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 
-def _utc_now_pair() -> tuple[datetime, datetime]:
-    """Return timezone-aware and naive UTC timestamps (aware first)."""
-    aware = datetime.now(UTC)
-    return aware, aware.replace(tzinfo=None)
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class CreateChatRequest(BaseModel):
@@ -49,28 +47,28 @@ async def create_chat(request: CreateChatRequest, db: AsyncSession = Depends(get
 
         chat_id = str(uuid.uuid4())
 
-        aware_now, naive_now = _utc_now_pair()
+        now = _utc_now()
 
         stmt = insert(Chat).values(
             id=chat_id,
             name=request.name,
             user_id=request.user_id,
             messages_json=request.messages_json,
-            created_at=naive_now,
-            updated_at=naive_now,
+            created_at=now,
+            updated_at=now,
         )
 
         await db.execute(stmt)
         await db.commit()
 
-        logger.info(f"Chat {chat_id} created successfully")
+        logger.info("Chat %s created successfully", chat_id)
 
         return {
             "id": chat_id,
             "name": request.name,
             "user_id": request.user_id,
-            "created_at": aware_now.isoformat(),
-            "updated_at": aware_now.isoformat(),
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
         }
 
     except Exception as e:
@@ -107,16 +105,15 @@ async def delete_chat(chat_id: str, db: AsyncSession = Depends(get_async_db)):
             raise HTTPException(status_code=404, detail=f"Chat with ID {chat_id} not found or already deleted")
 
         # ソフトデリート実行
-        aware_now, naive_now = _utc_now_pair()
-
-        stmt = update(Chat).where(Chat.id == chat_id).values(deleted_at=naive_now, updated_at=naive_now)
+        now = _utc_now()
+        stmt = update(Chat).where(Chat.id == chat_id).values(deleted_at=now, updated_at=now)
 
         await db.execute(stmt)
         await db.commit()
 
         logger.info(f"Chat {chat_id} soft deleted successfully")
 
-        return {"message": "Chat deleted successfully", "chat_id": chat_id, "deleted_at": aware_now.isoformat()}
+        return {"message": "Chat deleted successfully", "chat_id": chat_id, "deleted_at": now.isoformat()}
 
     except HTTPException:
         raise
@@ -192,10 +189,8 @@ async def restore_chat(chat_id: str, db: AsyncSession = Depends(get_async_db)):
         if not chat:
             raise HTTPException(status_code=404, detail=f"Deleted chat with ID {chat_id} not found")
 
-        # 復元実行
-        aware_now, naive_now = _utc_now_pair()
-
-        stmt = update(Chat).where(Chat.id == chat_id).values(deleted_at=None, updated_at=naive_now)
+        now = _utc_now()
+        stmt = update(Chat).where(Chat.id == chat_id).values(deleted_at=None, updated_at=now)
 
         await db.execute(stmt)
         await db.commit()
@@ -205,7 +200,7 @@ async def restore_chat(chat_id: str, db: AsyncSession = Depends(get_async_db)):
         return {
             "message": "Chat restored successfully",
             "chat_id": chat_id,
-            "restored_at": aware_now.isoformat(),
+            "restored_at": now.isoformat(),
         }
 
     except HTTPException:
@@ -245,24 +240,21 @@ async def create_message(chat_id: str, message: ChatMessageCreate, db: AsyncSess
         elif message.type in ["ENTRY", "EXIT"]:
             payload = message.payload.dict()
 
-        # メッセージを作成
-        aware_now, naive_now = _utc_now_pair()
+        now = _utc_now()
 
-        stmt = insert(ChatMessage).values(
-            id=message_id,
-            chat_id=chat_id,
-            type=message.type,
-            author_id=message.author_id,
-            text=text,
-            payload=payload,
-            created_at=naive_now,
+        await db.execute(
+            insert(ChatMessage).values(
+                id=message_id,
+                chat_id=chat_id,
+                type=message.type,
+                author_id=message.author_id,
+                text=text,
+                payload=payload,
+                created_at=now,
+            )
         )
 
-        await db.execute(stmt)
-
-        # チャットの更新日時を更新
-        update_chat_stmt = update(Chat).where(Chat.id == chat_id).values(updated_at=naive_now)
-        await db.execute(update_chat_stmt)
+        await db.execute(update(Chat).where(Chat.id == chat_id).values(updated_at=now))
 
         await db.commit()
 
@@ -273,14 +265,14 @@ async def create_message(chat_id: str, message: ChatMessageCreate, db: AsyncSess
             "author_id": message.author_id,
             "text": text,
             "payload": payload,
-            "created_at": aware_now.isoformat(),
+            "created_at": now.isoformat(),
             "updated_at": None,
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating message in chat {chat_id}: {str(e)}")
+        logger.exception("Error creating message in chat %s", chat_id)
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
@@ -357,8 +349,8 @@ async def update_message(
             if hasattr(message_update, "type") and message_update.type in ["ENTRY", "EXIT"]:
                 update_data["type"] = message_update.type
 
-        _, naive_now = _utc_now_pair()
-        update_data["updated_at"] = naive_now
+        now = _utc_now()
+        update_data["updated_at"] = now
 
         # メッセージを更新
         update_stmt = update(ChatMessage).where(ChatMessage.id == message_id).values(**update_data)
@@ -366,8 +358,7 @@ async def update_message(
         await db.execute(update_stmt)
 
         # チャットの更新日時も更新
-        update_chat_stmt = update(Chat).where(Chat.id == message.chat_id).values(updated_at=naive_now)
-        await db.execute(update_chat_stmt)
+        await db.execute(update(Chat).where(Chat.id == message.chat_id).values(updated_at=now))
 
         await db.commit()
 
@@ -383,7 +374,7 @@ async def update_message(
             "author_id": updated_message.author_id,
             "text": updated_message.text,
             "payload": updated_message.payload,
-            "created_at": updated_message.created_at.isoformat(),
+            "created_at": updated_message.created_at.isoformat() if updated_message.created_at else None,
             "updated_at": updated_message.updated_at.isoformat() if updated_message.updated_at else None,
         }
 
@@ -416,12 +407,10 @@ async def delete_message(chat_id: str, message_id: str, db: AsyncSession = Depen
             raise HTTPException(status_code=404, detail=f"Message with ID {message_id} not found in chat {chat_id}")
 
         # Remove the message
-        delete_stmt = delete(ChatMessage).where(ChatMessage.id == message_id, ChatMessage.chat_id == chat_id)
-        await db.execute(delete_stmt)
+        await db.execute(delete(ChatMessage).where(ChatMessage.id == message_id, ChatMessage.chat_id == chat_id))
 
-        # Update chat timestamp to reflect the removal
-        aware_now, naive_now = _utc_now_pair()
-        await db.execute(update(Chat).where(Chat.id == chat_id).values(updated_at=naive_now))
+        now = _utc_now()
+        await db.execute(update(Chat).where(Chat.id == chat_id).values(updated_at=now))
 
         await db.commit()
 
@@ -431,7 +420,7 @@ async def delete_message(chat_id: str, message_id: str, db: AsyncSession = Depen
             "message": "Chat message deleted successfully",
             "chat_id": chat_id,
             "message_id": message_id,
-            "deleted_at": aware_now.isoformat(),
+            "deleted_at": now.isoformat(),
         }
 
     except HTTPException:
@@ -523,7 +512,7 @@ async def undo_message(
         # 時間制限チェック（30分以内のみ）
         from datetime import timedelta
 
-        time_limit = datetime.utcnow() - timedelta(minutes=30)
+        time_limit = _utc_now() - timedelta(minutes=30)
         if message.created_at < time_limit:
             raise HTTPException(status_code=400, detail="Message is too old to undo (30 minutes limit)")
 
@@ -534,19 +523,14 @@ async def undo_message(
         await db.execute(delete_stmt)
 
         # チャットの更新日時を更新
-        aware_now, naive_now = _utc_now_pair()
-        update_chat_stmt = update(Chat).where(Chat.id == message.chat_id).values(updated_at=naive_now)
-        await db.execute(update_chat_stmt)
+        now = _utc_now()
+        await db.execute(update(Chat).where(Chat.id == message.chat_id).values(updated_at=now))
 
         await db.commit()
 
         logger.info(f"Message {message_id} undone successfully")
 
-        return {
-            "message": "Message undone successfully",
-            "message_id": message_id,
-            "undone_at": aware_now.isoformat(),
-        }
+        return {"message": "Message undone successfully", "message_id": message_id, "undone_at": now.isoformat()}
 
     except HTTPException:
         raise
