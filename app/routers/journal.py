@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -21,11 +21,12 @@ router = APIRouter(prefix="/journal", tags=["journal"])
 async def close_trade(payload: JournalClosePayload, db: AsyncSession = Depends(get_async_db)):
     """Idempotent upsert for trade close - creates or updates journal entry"""
     try:
-        # Parse closed_at string to datetime (convert to UTC and remove timezone info)
+        # Parse closed_at string to datetime (normalize to UTC but keep tz info)
         closed_at = datetime.fromisoformat(payload.closed_at.replace("Z", "+00:00"))
-        if closed_at.tzinfo is not None:
-            closed_at = closed_at.utctimetuple()
-            closed_at = datetime(*closed_at[:6])
+        if closed_at.tzinfo is None:
+            closed_at = closed_at.replace(tzinfo=timezone.utc)
+        else:
+            closed_at = closed_at.astimezone(timezone.utc)
 
         # Prepare data for upsert
         trade_data = {
