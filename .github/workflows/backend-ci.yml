@@ -39,8 +39,15 @@ jobs:
           pip install -r app/requirements.txt
           pip install pytest ruff
 
-      - name: Run ruff lint
-        run: ruff check .
+      - name: Ruff (autofix)
+        run: |
+          ruff check . --fix
+          ruff format .
+
+      - name: Fail if changes left
+        run: |
+          git update-index -q --refresh
+          git diff --exit-code || (echo "::error::Run 'ruff check --fix' locally and commit."; exit 1)
 
       - name: Validate import prefixes
         run: python scripts/check_import_paths.py
