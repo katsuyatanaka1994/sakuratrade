@@ -1,0 +1,101 @@
+{
+  "properties": {
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "enteredAt": {
+      "format": "date-time",
+      "title": "Enteredat",
+      "type": "string"
+    },
+    "entryPrice": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entryprice"
+    },
+    "priceIn": {
+      "title": "Pricein",
+      "type": "number"
+    },
+    "quantity": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quantity"
+    },
+    "side": {
+      "title": "Side",
+      "type": "string"
+    },
+    "size": {
+      "title": "Size",
+      "type": "number"
+    },
+    "stockCode": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stockcode"
+    },
+    "ticker": {
+      "title": "Ticker",
+      "type": "string"
+    },
+    "tradeId": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tradeid"
+    },
+    "userId": {
+      "format": "uuid",
+      "title": "Userid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "userId",
+    "ticker",
+    "side",
+    "priceIn",
+    "size",
+    "enteredAt"
+  ],
+  "title": "TradeIn",
+  "type": "object"
+}

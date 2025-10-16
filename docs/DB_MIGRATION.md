@@ -32,7 +32,7 @@ alembic downgrade -1
 
 - 旧 `user_id` / `trade_id`（BIGINT）は段階的に UUID 主体へ移行し、最終的には `users.user_id` / `trades.trade_uuid` を主キー・参照源に利用します。
 - `MIGRATION_BATCH_SIZE`（既定 1000）と `MIGRATION_LOCK_TIMEOUT`（既定 `5s`）で長時間ロックを避けながらチャンク更新します。
-- `CREATE EXTENSION IF NOT EXISTS pgcrypto` を利用し、`gen_random_uuid()` で UUID を生成。拡張が無い環境では Python 側の `uuid4()` をフォールバックとして使用します。
+- `CREATE EXTENSION IF NOT EXISTS pgcrypto` を優先し、`gen_random_uuid()` を利用します。権限上作成できない場合は `uuid-ossp` の `uuid_generate_v4()` へフォールバック。それも不可の場合はマイグレーション内で `uuid_in(md5(random()::text || clock_timestamp()::text)::cstring)` を使用します。
 - `users` テーブルには `sync_users_uuid` トリガーを設置し、`user_id` と `user_uuid` の値を常に同期します（片方のみ指定された場合でも整合性を保ちます）。
 
 ## ロールと権限
