@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime
 from typing import List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, select
@@ -28,7 +29,7 @@ async def close_trade(payload: JournalClosePayload, db: AsyncSession = Depends(g
 
         # Prepare data for upsert
         trade_data = {
-            "trade_id": payload.trade_id,
+            "trade_uuid": payload.trade_id,
             "user_id": payload.user_id,
             "chat_id": payload.chat_id,
             "symbol": payload.symbol,
@@ -64,7 +65,7 @@ async def close_trade(payload: JournalClosePayload, db: AsyncSession = Depends(g
 
         # Use SQLite-style UPSERT (INSERT OR REPLACE)
         # First check if entry exists
-        existing_query = select(TradeJournal).where(TradeJournal.trade_id == payload.trade_id)
+        existing_query = select(TradeJournal).where(TradeJournal.trade_uuid == payload.trade_id)
         existing_result = await db.execute(existing_query)
         existing_entry = existing_result.scalar_one_or_none()
 
@@ -112,7 +113,7 @@ async def close_trade(payload: JournalClosePayload, db: AsyncSession = Depends(g
 
         logger.info(f"Trade journal entry upserted: {payload.trade_id}")
 
-        return {"status": "success", "trade_id": payload.trade_id}
+        return {"status": "success", "tradeId": str(payload.trade_id)}
 
     except Exception as e:
         await db.rollback()
@@ -170,7 +171,7 @@ async def get_journal_entries(
         for entry in entries:
             response_entries.append(
                 JournalEntryResponse(
-                    trade_id=entry.trade_id,
+                    trade_id=entry.trade_uuid,
                     chat_id=entry.chat_id,
                     symbol=entry.symbol,
                     side=entry.side,
@@ -202,10 +203,10 @@ async def get_journal_entries(
 
 
 @router.get("/{trade_id}/feedback", response_model=FeedbackResponse)
-async def get_trade_feedback(trade_id: str, db: AsyncSession = Depends(get_async_db)):
+async def get_trade_feedback(trade_id: UUID, db: AsyncSession = Depends(get_async_db)):
     """Get feedback text for specific trade (for modal display)"""
     try:
-        query = select(TradeJournal).where(TradeJournal.trade_id == trade_id)
+        query = select(TradeJournal).where(TradeJournal.trade_uuid == trade_id)
         result = await db.execute(query)
         entry = result.scalar_one_or_none()
 

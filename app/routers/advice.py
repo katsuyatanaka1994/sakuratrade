@@ -1,17 +1,16 @@
 import base64
 import json
 import logging
-import os
 
 import markdown2
 import requests
-from dotenv import load_dotenv
-from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
 from fastapi.templating import Jinja2Templates
 from jinja2 import Template
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.settings import get_settings
 from app.database import get_async_db
 from app.models import Chat
 from app.schemas.indicator_facts import IndicatorFacts
@@ -21,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+
+settings = get_settings()
 
 entry_advice_template = Template("""
 ## ✅ 現在の状況（{{ time }}時点）
@@ -82,11 +83,14 @@ def generate_entry_advice(facts: IndicatorFacts) -> str:
     return html
 
 
-# Load environment variables from .env file
-load_dotenv()
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+
+
+def _openai_headers() -> dict[str, str]:
+    api_key = settings.openai_api_key
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
 
 async def update_chat_messages(db: AsyncSession, chat_id: str, user_message: str, bot_response: str):
@@ -193,7 +197,7 @@ async def advice(
         # Case 2: Text question provided
         if message:
             # Handle text question input
-            headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+            headers = _openai_headers()
             payload = {
                 "model": "gpt-4o-mini",
                 "messages": [
@@ -293,7 +297,7 @@ async def advice(
             if not analysis_context:
                 analysis_context = form_data.get("analysis_context")
 
-            headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+            headers = _openai_headers()
 
             payload = {
                 "model": "gpt-4o-mini",

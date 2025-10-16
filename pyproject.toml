@@ -1,7 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "gptset"
 version = "0.1.0"
 requires-python = ">=3.11"
+
+[project.optional-dependencies]
+sqlite = [
+    "aiosqlite>=0.20",
+]
+dev = [
+    "pillow>=10,<11",
+    "ruff==0.13.2",
+    "asgi-lifespan>=2.1",
+    "aiosqlite>=0.20",
+]
+
+[tool.setuptools.packages.find]
+include = ["app", "app.*"]
+exclude = [
+    "tests*",
+    "frontend*",
+    "node_modules*",
+    "pivot*",
+    "alembic*",
+    "uploaded_images*",
+]
 
 [tool.ruff]
 line-length = 120

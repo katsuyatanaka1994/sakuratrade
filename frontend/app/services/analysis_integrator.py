@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from schemas.indicators import IndicatorItem, TradingAnalysis
-from services.gpt_analyzer import GPTAnalyzer
+from services.frontend_gpt_analyzer import FrontendGPTAnalyzer
 from services.rule_based_analyzer import RuleBasedAnalyzer
 
 
@@ -11,7 +11,7 @@ class AnalysisIntegrator:
 
     def __init__(self, openai_api_key: str):
         self.rule_analyzer = RuleBasedAnalyzer()
-        self.gpt_analyzer = GPTAnalyzer(openai_api_key)
+        self.gpt_analyzer = FrontendGPTAnalyzer(openai_api_key)
 
     def integrate_analysis(
         self,

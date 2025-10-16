@@ -10,10 +10,7 @@ from app.main import app
 
 
 @pytest.mark.anyio
-async def test_delete_entry_message(anyio_backend):
-    if anyio_backend != "asyncio":
-        pytest.skip("asyncio only")
-
+async def test_delete_entry_message():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Create chat container

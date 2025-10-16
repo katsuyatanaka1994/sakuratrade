@@ -1,24 +1,37 @@
-import base64
-import os
+from __future__ import annotations
 
-from dotenv import load_dotenv
+import base64
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from openai import OpenAI
 
+from app.core.settings import get_settings
+
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
-load_dotenv()  # .env からAPIキーなどを読み込む
+settings = get_settings()
+_client: OpenAI | None = None
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "dummy-key-for-testing"))
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        api_key = settings.openai_api_key
+        if not api_key:
+            raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+        _client = OpenAI(api_key=api_key)
+    return _client
 
 
 @router.post("/chart")
 async def analyze_chart_image(file: UploadFile = File(...)):
-    if not file.content_type.startswith("image/"):
+    if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="画像ファイルをアップロードしてください")
 
     image_bytes = await file.read()
     encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+
+    client = _get_client()
 
     try:
         response = client.chat.completions.create(
@@ -52,5 +65,5 @@ async def analyze_chart_image(file: UploadFile = File(...)):
 
         return {"analysis": response.choices[0].message.content}
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"診断エラー: {str(e)}")
+    except Exception as exc:  # noqa: BLE001 - propagate as 500 for client visibility
+        raise HTTPException(status_code=500, detail=f"診断エラー: {exc}")

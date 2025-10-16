@@ -1,13 +1,14 @@
 # app/services/llm_gateway.py
 from __future__ import annotations
 
-import os
 from typing import Dict, List
 
 from app.config import MOCK_AI
+from app.core.settings import get_settings
 
 # OpenAIクライアントは必要なときだけimport（MOCK時はimport不要）
 _client = None
+settings = get_settings()
 
 
 def _get_client():
@@ -15,7 +16,7 @@ def _get_client():
     if _client is None:
         from openai import OpenAI  # 遅延インポート
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = settings.openai_api_key
         if not api_key:
             # 本番モードでキーが無いのはエラー扱い
             raise RuntimeError("OpenAI API key not configured")

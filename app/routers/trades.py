@@ -1,10 +1,6 @@
-import uuid
-from datetime import datetime
-from typing import List, Optional, Union
-from uuid import UUID
+from typing import List
 
 from fastapi import APIRouter, Depends, status
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import Session
@@ -12,48 +8,35 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import get_session
 from app.models import Trade
-from app.schemas.trade import TradeCreate
+from app.schemas.trade import TradeCreate, TradeIn, TradeOut
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 
 
-class TradeIn(BaseModel):
-    tradeId: Optional[int] = None
-    ticker: str
-    userId: str
-    side: str
-    priceIn: float
-    size: float
-    enteredAt: datetime
-
-
-class TradeOut(BaseModel):
-    tradeId: Union[int, UUID] = Field(..., alias="trade_id")
-    ticker: str
-    userId: UUID = Field(..., alias="user_id")
-    side: str
-    priceIn: float = Field(..., alias="price_in")
-    size: float
-    enteredAt: datetime = Field(..., alias="entered_at")
-    stock_code: Optional[str] = None
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
-
-
 @router.post("", response_model=TradeOut, status_code=status.HTTP_201_CREATED)
 async def create_trade(payload: TradeIn, session: AsyncSession = Depends(get_session)):
-    new_trade = Trade(
-        trade_id=uuid.uuid4(),
-        user_id=UUID(payload.userId),
-        ticker=payload.ticker,
-        side=payload.side,
-        price_in=payload.priceIn,
-        size=payload.size,
-        entered_at=payload.enteredAt,
-    )
+    trade_kwargs = {
+        "user_id": payload.user_id,
+        "ticker": payload.ticker,
+        "side": payload.side,
+        "price_in": payload.price_in,
+        "stock_code": payload.stock_code or payload.ticker,
+        "quantity": payload.quantity if payload.quantity is not None else 0,
+        "entry_price": payload.entry_price or payload.price_in,
+        "size": payload.size,
+        "entered_at": payload.entered_at,
+        "description": payload.description or "",
+    }
+    if payload.trade_id:
+        trade_kwargs["trade_uuid"] = payload.trade_id
+
+    new_trade = Trade(**trade_kwargs)
     session.add(new_trade)
-    await session.commit()
+    await session.flush()
     await session.refresh(new_trade)
-    return TradeOut.model_validate(new_trade)
+    refreshed = await session.get(Trade, new_trade.trade_uuid)
+    await session.commit()
+    return TradeOut.model_validate(refreshed)
 
 
 @router.get("", response_model=List[TradeOut])
@@ -71,12 +54,12 @@ def save_trade(trade: TradeCreate, db: Session = Depends(get_db)):
         stock_code=trade.stock_code,
         ticker=trade.ticker,
         side=trade.side,
-        quantity=trade.quantity,
-        entry_price=trade.entry_price,
+        quantity=trade.quantity if trade.quantity is not None else 0,
+        entry_price=trade.entry_price or trade.price_in,
         entered_at=trade.entered_at,
         price_in=trade.price_in,
         size=trade.size,
-        description=trade.description,
+        description=trade.description or "",
     )
     db.add(db_trade)
     db.commit()

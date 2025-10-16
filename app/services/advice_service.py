@@ -1,15 +1,25 @@
-import os
+from __future__ import annotations
+
 from typing import Optional
 
 import markdown2
-from dotenv import load_dotenv
 from openai import OpenAI
 
-# Load environment variables from .env file
-load_dotenv()
+from app.core.settings import get_settings
 
-# OpenAI APIキーの読み込み
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+settings = get_settings()
+
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        api_key = settings.openai_api_key
+        if not api_key:
+            raise RuntimeError("OpenAI API key not configured")
+        _client = OpenAI(api_key=api_key)
+    return _client
 
 
 def generate_advice_from_chart(chart_facts: dict) -> str:
@@ -59,7 +69,6 @@ def generate_advice_from_chart(chart_facts: dict) -> str:
 📌 {{ final_comment }}
 """
 
-    # 補完対象キー
     required_keys = [
         "time",
         "trend_check",
@@ -96,6 +105,7 @@ chart_facts:
     print("=== Prompt ===")
     print(prompt)
 
+    client = _get_client()
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
@@ -127,15 +137,12 @@ def extract_chart_facts(image_bytes: Optional[bytes] = None, indicators: Optiona
         2. Else parse the uploaded chart image (PNG/JPEG) into facts.
     """
 
-    # --- 1) DB‑saved indicator data takes priority --------------------------
     if indicators:
         return indicators
 
-    # --- 2) Fallback: parse the chart image --------------------------------
     if image_bytes:
         return _parse_image_to_facts(image_bytes)
 
-    # --- 3) Neither supplied ------------------------------------------------
     raise ValueError("Either `indicators` or `image_bytes` must be provided.")
 
 
@@ -144,7 +151,6 @@ def _parse_image_to_facts(image_bytes: bytes) -> dict:
     Stub parser that converts raw image bytes into a minimal chart_facts dict.
     Replace with OpenCV / Vision API logic in a subsequent sprint.
     """
-    # Placeholder implementation so the pipeline keeps working.
     return {"source": "image", "detected": False, "message": "Image parsing not implemented yet."}
 
 

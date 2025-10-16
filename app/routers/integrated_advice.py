@@ -6,14 +6,19 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.settings import get_settings
 from app.database import get_async_db
 from app.schemas.indicators import AnalysisResponse
 from app.services.integrated_advice_service import IntegratedAdviceService
 
 router = APIRouter()
+settings = get_settings()
 
-# 環境変数からOpenAI APIキーを取得
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+def _require_openai_key() -> str:
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    return settings.openai_api_key
 
 
 @router.post("/integrated-analysis", response_model=AnalysisResponse)
@@ -34,8 +39,7 @@ async def integrated_analysis(
     - 両者を統合した総合判定を返却
     """
 
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    api_key = _require_openai_key()
 
     try:
         # ファイル読み込み
@@ -50,7 +54,7 @@ async def integrated_analysis(
             raise HTTPException(status_code=400, detail="画像ファイルのみアップロード可能です")
 
         # 統合アドバイスサービス初期化
-        advice_service = IntegratedAdviceService(OPENAI_API_KEY)
+        advice_service = IntegratedAdviceService(api_key)
 
         # 統合分析実行
         result = await advice_service.generate_integrated_advice(
@@ -82,8 +86,7 @@ async def quick_analysis(
     統合分析よりも高速だが、ルールベース判定は含まない
     """
 
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    _require_openai_key()
 
     try:
         image_data = await file.read()
@@ -116,7 +119,7 @@ async def analysis_status():
             "pivot_v13": "available" if os.path.exists("pivot/dist/pivotScore.js") else "unavailable",
             "entry_v04": "available" if os.path.exists("entry-v04/dist/entryScore.js") else "unavailable",
         },
-        "gpt_analysis": "available" if OPENAI_API_KEY else "unavailable",
+        "gpt_analysis": "available" if settings.openai_api_key else "unavailable",
         "template_system": "available",
     }
 
@@ -143,7 +146,7 @@ async def test_integration():
 
     try:
         # テスト用のサンプルデータで統合分析をテスト
-        advice_service = IntegratedAdviceService(OPENAI_API_KEY or "test_key")
+        advice_service = IntegratedAdviceService(settings.openai_api_key or "test_key")
 
         # ダミー画像データ（1x1ピクセル透明PNG）
         dummy_image = base64.b64decode(

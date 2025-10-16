@@ -1,0 +1,126 @@
+{
+  "properties": {
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "entered_at": {
+      "format": "date-time",
+      "title": "Entered At",
+      "type": "string"
+    },
+    "entry_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Entry Price"
+    },
+    "exited_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Exited At"
+    },
+    "price_in": {
+      "title": "Price In",
+      "type": "number"
+    },
+    "price_out": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Price Out"
+    },
+    "quantity": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quantity"
+    },
+    "side": {
+      "title": "Side",
+      "type": "string"
+    },
+    "size": {
+      "title": "Size",
+      "type": "number"
+    },
+    "stock_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stock Code"
+    },
+    "ticker": {
+      "title": "Ticker",
+      "type": "string"
+    },
+    "trade_uuid": {
+      "format": "uuid",
+      "title": "Trade Uuid",
+      "type": "string"
+    },
+    "user_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "User Id"
+    }
+  },
+  "required": [
+    "trade_uuid",
+    "user_id",
+    "ticker",
+    "side",
+    "price_in",
+    "size",
+    "entered_at"
+  ],
+  "title": "TradeOut",
+  "type": "object"
+}
