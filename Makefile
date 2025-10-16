@@ -1,10 +1,10 @@
 .PHONY: run-dev run-prod dev prod db-reset db-upgrade test alembic-up alembic-downgrade
 
 # PostgreSQL DSN helpers (override as needed)
-PG_DB ?= app_db
-PG_USER ?= postgres
-PG_PASSWORD ?= password
-PG_HOST ?= localhost
+PG_DB ?= app_dev
+PG_USER ?= app
+PG_PASSWORD ?= app
+PG_HOST ?= 127.0.0.1
 PG_PORT ?= 5432
 DATABASE_URL ?= postgresql+asyncpg://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/$(PG_DB)
 
@@ -19,8 +19,9 @@ dev: run-dev
 prod: run-prod
 
 db-reset:
-	dropdb --if-exists $(PG_DB)
-	createdb $(PG_DB)
+	dropdb -U postgres --if-exists $(PG_DB)
+	createdb -U postgres -O $(PG_USER) $(PG_DB)
+	psql -U postgres -d $(PG_DB) -c "ALTER SCHEMA public OWNER TO $(PG_USER); GRANT ALL ON SCHEMA public TO $(PG_USER);"
 
 db-upgrade:
 	DATABASE_URL=$(DATABASE_URL) alembic upgrade head

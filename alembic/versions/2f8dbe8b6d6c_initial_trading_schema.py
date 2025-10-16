@@ -24,6 +24,7 @@ def upgrade() -> None:
     op.create_table(
         "users",
         sa.Column("user_id", sa.BigInteger(), primary_key=True),
+        sa.Column("email", sa.String(length=255), nullable=False, unique=True),
         sa.Column("role", sa.String(length=255), nullable=True),
         sa.Column("plan", sa.String(length=255), nullable=True),
     )
@@ -93,10 +94,10 @@ def upgrade() -> None:
         sa.Column("closed_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("feedback_text", sa.Text(), nullable=True),
         sa.Column("feedback_tone", sa.String(length=32), nullable=True),
-        sa.Column("feedback_next_actions", sa.JSON(), nullable=True),
+        sa.Column("feedback_next_actions", sa.Text(), nullable=True),
         sa.Column("feedback_message_id", sa.String(length=255), nullable=True),
         sa.Column("analysis_score", sa.Integer(), nullable=True),
-        sa.Column("analysis_labels", sa.JSON(), nullable=True),
+        sa.Column("analysis_labels", sa.Text(), nullable=True),
         sa.ForeignKeyConstraint(["trade_id"], ["trades.trade_id"], name="fk_trade_journal_trade_id"),
     )
     op.create_unique_constraint("uq_trade_journal_trade_id", "trade_journal", ["trade_id"])
@@ -121,7 +122,7 @@ def upgrade() -> None:
         sa.Column("type", sa.String(length=32), nullable=False),
         sa.Column("author_id", sa.String(length=255), nullable=False),
         sa.Column("text", sa.Text(), nullable=True),
-        sa.Column("payload", sa.JSON(), nullable=True),
+        sa.Column("payload", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["chat_id"], ["chats.id"], name="fk_chat_messages_chat_id"),

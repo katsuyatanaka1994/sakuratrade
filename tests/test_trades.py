@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_create_trade():
     payload = {
         "userId": "00000000-0000-0000-0000-000000000000",
@@ -19,9 +19,9 @@ async def test_create_trade():
         "enteredAt": "2021-01-01T00:00:00Z",
     }
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
         res = await ac.post("/trades", json=payload)
-    assert res.status_code == 201
+    assert res.status_code == 201, res.text
     data = res.json()
     assert "tradeId" in data
     assert data["userId"] == payload["userId"]
