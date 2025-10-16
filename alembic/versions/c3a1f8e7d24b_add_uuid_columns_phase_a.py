@@ -87,7 +87,7 @@ def _assign_random_uuid(
 
         payload = [{"uuid": str(uuid.uuid4()), "pk": row["pk"]} for row in rows]
         bind.execute(
-            sa.text(f"UPDATE {table} SET {uuid_column} = :uuid " f"WHERE {pk_column} = :pk"),
+            sa.text(f"UPDATE {table} SET {uuid_column} = :uuid WHERE {pk_column} = :pk"),
             payload,
         )
         last_pk = rows[-1]["pk"]

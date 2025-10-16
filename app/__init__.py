@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from .routers import advice, images, trades
+from app.routers import advice, images, trades
 
 
 def register_routers(app: FastAPI):

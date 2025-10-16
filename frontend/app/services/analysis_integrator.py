@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from schemas.indicators import IndicatorItem, TradingAnalysis
 from services.frontend_gpt_analyzer import FrontendGPTAnalyzer
+
+from schemas.indicators import IndicatorItem, TradingAnalysis
 from services.rule_based_analyzer import RuleBasedAnalyzer
 
 
