@@ -63,10 +63,12 @@ if not allow_shrink and tgt_paths and src_paths < threshold:
     sys.exit(0)
 
 # 4) 出力（今は置換のみ）
-header = (
-    "# AUTO-GENERATED FILE\n"
-    "# このファイルは自動生成されます。直接編集しないでください。\n"
-)
+header = "\n".join(
+    [
+        "# AUTO-GENERATED FILE",
+        "# このファイルは自動生成されます。直接編集しないでください。",
+    ]
+) + "\n"
 out_text = (
     yaml.safe_dump(src_obj, sort_keys=False, allow_unicode=True)
     if src_file.suffix == ".json"
