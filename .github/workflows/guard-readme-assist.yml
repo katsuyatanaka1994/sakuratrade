@@ -6,7 +6,7 @@ on:
 permissions: { contents: read }
 
 concurrency:
-  group: docs-sync-${{ github.ref }}
+  group: guard-readme-assist-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,7 +21,6 @@ jobs:
         with: { python-version: "3.x" }
       - name: Run guard
         run: python scripts/guard_readme_assist.py
-
       - name: Show diff when failed
         if: failure()
         run: git diff --unified=0 --no-color "$BASE_SHA...HEAD" -- docs/agile/README-agile.md

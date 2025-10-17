@@ -43,6 +43,10 @@ def main():
         print(f"::notice::{FILE} が存在しません。ガードをスキップします。")
         return
 
+    if not pathlib.Path(FILE).exists():
+        print(f"::notice::{FILE} が存在しません。ガードをスキップします。")
+        return
+
     # HEAD側（新）とBASE側（旧）を読み込む
     head_text = pathlib.Path(FILE).read_text(encoding="utf-8")
     head_lines = head_text.splitlines()
@@ -52,7 +56,6 @@ def main():
     ranges_head = allowed_ranges(head_lines)
     ranges_base = allowed_ranges(base_lines)
 
-    # 差分（0文脈）を取得
     diff = run(["git","diff","--unified=0","--no-color", f"{base_sha}...HEAD","--",FILE])
 
     # @@ -oldStart,oldLen +newStart,newLen @@
