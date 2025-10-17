@@ -1,4 +1,7 @@
 name: docsync-check
+concurrency:
+  group: docs-sync-${{ github.ref }}
+  cancel-in-progress: true
 on:
   pull_request:
     paths:
