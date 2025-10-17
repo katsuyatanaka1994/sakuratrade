@@ -5,3 +5,5 @@ mappings:
     source: backend/app/openapi.yaml
     target: docs/specs/openapi.yaml   # ← DS-1でAUTO管理にした先
     mode: replace                     # 生成結果で置き換え（最小）
+    allow_shrink: false               # 痩せる更新は拒否
+    min_paths: 3                      # pathsが閾値未満なら出力しない
