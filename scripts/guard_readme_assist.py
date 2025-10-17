@@ -34,7 +34,14 @@ def in_ranges(n, ranges):
     return any(s <= n <= e for (s, e) in ranges)
 
 def main():
-    base_sha = os.environ.get("BASE_SHA") or run(["git","merge-base","origin/main","HEAD"])
+    base_sha = os.environ.get("BASE_SHA")
+    if not base_sha:
+        # PR以外でも動くようフォールバック
+        base_sha = run(["git","merge-base","origin/main","HEAD"])
+
+    if not pathlib.Path(FILE).exists():
+        print(f"::notice::{FILE} が存在しません。ガードをスキップします。")
+        return
 
     # HEAD側（新ファイル）とBASE側（旧ファイル）を取得
     head_text = pathlib.Path(FILE).read_text(encoding="utf-8")
@@ -45,7 +52,7 @@ def main():
     ranges_head = allowed_ranges(head_lines)
     ranges_base = allowed_ranges(base_lines)
 
-    diff = run(["git","diff","--unified=0","--no-color",f"{base_sha}...HEAD","--",FILE])
+    diff = run(["git","diff","--unified=0","--no-color", f"{base_sha}...HEAD","--",FILE])
 
     # @@ -oldStart,oldLen +newStart,newLen @@
     hunk_re = re.compile(r"^\@\@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? \@\@")
