@@ -1,0 +1,23 @@
+name: guard-readme-assist
+on:
+  pull_request:
+    paths: ["docs/agile/README-agile.md"]
+
+permissions: { contents: read }
+
+concurrency:
+  group: docs-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - name: Run guard
+        run: python scripts/guard_readme_assist.py
