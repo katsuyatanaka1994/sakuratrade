@@ -40,10 +40,10 @@ components:
         ticker:    { type: string }
         side:      { type: string, enum: [LONG, SHORT] }
         priceIn:   { type: number }
-        priceOut:  { type: number, nullable: true }
+        priceOut:  { type: [number, "null"] }
         size:      { type: number }
         enteredAt: { type: string, format: date-time }
-        exitedAt:  { type: string, format: date-time, nullable: true }
+        exitedAt:  { type: [string, "null"], format: date-time }
       required: [tradeId, userId, ticker, side, priceIn, size, enteredAt]
 
     image:
@@ -51,7 +51,7 @@ components:
       properties:
         imageId:      { type: integer }
         tradeId:      { type: integer }
-        s3Url:        { type: string }           # ← schemaに合わせて camelCase
+        s3Url:        { type: string }
         thumbnailUrl: { type: string }
         uploadedAt:   { type: string, format: date-time }
       required: [imageId, tradeId, s3Url, uploadedAt]
@@ -74,7 +74,7 @@ components:
         tradeId:     { type: integer }
         type:        { type: string, enum: [TP, SL] }
         targetPrice: { type: number }
-        triggeredAt: { type: string, format: date-time, nullable: true }
+        triggeredAt: { type: [string, "null"], format: date-time }
       required: [alertId, tradeId, type, targetPrice]
 
     problem:
@@ -186,8 +186,8 @@ paths:
             schema:
               type: object
               properties:
-                trade_id: { type: integer }
-              required: [trade_id]
+                tradeId: { type: integer }
+              required: [tradeId]
       responses:
         '200':
           description: Pre-signed URL
@@ -196,7 +196,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  s3Url: { type: string }   # ← schemaと合わせて camelCase
+                  s3Url: { type: string }
         default:
           $ref: '#/components/responses/problem_response'
 
