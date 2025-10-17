@@ -1,0 +1,36 @@
+name: docsync-check
+on:
+  pull_request:
+    paths:
+      - "backend/app/openapi.yaml"
+      - "docs/specs/openapi.yaml"
+      - "scripts/**"
+  push:
+    branches: ["main"]
+    paths:
+      - "backend/app/openapi.yaml"
+      - "docs/specs/openapi.yaml"
+      - "scripts/**"
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install deps
+        run: pip install pyyaml
+      - name: Run diff-sensor
+        run: python scripts/docsync_diff.py
+      - name: Upload plan (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doc_sync_plan
+          path: doc_sync_plan.json
