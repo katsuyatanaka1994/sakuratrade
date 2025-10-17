@@ -1,0 +1,37 @@
+name: openapi-validate
+on:
+  pull_request:
+    paths: ["backend/app/openapi.yaml"]
+  push:
+    branches: ["main"]
+    paths: ["backend/app/openapi.yaml"]
+
+permissions: { contents: read }
+
+concurrency:
+  group: docs-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - name: Install validator
+        run: pip install openapi-spec-validator pyyaml
+      - name: Validate OpenAPI
+        run: |
+          python - <<'PY'
+          import sys, yaml
+          from openapi_spec_validator import validate_spec
+          doc = yaml.safe_load(open("backend/app/openapi.yaml","r",encoding="utf-8"))
+          try:
+              validate_spec(doc)
+              print("OpenAPI: OK")
+          except Exception as e:
+              print(f"::error title=OpenAPI validation failed::{e}")
+              sys.exit(1)
+          PY
