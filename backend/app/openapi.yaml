@@ -150,11 +150,12 @@ components:
       bearerFormat: JWT
       scheme: bearer
       type: http
+openapi: 3.1.0
+
 info:
   description: Test drift for DS-4
   title: sakuratrade API
   version: 0.0.1
-openapi: 3.1.0
 paths:
   /alerts:
     post:
