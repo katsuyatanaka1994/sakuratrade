@@ -1,46 +1,97 @@
 #!/usr/bin/env python3
-import glob
-import json
-import sys
+import sys, json, glob, traceback
 from pathlib import Path
-
-import yaml  # pip install pyyaml
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MAP = ROOT / "docs/agile/mapping.yml"
 
-cfg = yaml.safe_load(MAP.read_text())
-m = next(x for x in cfg["mappings"] if x["id"] in ("openapi", "openapi"))
-src = m["source"]
-tgt = ROOT / m["target"]
-tgt.parent.mkdir(parents=True, exist_ok=True)
+def load_mapping():
+    try:
+        cfg = yaml.safe_load(MAP.read_text(encoding="utf-8")) or {}
+    except Exception as e:
+        print(f"::error ::Failed to load {MAP}: {e}")
+        traceback.print_exc()
+        sys.exit(2)
+    mappings = cfg.get("mappings", [])
+    for item in mappings:
+        if str(item.get("id", "")).lower() == "openapi":
+            return item
+    print("::error ::mapping id 'openapi' not found in docs/agile/mapping.yml")
+    sys.exit(2)
 
-def load_as_yaml_text(p: Path) -> str:
-    p = Path(p)
-    if p.suffix == ".json":
-        data = json.loads(p.read_text())
-        return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
-    return p.read_text()
+def resolve_source(src):
+    candidates = []
+    if isinstance(src, str):
+        candidates = glob.glob(str(ROOT / src)) or [str(ROOT / src)]
+    else:
+        for s in src:
+            candidates += glob.glob(str(ROOT / s)) or [str(ROOT / s)]
+    for c in candidates:
+        p = Path(c)
+        if p.exists():
+            return p
+    print(f"::error ::source file not found: {candidates}")
+    sys.exit(2)
 
+def read_obj(path: Path):
+    txt = path.read_text(encoding="utf-8")
+    if path.suffix.lower() == ".json":
+        return json.loads(txt)
+    return yaml.safe_load(txt)
 
-# 単一/配列/グロブのどれでも可（最初に見つかったものを採用）
-candidates = []
-if isinstance(src, str):
-    candidates = glob.glob(str(ROOT / src)) or [str(ROOT / src)]
-else:
-    for s in src:
-        candidates += glob.glob(str(ROOT / s)) or [str(ROOT / s)]
+def load_yaml_safe(path: Path):
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
 
-src_file = next((Path(c) for c in candidates if Path(c).exists()), None)
-if not src_file:
-    print("source file not found:", candidates, file=sys.stderr)
-    sys.exit(1)
+def main():
+    m = load_mapping()
+    src_path = resolve_source(m["source"])
+    tgt_path = ROOT / m["target"]
+    tgt_path.parent.mkdir(parents=True, exist_ok=True)
 
-body = load_as_yaml_text(src_file)
-header = (
-    "# AUTO-GENERATED FILE\n"
-    "# このファイルは自動生成されます。直接編集しないでください。\n"
-)
+    # 1) parse & normalize
+    try:
+        obj = read_obj(src_path) or {}
+    except Exception as e:
+        print(f"::error ::Failed to parse {src_path}: {e}")
+        traceback.print_exc()
+        sys.exit(2)
 
-tgt.write_text(header + body, encoding="utf-8")
-print(f"Wrote {tgt}")
+    # 2) optional shrink guard
+    allow_shrink = bool(m.get("allow_shrink", False))
+    min_paths = int(m.get("min_paths", 0))
+    tgt_obj = load_yaml_safe(tgt_path) if tgt_path.exists() else {}
+    tgt_paths = len((tgt_obj.get("paths") or {}))
+    src_paths = len((obj.get("paths") or {}))
+    threshold = max(min_paths, int(tgt_paths * 0.5))
+    if not allow_shrink and tgt_paths and src_paths < threshold:
+        print(f"Skip: source paths({src_paths}) < threshold({threshold}) with target paths({tgt_paths}).")
+        sys.exit(0)
+
+    # 3) header + normalized dump
+    header = "\n".join([
+        "# AUTO-GENERATED FILE",
+        "# このファイルは自動生成されます。直接編集しないでください。",
+    ]) + "\n"
+    body = yaml.safe_dump(
+        obj,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+        width=120,
+    )
+    out = header + body
+
+    # 4) atomic write
+    tmp = tgt_path.with_suffix(tgt_path.suffix + ".tmp")
+    tmp.write_text(out, encoding="utf-8", newline="\n")
+    tmp.replace(tgt_path)
+
+    print(f"SRC: {src_path}")
+    print(f"WROTE: {tgt_path}")
+
+if __name__ == "__main__":
+    main()

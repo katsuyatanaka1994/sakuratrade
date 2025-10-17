@@ -4,18 +4,15 @@ openapi: 3.1.0
 info:
   title: sakuratrade API
   version: 0.0.1
-
 servers:
-  - url: /api/v1
-    description: Internal API
-
+- url: /api/v1
+  description: Internal API
 components:
   securitySchemes:
     bearer_auth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-
   responses:
     problem_response:
       description: Error
@@ -23,80 +20,151 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/problem'
-
   schemas:
     user:
       type: object
       properties:
-        userId: { type: string, format: uuid }
-        email:  { type: string, format: email }
-        role:   { type: string }
-        plan:   { type: string }
-      required: [userId, email]
-
+        userId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+        plan:
+          type: string
+      required:
+      - userId
+      - email
     trade:
       type: object
       properties:
-        tradeId:   { type: integer }
-        userId:    { type: string, format: uuid }
-        ticker:    { type: string }
-        side:      { type: string, enum: [LONG, SHORT] }
-        priceIn:   { type: number }
-        priceOut:  { type: number, nullable: true }
-        size:      { type: number }
-        enteredAt: { type: string, format: date-time }
-        exitedAt:  { type: string, format: date-time, nullable: true }
-      required: [tradeId, userId, ticker, side, priceIn, size, enteredAt]
-
+        tradeId:
+          type: integer
+        userId:
+          type: string
+          format: uuid
+        ticker:
+          type: string
+        side:
+          type: string
+          enum:
+          - LONG
+          - SHORT
+        priceIn:
+          type: number
+        priceOut:
+          type:
+          - number
+          - 'null'
+        size:
+          type: number
+        enteredAt:
+          type: string
+          format: date-time
+        exitedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+      required:
+      - tradeId
+      - userId
+      - ticker
+      - side
+      - priceIn
+      - size
+      - enteredAt
     image:
       type: object
       properties:
-        imageId:      { type: integer }
-        tradeId:      { type: integer }
-        s3Url:        { type: string }           # ← schemaに合わせて camelCase
-        thumbnailUrl: { type: string }
-        uploadedAt:   { type: string, format: date-time }
-      required: [imageId, tradeId, s3Url, uploadedAt]
-
+        imageId:
+          type: integer
+        tradeId:
+          type: integer
+        s3Url:
+          type: string
+        thumbnailUrl:
+          type: string
+        uploadedAt:
+          type: string
+          format: date-time
+      required:
+      - imageId
+      - tradeId
+      - s3Url
+      - uploadedAt
     pattern_result:
       type: object
       properties:
-        patternId:   { type: integer }
-        tradeId:     { type: integer }
-        rule:        { type: string }
-        score:       { type: number, format: float }
-        advice:      { type: string }
-        diagnosedAt: { type: string, format: date-time }
-      required: [patternId, tradeId, rule, score, diagnosedAt]
-
+        patternId:
+          type: integer
+        tradeId:
+          type: integer
+        rule:
+          type: string
+        score:
+          type: number
+          format: float
+        advice:
+          type: string
+        diagnosedAt:
+          type: string
+          format: date-time
+      required:
+      - patternId
+      - tradeId
+      - rule
+      - score
+      - diagnosedAt
     alert:
       type: object
       properties:
-        alertId:     { type: integer }
-        tradeId:     { type: integer }
-        type:        { type: string, enum: [TP, SL] }
-        targetPrice: { type: number }
-        triggeredAt: { type: string, format: date-time, nullable: true }
-      required: [alertId, tradeId, type, targetPrice]
-
+        alertId:
+          type: integer
+        tradeId:
+          type: integer
+        type:
+          type: string
+          enum:
+          - TP
+          - SL
+        targetPrice:
+          type: number
+        triggeredAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+      required:
+      - alertId
+      - tradeId
+      - type
+      - targetPrice
     problem:
       type: object
       properties:
-        type:     { type: string }
-        title:    { type: string }
-        status:   { type: integer }
-        detail:   { type: string }
-        instance: { type: string }
-      required: [type, title, status]
-
-# デフォルトは認証必須。/auth* は security: [] で例外。
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+      required:
+      - type
+      - title
+      - status
 security:
-  - bearer_auth: []
-
+- bearer_auth: []
 paths:
   /auth/register:
     post:
-      security: []  # 認証不要
+      security: []
       requestBody:
         required: true
         content:
@@ -104,9 +172,14 @@ paths:
             schema:
               type: object
               properties:
-                email:    { type: string, format: email }
-                password: { type: string }
-              required: [email, password]
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+              required:
+              - email
+              - password
       responses:
         '201':
           description: Registered
@@ -116,10 +189,9 @@ paths:
                 $ref: '#/components/schemas/user'
         default:
           $ref: '#/components/responses/problem_response'
-
   /auth/oauth:
     post:
-      security: []  # 認証不要
+      security: []
       requestBody:
         required: true
         content:
@@ -127,8 +199,10 @@ paths:
             schema:
               type: object
               properties:
-                provider_token: { type: string }
-              required: [provider_token]
+                provider_token:
+                  type: string
+              required:
+              - provider_token
       responses:
         '200':
           description: JWT token
@@ -137,10 +211,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  token: { type: string }
+                  token:
+                    type: string
         default:
           $ref: '#/components/responses/problem_response'
-
   /trades:
     post:
       requestBody:
@@ -158,14 +232,14 @@ paths:
                 $ref: '#/components/schemas/trade'
         default:
           $ref: '#/components/responses/problem_response'
-
   /trades/{trade_id}:
     get:
       parameters:
-        - in: path
-          name: trade_id
-          required: true
-          schema: { type: integer }
+      - in: path
+        name: trade_id
+        required: true
+        schema:
+          type: integer
       responses:
         '200':
           description: Trade data
@@ -174,11 +248,12 @@ paths:
               schema:
                 type: object
                 properties:
-                  trade:          { $ref: '#/components/schemas/trade' }
-                  pattern_result: { $ref: '#/components/schemas/pattern_result' }
+                  trade:
+                    $ref: '#/components/schemas/trade'
+                  pattern_result:
+                    $ref: '#/components/schemas/pattern_result'
         default:
           $ref: '#/components/responses/problem_response'
-
   /images:
     post:
       requestBody:
@@ -188,8 +263,10 @@ paths:
             schema:
               type: object
               properties:
-                trade_id: { type: integer }
-              required: [trade_id]
+                tradeId:
+                  type: integer
+              required:
+              - tradeId
       responses:
         '200':
           description: Pre-signed URL
@@ -198,17 +275,18 @@ paths:
               schema:
                 type: object
                 properties:
-                  s3Url: { type: string }   # ← schemaと合わせて camelCase
+                  s3Url:
+                    type: string
         default:
           $ref: '#/components/responses/problem_response'
-
   /patterns/{trade_id}:
     get:
       parameters:
-        - in: path
-          name: trade_id
-          required: true
-          schema: { type: integer }
+      - in: path
+        name: trade_id
+        required: true
+        schema:
+          type: integer
       responses:
         '200':
           description: Pattern result
@@ -218,7 +296,6 @@ paths:
                 $ref: '#/components/schemas/pattern_result'
         default:
           $ref: '#/components/responses/problem_response'
-
   /alerts:
     post:
       requestBody:
@@ -236,14 +313,14 @@ paths:
                 $ref: '#/components/schemas/alert'
         default:
           $ref: '#/components/responses/problem_response'
-
   /alerts/{trade_id}:
     get:
       parameters:
-        - in: path
-          name: trade_id
-          required: true
-          schema: { type: integer }
+      - in: path
+        name: trade_id
+        required: true
+        schema:
+          type: integer
       responses:
         '200':
           description: Alert list
@@ -255,7 +332,6 @@ paths:
                   $ref: '#/components/schemas/alert'
         default:
           $ref: '#/components/responses/problem_response'
-
   /health:
     get:
       summary: Health check
