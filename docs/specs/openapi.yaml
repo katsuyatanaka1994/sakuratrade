@@ -1,73 +1,127 @@
 # AUTO-GENERATED FILE
 # このファイルは自動生成されます。直接編集しないでください。
-openapi: 3.1.0
-info:
-  title: sakuratrade API
-  version: 0.0.1
-servers:
-- url: /api/v1
-  description: Internal API
 components:
-  securitySchemes:
-    bearer_auth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
   responses:
     problem_response:
-      description: Error
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/problem'
+      description: Error
   schemas:
-    user:
-      type: object
+    alert:
       properties:
-        userId:
-          type: string
-          format: uuid
-        email:
-          type: string
-          format: email
-        role:
-          type: string
-        plan:
-          type: string
-      required:
-      - userId
-      - email
-    trade:
-      type: object
-      properties:
+        alertId:
+          type: integer
+        targetPrice:
+          type: number
         tradeId:
           type: integer
-        userId:
-          type: string
-          format: uuid
-        ticker:
-          type: string
-        side:
-          type: string
+        triggeredAt:
+          format: date-time
+          type:
+          - string
+          - 'null'
+        type:
           enum:
-          - LONG
-          - SHORT
+          - TP
+          - SL
+          type: string
+      required:
+      - alertId
+      - tradeId
+      - type
+      - targetPrice
+      type: object
+    image:
+      properties:
+        imageId:
+          type: integer
+        s3Url:
+          type: string
+        thumbnailUrl:
+          type: string
+        tradeId:
+          type: integer
+        uploadedAt:
+          format: date-time
+          type: string
+      required:
+      - imageId
+      - tradeId
+      - s3Url
+      - uploadedAt
+      type: object
+    pattern_result:
+      properties:
+        advice:
+          type: string
+        diagnosedAt:
+          format: date-time
+          type: string
+        patternId:
+          type: integer
+        rule:
+          type: string
+        score:
+          format: float
+          type: number
+        tradeId:
+          type: integer
+      required:
+      - patternId
+      - tradeId
+      - rule
+      - score
+      - diagnosedAt
+      type: object
+    problem:
+      properties:
+        detail:
+          type: string
+        instance:
+          type: string
+        status:
+          type: integer
+        title:
+          type: string
+        type:
+          type: string
+      required:
+      - type
+      - title
+      - status
+      type: object
+    trade:
+      properties:
+        enteredAt:
+          format: date-time
+          type: string
+        exitedAt:
+          format: date-time
+          type:
+          - string
+          - 'null'
         priceIn:
           type: number
         priceOut:
           type:
           - number
           - 'null'
+        side:
+          enum:
+          - LONG
+          - SHORT
+          type: string
         size:
           type: number
-        enteredAt:
+        ticker:
           type: string
-          format: date-time
-        exitedAt:
-          type:
-          - string
-          - 'null'
-          format: date-time
+        tradeId:
+          type: integer
+        userId:
+          format: uuid
+          type: string
       required:
       - tradeId
       - userId
@@ -76,241 +130,49 @@ components:
       - priceIn
       - size
       - enteredAt
-    image:
       type: object
+    user:
       properties:
-        imageId:
-          type: integer
-        tradeId:
-          type: integer
-        s3Url:
+        email:
+          format: email
           type: string
-        thumbnailUrl:
+        plan:
           type: string
-        uploadedAt:
+        role:
           type: string
-          format: date-time
-      required:
-      - imageId
-      - tradeId
-      - s3Url
-      - uploadedAt
-    pattern_result:
-      type: object
-      properties:
-        patternId:
-          type: integer
-        tradeId:
-          type: integer
-        rule:
-          type: string
-        score:
-          type: number
-          format: float
-        advice:
-          type: string
-        diagnosedAt:
-          type: string
-          format: date-time
-      required:
-      - patternId
-      - tradeId
-      - rule
-      - score
-      - diagnosedAt
-    alert:
-      type: object
-      properties:
-        alertId:
-          type: integer
-        tradeId:
-          type: integer
-        type:
-          type: string
-          enum:
-          - TP
-          - SL
-        targetPrice:
-          type: number
-        triggeredAt:
-          type:
-          - string
-          - 'null'
-          format: date-time
-      required:
-      - alertId
-      - tradeId
-      - type
-      - targetPrice
-    problem:
-      type: object
-      properties:
-        type:
-          type: string
-        title:
-          type: string
-        status:
-          type: integer
-        detail:
-          type: string
-        instance:
+        userId:
+          format: uuid
           type: string
       required:
-      - type
-      - title
-      - status
-security:
-- bearer_auth: []
+      - userId
+      - email
+      type: object
+  securitySchemes:
+    bearer_auth:
+      bearerFormat: JWT
+      scheme: bearer
+      type: http
+info:
+  description: Test drift for DS-4
+  title: sakuratrade API
+  version: 0.0.1
+openapi: 3.1.0
 paths:
-  /auth/register:
-    post:
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                email:
-                  type: string
-                  format: email
-                password:
-                  type: string
-              required:
-              - email
-              - password
-      responses:
-        '201':
-          description: Registered
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/user'
-        default:
-          $ref: '#/components/responses/problem_response'
-  /auth/oauth:
-    post:
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                provider_token:
-                  type: string
-              required:
-              - provider_token
-      responses:
-        '200':
-          description: JWT token
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-        default:
-          $ref: '#/components/responses/problem_response'
-  /trades:
-    post:
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/trade'
-      responses:
-        '201':
-          description: Created trade
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/trade'
-        default:
-          $ref: '#/components/responses/problem_response'
-  /trades/{trade_id}:
-    get:
-      parameters:
-      - in: path
-        name: trade_id
-        required: true
-        schema:
-          type: integer
-      responses:
-        '200':
-          description: Trade data
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  trade:
-                    $ref: '#/components/schemas/trade'
-                  pattern_result:
-                    $ref: '#/components/schemas/pattern_result'
-        default:
-          $ref: '#/components/responses/problem_response'
-  /images:
-    post:
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                tradeId:
-                  type: integer
-              required:
-              - tradeId
-      responses:
-        '200':
-          description: Pre-signed URL
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  s3Url:
-                    type: string
-        default:
-          $ref: '#/components/responses/problem_response'
-  /patterns/{trade_id}:
-    get:
-      parameters:
-      - in: path
-        name: trade_id
-        required: true
-        schema:
-          type: integer
-      responses:
-        '200':
-          description: Pattern result
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/pattern_result'
-        default:
-          $ref: '#/components/responses/problem_response'
   /alerts:
     post:
       requestBody:
-        required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/alert'
+        required: true
       responses:
         '201':
-          description: Created alert
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/alert'
+          description: Created alert
         default:
           $ref: '#/components/responses/problem_response'
   /alerts/{trade_id}:
@@ -323,18 +185,157 @@ paths:
           type: integer
       responses:
         '200':
-          description: Alert list
           content:
             application/json:
               schema:
-                type: array
                 items:
                   $ref: '#/components/schemas/alert'
+                type: array
+          description: Alert list
         default:
           $ref: '#/components/responses/problem_response'
+  /auth/oauth:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                provider_token:
+                  type: string
+              required:
+              - provider_token
+              type: object
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  token:
+                    type: string
+                type: object
+          description: JWT token
+        default:
+          $ref: '#/components/responses/problem_response'
+      security: []
+  /auth/register:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                email:
+                  format: email
+                  type: string
+                password:
+                  type: string
+              required:
+              - email
+              - password
+              type: object
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/user'
+          description: Registered
+        default:
+          $ref: '#/components/responses/problem_response'
+      security: []
   /health:
     get:
-      summary: Health check
       responses:
         '200':
           description: OK
+      summary: Health check
+  /images:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                tradeId:
+                  type: integer
+              required:
+              - tradeId
+              type: object
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  s3Url:
+                    type: string
+                type: object
+          description: Pre-signed URL
+        default:
+          $ref: '#/components/responses/problem_response'
+  /patterns/{trade_id}:
+    get:
+      parameters:
+      - in: path
+        name: trade_id
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/pattern_result'
+          description: Pattern result
+        default:
+          $ref: '#/components/responses/problem_response'
+  /trades:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/trade'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/trade'
+          description: Created trade
+        default:
+          $ref: '#/components/responses/problem_response'
+  /trades/{trade_id}:
+    get:
+      parameters:
+      - in: path
+        name: trade_id
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  pattern_result:
+                    $ref: '#/components/schemas/pattern_result'
+                  trade:
+                    $ref: '#/components/schemas/trade'
+                type: object
+          description: Trade data
+        default:
+          $ref: '#/components/responses/problem_response'
+security:
+- bearer_auth: []
+servers:
+- description: Internal API
+  url: /api/v1
