@@ -1,4 +1,7 @@
 name: docsync-apply
+concurrency:
+  group: docs-sync-${{ github.ref }}
+  cancel-in-progress: false
 on:
   workflow_dispatch:
 

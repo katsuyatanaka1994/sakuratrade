@@ -1,0 +1,52 @@
+name: docsync-orchestrate
+on:
+  workflow_run:
+    workflows: ["docsync-check"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: docs-sync-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    env:
+      ART_URL: ${{ github.event.workflow_run.artifacts_url }}
+      PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+    steps:
+      - name: Fetch artifact list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$ART_URL" > artifacts.json
+          id=$(jq -r '.artifacts[] | select(.name=="doc_sync_plan") | .id' artifacts.json)
+          if [ -z "$id" ] || [ "$id" = "null" ]; then
+            echo "no artifact"; exit 0
+          fi
+          curl -sL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/${{ github.repository }}/actions/artifacts/$id/zip" -o artifact.zip
+          unzip -o artifact.zip
+          cat doc_sync_plan.json
+          echo "EQUAL=$(jq -r .equal doc_sync_plan.json)" >> $GITHUB_ENV
+
+      - name: Comment on PR (drift detected)
+        if: env.EQUAL == 'false' && env.PR_NUMBER
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.PR_NUMBER),
+              body:
+                "⚠️ **DocSync drift detected**\n\n" +
+                "Run **Actions → docsync-apply** on `${{ github.event.workflow_run.head_branch }}` to regenerate `docs/specs/openapi.yaml` from `backend/app/openapi.yaml`.\n" +
+                "After merge, re-run checks to turn green ✅"
+            })
