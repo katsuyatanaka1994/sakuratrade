@@ -8,6 +8,7 @@ permissions:
   contents: read
   actions: write          # ← workflow_dispatch を叩くため
   pull-requests: write
+  issues: write
 
 concurrency:
   group: docs-sync-${{ github.event.workflow_run.head_branch }}
