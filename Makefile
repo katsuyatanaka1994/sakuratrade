@@ -1,4 +1,4 @@
-.PHONY: run-dev run-prod dev prod db-reset db-upgrade test alembic-up alembic-downgrade
+.PHONY: run-dev run-prod dev prod db-reset db-upgrade test alembic-up alembic-downgrade oas-lint ds-diff ds-apply
 
 # PostgreSQL DSN helpers (override as needed)
 PG_DB ?= app_db
@@ -32,3 +32,14 @@ alembic-downgrade:
 
 test:
 	PYTHONPATH=$(PWD) DATABASE_URL=$(DATABASE_URL) pytest -q app/tests tests test_*.py
+
+oas-lint:
+	python3 -c "from openapi_spec_validator import validate_spec as v; import yaml; d=yaml.safe_load(open('backend/app/openapi.yaml','r',encoding='utf-8')); v(d); print('OpenAPI: OK')"
+
+ds-diff:
+	python3 scripts/docsync_diff.py || true
+	cat doc_sync_plan.json || true
+
+ds-apply:
+	@test -n '$(BR)' || { echo 'Usage: make ds-apply BR=<branch>'; exit 1; }
+	gh workflow run docsync-apply.yml --ref $(BR)
