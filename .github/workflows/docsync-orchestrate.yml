@@ -8,6 +8,7 @@ permissions:
   actions: read
   contents: read
   pull-requests: write
+  issues: write
 
 concurrency:
   group: docs-sync-${{ github.event.workflow_run.head_branch }}
