@@ -157,6 +157,19 @@ info:
   description: REST API for sakuratrade (auth, trades, alerts, images, patterns, health)
   title: sakuratrade API
   version: 0.0.1
+tags:
+- name: auth
+  description: User authentication and registration
+- name: trades
+  description: Trade resources and summaries
+- name: alerts
+  description: Price alert resources for trades
+- name: images
+  description: Chart image uploads and presigned URLs
+- name: patterns
+  description: Pattern diagnostics and scoring
+- name: health
+  description: Service status and readiness
 paths:
   /alerts:
     post:
