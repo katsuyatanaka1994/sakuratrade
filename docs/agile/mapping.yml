@@ -7,3 +7,9 @@ mappings:
     mode: replace                     # 生成結果で置き換え（最小）
     allow_shrink: false               # 痩せ（縮小）を禁止
     min_paths: 3                      # paths が閾値未満ならスキップ
+
+  # 将来、部分更新したいとき用の雛形（今は使わない）
+  # - id: openapi-fragment
+  #   source: backend/app/fragment.yaml
+  #   target: docs/specs/openapi.yaml
+  #   mode: overlay
