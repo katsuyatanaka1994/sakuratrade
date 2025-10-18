@@ -15,3 +15,5 @@
 
 ---
 **関連**: [docs/agile/README-agile.md](./README-agile.md) （CO-EDIT方針と ASSIST ブロック定義）
+
+命名規約: operationId=verbNoun（例: createTrade）, tags=複数形（trades）, summary=短い命令文。
