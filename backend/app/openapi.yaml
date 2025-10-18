@@ -153,12 +153,15 @@ components:
 openapi: 3.1.0
 
 info:
-  description: Test drift for DS-4
+  description: REST API for sakuratrade (auth, trades, alerts, images, patterns, health)
   title: sakuratrade API
   version: 0.0.1
 paths:
   /alerts:
     post:
+      summary: Create alert
+      tags: [alerts]
+      operationId: createAlert
       requestBody:
         content:
           application/json:
@@ -176,6 +179,9 @@ paths:
           $ref: '#/components/responses/problem_response'
   /alerts/{trade_id}:
     get:
+      summary: List alerts for trade
+      tags: [alerts]
+      operationId: listTradeAlerts
       parameters:
       - in: path
         name: trade_id
@@ -195,6 +201,9 @@ paths:
           $ref: '#/components/responses/problem_response'
   /auth/oauth:
     post:
+      summary: Authenticate via OAuth
+      tags: [auth]
+      operationId: oauthLogin
       requestBody:
         content:
           application/json:
@@ -221,6 +230,9 @@ paths:
       security: []
   /auth/register:
     post:
+      summary: Register user account
+      tags: [auth]
+      operationId: register
       requestBody:
         content:
           application/json:
@@ -248,12 +260,17 @@ paths:
       security: []
   /health:
     get:
+      summary: Check service health
+      tags: [health]
+      operationId: getHealth
       responses:
         '200':
           description: OK
-      summary: Health check
   /images:
     post:
+      summary: Request image upload URL
+      tags: [images]
+      operationId: requestImageUpload
       requestBody:
         content:
           application/json:
@@ -279,6 +296,9 @@ paths:
           $ref: '#/components/responses/problem_response'
   /patterns/{trade_id}:
     get:
+      summary: Get pattern result for trade
+      tags: [patterns]
+      operationId: getPatternResult
       parameters:
       - in: path
         name: trade_id
@@ -296,6 +316,9 @@ paths:
           $ref: '#/components/responses/problem_response'
   /trades:
     post:
+      summary: Create trade
+      tags: [trades]
+      operationId: createTrade
       requestBody:
         content:
           application/json:
@@ -313,6 +336,9 @@ paths:
           $ref: '#/components/responses/problem_response'
   /trades/{trade_id}:
     get:
+      summary: Get trade bundle
+      tags: [trades]
+      operationId: getTradeBundle
       parameters:
       - in: path
         name: trade_id
