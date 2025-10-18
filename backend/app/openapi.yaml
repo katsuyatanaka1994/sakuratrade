@@ -43,18 +43,18 @@ components:
         triggeredAt:
           format: date-time
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         type:
           enum:
-          - TP
-          - SL
+            - TP
+            - SL
           type: string
       required:
-      - alertId
-      - tradeId
-      - type
-      - targetPrice
+        - alertId
+        - tradeId
+        - type
+        - targetPrice
       type: object
     image:
       properties:
@@ -70,10 +70,10 @@ components:
           format: date-time
           type: string
       required:
-      - imageId
-      - tradeId
-      - s3Url
-      - uploadedAt
+        - imageId
+        - tradeId
+        - s3Url
+        - uploadedAt
       type: object
     pattern_result:
       properties:
@@ -92,11 +92,11 @@ components:
         tradeId:
           type: integer
       required:
-      - patternId
-      - tradeId
-      - rule
-      - score
-      - diagnosedAt
+        - patternId
+        - tradeId
+        - rule
+        - score
+        - diagnosedAt
       type: object
     problem:
       properties:
@@ -111,9 +111,9 @@ components:
         type:
           type: string
       required:
-      - type
-      - title
-      - status
+        - type
+        - title
+        - status
       type: object
     trade:
       properties:
@@ -123,18 +123,18 @@ components:
         exitedAt:
           format: date-time
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         priceIn:
           type: number
         priceOut:
           type:
-          - number
-          - 'null'
+            - number
+            - 'null'
         side:
           enum:
-          - LONG
-          - SHORT
+            - LONG
+            - SHORT
           type: string
         size:
           type: number
@@ -146,13 +146,13 @@ components:
           format: uuid
           type: string
       required:
-      - tradeId
-      - userId
-      - ticker
-      - side
-      - priceIn
-      - size
-      - enteredAt
+        - tradeId
+        - userId
+        - ticker
+        - side
+        - priceIn
+        - size
+        - enteredAt
       type: object
     user:
       properties:
@@ -167,8 +167,8 @@ components:
           format: uuid
           type: string
       required:
-      - userId
-      - email
+        - userId
+        - email
       type: object
   securitySchemes:
     bearer_auth:
@@ -176,11 +176,11 @@ components:
       scheme: bearer
       type: http
 openapi: 3.1.0
-
 info:
   description: REST API for sakuratrade (auth, trades, alerts, images, patterns, health)
   title: sakuratrade API
   version: 0.0.1
+  x-revision: 2025-10-18 smoke
 tags:
   - name: auth
     description: User authentication and registration
@@ -229,7 +229,7 @@ paths:
       tags: [alerts]
       operationId: listTradeAlerts
       parameters:
-      - $ref: '#/components/parameters/trade_id'
+        - $ref: '#/components/parameters/trade_id'
       responses:
         '200':
           content:
@@ -258,7 +258,7 @@ paths:
                 provider_token:
                   type: string
               required:
-              - provider_token
+                - provider_token
               type: object
         required: true
       responses:
@@ -290,8 +290,8 @@ paths:
                 password:
                   type: string
               required:
-              - email
-              - password
+                - email
+                - password
               type: object
         required: true
       responses:
@@ -325,7 +325,7 @@ paths:
                 tradeId:
                   type: integer
               required:
-              - tradeId
+                - tradeId
               type: object
         required: true
       responses:
@@ -346,7 +346,7 @@ paths:
       tags: [patterns]
       operationId: getPatternResult
       parameters:
-      - $ref: '#/components/parameters/trade_id'
+        - $ref: '#/components/parameters/trade_id'
       responses:
         '200':
           content:
@@ -394,7 +394,7 @@ paths:
       tags: [trades]
       operationId: getTradeBundle
       parameters:
-      - $ref: '#/components/parameters/trade_id'
+        - $ref: '#/components/parameters/trade_id'
       responses:
         '200':
           content:
@@ -414,7 +414,7 @@ paths:
         default:
           $ref: '#/components/responses/problem_response'
 security:
-- bearer_auth: []
+  - bearer_auth: []
 servers:
-- description: Internal API
-  url: /api/v1
+  - description: Internal API
+    url: /api/v1
