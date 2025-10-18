@@ -180,7 +180,6 @@ info:
   description: REST API for sakuratrade (auth, trades, alerts, images, patterns, health)
   title: sakuratrade API
   version: 0.0.1
-  x-revision: 2025-10-18 smoke
 tags:
   - name: auth
     description: User authentication and registration
