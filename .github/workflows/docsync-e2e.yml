@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  actions: write          # ← workflow_dispatch を叩くため
+  actions: write
   pull-requests: write
   issues: write
 
@@ -24,18 +24,19 @@ jobs:
       HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
     steps:
       - name: Fetch docsync-check artifact
-        env: { GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$ART_URL" > artifacts.json
-          id=$(jq -r '.artifacts[] | select(.name=="doc_sync_plan") | .id' artifacts.json)
+          id=$(jq -r '.artifacts[] | select(.name=="doc_sync_plan") | .id' artifacts.json || true)
           if [ -z "$id" ] || [ "$id" = "null" ]; then
-            echo "no artifact"; echo "EQUAL=true" >> $GITHUB_ENV; exit 0
+            echo "EQUAL=true" >> $GITHUB_ENV
+            exit 0
           fi
           curl -sL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "$GITHUB_API_URL/repos/${{ github.repository }}/actions/artifacts/$id/zip" -o artifact.zip
           unzip -o artifact.zip
-          cat doc_sync_plan.json
           echo "EQUAL=$(jq -r .equal doc_sync_plan.json)" >> $GITHUB_ENV
 
       - name: Add label when drift
@@ -58,8 +59,7 @@ jobs:
             await github.rest.actions.createWorkflowDispatch({
               owner, repo,
               workflow_id: "docsync-apply.yml",
-              ref: process.env.HEAD_BRANCH,
-              inputs: {}
+              ref: process.env.HEAD_BRANCH
             });
 
       - name: Sticky guide comment
@@ -73,8 +73,8 @@ jobs:
             const body = (process.env.EQUAL === 'false')
               ? `${header}\n\nDrift detected. I dispatched **docsync-apply** on \`${process.env.HEAD_BRANCH}\` to open a Draft PR for \`docs/specs/openapi.yaml\`.\nAfter merging that PR, re-run checks to turn green ✅`
               : `${header}\n\nNo drift. All good ✅`;
-            const comments = await github.rest.issues.listComments({owner, repo, issue_number, per_page: 100});
-            const prev = comments.data.find(c => c.body && c.body.startsWith(header));
+            const { data: comments } = await github.rest.issues.listComments({owner, repo, issue_number, per_page: 100});
+            const prev = comments.find(c => c.body && c.body.startsWith(header));
             if (prev) {
               await github.rest.issues.updateComment({owner, repo, comment_id: prev.id, body});
             } else {
