@@ -6,6 +6,14 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 MAP = ROOT / "docs/agile/mapping.yml"
 
+def deep_merge(dst, src):
+    if isinstance(dst, dict) and isinstance(src, dict):
+        out = dict(dst)
+        for k, v in src.items():
+            out[k] = deep_merge(out.get(k), v)
+        return out
+    return src if src is not None else dst
+
 def load_mapping():
     try:
         cfg = yaml.safe_load(MAP.read_text(encoding="utf-8")) or {}
@@ -72,12 +80,21 @@ def main():
         sys.exit(0)
 
     # 3) header + normalized dump
+    if m.get("mode") == "overlay":
+        if isinstance(tgt_obj, dict) and isinstance(obj, dict):
+            merged = deep_merge(tgt_obj, obj)
+        else:
+            # Fallback to replace when overlay inputs are not both mappings
+            merged = obj
+    else:
+        merged = obj
+
     header = "\n".join([
         "# AUTO-GENERATED FILE",
         "# このファイルは自動生成されます。直接編集しないでください。",
     ]) + "\n"
     body = yaml.safe_dump(
-        obj,
+        merged,
         sort_keys=False,
         allow_unicode=True,
         default_flow_style=False,
