@@ -89,12 +89,19 @@ def response_content_schema(resp: Dict[str, Any]) -> Any:
     return resp.get("schema") or {}
 
 
+def resp_headers(resp: Any) -> Dict[str, Any]:
+    if isinstance(resp, dict):
+        return resp.get("headers") or {}
+    return {}
+
+
 def detect_breaking(
     base: Dict[str, Any], head: Dict[str, Any]
-) -> Tuple[List[str], List[str], List[str], List[str]]:
+) -> Tuple[List[str], List[str], List[str], List[str], List[str]]:
     out_removed_paths: List[str] = []
     out_removed_ops: List[str] = []
     out_removed_resp: List[str] = []
+    out_removed_hdr: List[str] = []
     out_strict: List[str] = []
 
     bpo = get_paths_ops(base)
@@ -121,6 +128,13 @@ def detect_breaking(
                 hnode = hres.get(code)
                 if not hnode:
                     continue
+                bh = resp_headers(bnode)
+                hh = resp_headers(hnode or {})
+                for hname in bh.keys():
+                    if hname not in hh:
+                        out_removed_hdr.append(
+                            f"{op.upper()} {p} :: {code} header '{hname}'"
+                        )
                 bt = first_schema_type(response_content_schema(bnode))
                 ht = first_schema_type(response_content_schema(hnode))
                 if bt is None or ht is None:
@@ -128,7 +142,7 @@ def detect_breaking(
                 if bt != ht:
                     out_strict.append(f"{op.upper()} {p} :: {code} type {bt} -> {ht}")
 
-    return out_removed_paths, out_removed_ops, out_removed_resp, out_strict
+    return out_removed_paths, out_removed_ops, out_removed_resp, out_removed_hdr, out_strict
 
 
 def detect_reqbody_harder(base: Dict[str, Any], head: Dict[str, Any]) -> List[str]:
@@ -147,10 +161,10 @@ def main() -> None:
     base = load_base()
     head = load_head()
 
-    rp, ro, rr, rt = detect_breaking(base, head)
+    rp, ro, rr, rh, rt = detect_breaking(base, head)
     rq = detect_reqbody_harder(base, head)
 
-    breaking = len(rp) + len(ro) + len(rr) + len(rq)
+    breaking = len(rp) + len(ro) + len(rr) + len(rq) + len(rh)
     header = "### 🔎 OpenAPI Contract Diff\n\n"
     md: List[str] = [header]
     md.append(
@@ -173,6 +187,9 @@ def main() -> None:
         if rq:
             md.append("- Request stricter (required):\n")
             md.extend([f"  - `{s}`" for s in rq])
+    if rh:
+        md.append("\n🧩 **Removed response headers**\n")
+        md.extend([f"- `{s}`" for s in rh])
     if rt:
         md.append("\n📝 **Type changes (top-level response schema)**\n")
         md.extend([f"- `{s}`" for s in rt])
