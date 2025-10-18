@@ -17,6 +17,7 @@
 - 進捗: DS-10 土台 反映（2025-10-18）
 - 進捗: DS-4〜DS-7 完了（2025-10-17）
 - チェック用の追記（ASSIST内）
+- 運用: make oas-lint → make ds-diff → 必要なら make ds-apply BR=$(git branch --show-current)
 <!-- ASSIST-END:status -->
 
 <!-- NOTE: 進捗の下に未消化タスクを並べることで、参照順を固定 -->
