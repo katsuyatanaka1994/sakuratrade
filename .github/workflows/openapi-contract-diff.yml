@@ -1,0 +1,73 @@
+name: openapi-contract-diff
+on:
+  pull_request:
+    paths: ["backend/app/openapi.yaml"]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: docs-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      STRICT: ${{ vars.CONTRACT_STRICT || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install deps
+        run: pip install pyyaml
+
+      - name: Generate contract diff
+        run: python scripts/oas_contract_diff.py > contract_diff.md
+
+      - name: Upload diff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract_diff
+          path: contract_diff.md
+
+      - name: Post sticky comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('contract_diff.md', 'utf8');
+            const header = "### 🔎 OpenAPI Contract Diff";
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number: pr.number,
+              per_page: 100,
+            });
+            const prev = comments.find((c) => c.body && c.body.startsWith(header));
+
+            if (prev) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: prev.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr.number,
+                body,
+              });
+            }
