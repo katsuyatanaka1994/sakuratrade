@@ -178,6 +178,7 @@ components:
 openapi: 3.1.0
 info:
   description: REST API for sakuratrade (auth, trades, alerts, images, patterns, health)
+  x-revision: "2025-10-19 smoke"
   title: sakuratrade API
   version: 0.0.1
 tags:
