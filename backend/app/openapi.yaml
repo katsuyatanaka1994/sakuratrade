@@ -6,6 +6,31 @@ components:
           schema:
             $ref: '#/components/schemas/problem'
       description: Error
+    problem_response_401:
+      description: Unauthorized
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problem'
+    problem_response_403:
+      description: Forbidden
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problem'
+    problem_response_404:
+      description: Not Found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/problem'
+  parameters:
+    trade_id:
+      in: path
+      name: trade_id
+      required: true
+      schema:
+        type: integer
   schemas:
     alert:
       properties:
@@ -183,11 +208,19 @@ paths:
         required: true
       responses:
         '201':
+          description: Created alert
+          headers:
+            Location:
+              description: URL of the created resource
+              schema:
+                type: string
+                format: uri
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/alert'
-          description: Created alert
+        '401':
+          $ref: '#/components/responses/problem_response_401'
         default:
           $ref: '#/components/responses/problem_response'
   /alerts/{trade_id}:
@@ -196,11 +229,7 @@ paths:
       tags: [alerts]
       operationId: listTradeAlerts
       parameters:
-      - in: path
-        name: trade_id
-        required: true
-        schema:
-          type: integer
+      - $ref: '#/components/parameters/trade_id'
       responses:
         '200':
           content:
@@ -210,6 +239,10 @@ paths:
                   $ref: '#/components/schemas/alert'
                 type: array
           description: Alert list
+        '404':
+          $ref: '#/components/responses/problem_response_404'
+        '401':
+          $ref: '#/components/responses/problem_response_401'
         default:
           $ref: '#/components/responses/problem_response'
   /auth/oauth:
@@ -313,11 +346,7 @@ paths:
       tags: [patterns]
       operationId: getPatternResult
       parameters:
-      - in: path
-        name: trade_id
-        required: true
-        schema:
-          type: integer
+      - $ref: '#/components/parameters/trade_id'
       responses:
         '200':
           content:
@@ -325,6 +354,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/pattern_result'
           description: Pattern result
+        '404':
+          $ref: '#/components/responses/problem_response_404'
+        '401':
+          $ref: '#/components/responses/problem_response_401'
         default:
           $ref: '#/components/responses/problem_response'
   /trades:
@@ -340,11 +373,19 @@ paths:
         required: true
       responses:
         '201':
+          description: Created trade
+          headers:
+            Location:
+              description: URL of the created resource
+              schema:
+                type: string
+                format: uri
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/trade'
-          description: Created trade
+        '401':
+          $ref: '#/components/responses/problem_response_401'
         default:
           $ref: '#/components/responses/problem_response'
   /trades/{trade_id}:
@@ -353,11 +394,7 @@ paths:
       tags: [trades]
       operationId: getTradeBundle
       parameters:
-      - in: path
-        name: trade_id
-        required: true
-        schema:
-          type: integer
+      - $ref: '#/components/parameters/trade_id'
       responses:
         '200':
           content:
@@ -370,6 +407,10 @@ paths:
                     $ref: '#/components/schemas/trade'
                 type: object
           description: Trade data
+        '404':
+          $ref: '#/components/responses/problem_response_404'
+        '401':
+          $ref: '#/components/responses/problem_response_401'
         default:
           $ref: '#/components/responses/problem_response'
 security:
