@@ -1,0 +1,38 @@
+name: ui-spec-manual
+on:
+  workflow_dispatch:
+    inputs:
+      screen:  { description: "画面名（例: Positions／Entry Modal）", required: true, type: string }
+      summary: { description: "概要（任意）", required: false, type: string }
+      notes:   { description: "備考（任意）", required: false, type: string }
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ui-spec-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - name: Run updater
+        env:
+          INPUT_SCREEN:  ${{ github.event.inputs.screen }}
+          INPUT_SUMMARY: ${{ github.event.inputs.summary }}
+          INPUT_NOTES:   ${{ github.event.inputs.notes }}
+        run: python scripts/ui_spec_manual.py
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "docs(ui-spec): manual update for ${{ github.event.inputs.screen }}"
+          title: "docs(ui-spec): ${{ github.event.inputs.screen }}"
+          body: "UI spec manual update via workflow_dispatch."
+          branch: "chore/ui-spec/${{ github.run_id }}"
+          delete-branch: true
