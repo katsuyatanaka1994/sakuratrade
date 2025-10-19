@@ -1,3 +1,4 @@
+# green-smoke (equal:true) — no-op change
 components:
   responses:
     problem_response:
