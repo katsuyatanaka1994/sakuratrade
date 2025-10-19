@@ -41,6 +41,36 @@ jobs:
         run: pip install pyyaml
       - name: Run diff-sensor
         run: python scripts/docsync_diff.py
+      # --- DS-18: doc_sync_plan.json をパースして出力を GITHUB_OUTPUT に流す ---
+      - name: Parse doc_sync_plan.json
+        id: plan
+        shell: bash
+        run: |
+          python -c "import json, pathlib; p = pathlib.Path('doc_sync_plan.json'); d = json.loads(p.read_text()) if p.exists() else {}; stats = d.get('stats', {}); print('equal=' + str(d.get('equal', 'unknown')).lower()); print('src_paths=' + str(stats.get('src_paths', '-'))); print('tgt_paths=' + str(stats.get('tgt_paths', '-')))" > plan.env
+          cat plan.env >> "$GITHUB_OUTPUT"
+
+      # --- DS-18: Actions のサマリーに要約を書き込む ---
+      - name: Write DocSync summary
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          {
+            echo "## DocSync Summary"
+            echo ""
+            echo "- event: ${{ github.event_name }}"
+            echo "- branch: ${{ github.ref_name }}"
+            echo "- equal: ${{ steps.plan.outputs.equal }}"
+            echo "- src_paths: ${{ steps.plan.outputs.src_paths }}"
+            echo "- tgt_paths: ${{ steps.plan.outputs.tgt_paths }}"
+            echo "- run: ${RUN_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # --- DS-18: 生成物を Artifact として保存 ---
+      - name: Upload docsync artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: docsync-artifacts
+          path: |
+            doc_sync_plan.json
       - name: Upload plan (always)
         if: always()
         uses: actions/upload-artifact@v4
