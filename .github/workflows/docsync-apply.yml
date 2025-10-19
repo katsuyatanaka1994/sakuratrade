@@ -1,6 +1,6 @@
 name: docsync-apply
 concurrency:
-  group: docs-sync-${{ github.ref }}
+  group: docsync-${{ github.ref }}
   cancel-in-progress: false
 on:
   workflow_dispatch:
@@ -39,14 +39,19 @@ jobs:
       - name: Apply mapping
         run: python scripts/docsync_apply.py
 
+      - name: Compute short SHA
+        id: short_sha
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Create Draft PR
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
           commit-message: "chore(docsync): apply mapping (openapi)"
-          branch: "chore/docsync-apply-openapi"
-          title: "docsync: update docs/specs/openapi.yaml"
+          branch: "docs-sync/${{ steps.short_sha.outputs.sha }}"
+          title: "[skip docsync] docsync: update docs/specs/openapi.yaml"
           body: "Automated Draft PR from mapping.yml (id: openapi)"
           draft: true
+          labels: "docsync:needs-apply"
           add-paths: |
             docs/specs/openapi.yaml
