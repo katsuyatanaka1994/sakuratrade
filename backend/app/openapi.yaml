@@ -180,6 +180,7 @@ info:
   description: REST API for sakuratrade (auth, trades, alerts, images, patterns, health)
   x-revision: "2025-10-19 smoke"
   x-docsync-smoke: true
+  x-smoke: "ds-18.1 test (remove after smoke test)"
   title: sakuratrade API
   version: 0.0.1
 tags:
