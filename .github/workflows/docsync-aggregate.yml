@@ -1,7 +1,7 @@
 name: docsync-aggregate
 on:
   workflow_run:
-    workflows: ["docsync-check"]     # name 完全一致
+    workflows: ["docsync-check"]   # name 完全一致
     types: [completed]
 
 permissions:
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   append:
-    # success / failure のときだけ動かす（skipped/cancelled を除外）
+    # success / failure のときだけ実行（skipped / cancelled を除外）
     if: ${{ contains(fromJson('["success","failure"]'), github.event.workflow_run.conclusion) }}
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +28,7 @@ jobs:
       - name: Download docsync artifacts from triggering run
         uses: actions/download-artifact@v4
         with:
-          name: docsync-artifacts              # docsync-check 側のartifact名と一致
+          name: docsync-artifacts
           run-id: ${{ github.event.workflow_run.id }}
           path: artifacts
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -44,6 +44,7 @@ jobs:
           fi
 
       - name: Ensure report.md exists with header
+        if: ${{ steps.artifacts.outputs.has_plan == 'true' }}
         run: |
           mkdir -p docs/agile
           if [ ! -f docs/agile/report.md ]; then
@@ -57,6 +58,7 @@ jobs:
       - name: Build table row
         if: ${{ steps.artifacts.outputs.has_plan == 'true' }}
         id: row
+        shell: bash
         run: |
           python - <<'PY' > row.txt
 import json, pathlib, datetime, os
@@ -75,7 +77,8 @@ PY
 
       - name: Append to report.md
         if: ${{ steps.artifacts.outputs.has_plan == 'true' }}
-        run: echo "$(cat row.txt)" >> docs/agile/report.md
+        run: |
+          cat row.txt >> docs/agile/report.md
 
       - name: Create PR
         if: ${{ steps.artifacts.outputs.has_plan == 'true' }}
@@ -86,5 +89,6 @@ PY
           commit-message: "docs(report): append row to report.md [skip docsync]"
           title: "docs(report): append row to report.md [skip docsync]"
           body: "Automated append from docsync-aggregate."
-          add-paths: docs/agile/report.md
-          labels: "docsync:needs-apply"  
+          add-paths: |
+            docs/agile/report.md
+          labels: "docsync:needs-apply"
