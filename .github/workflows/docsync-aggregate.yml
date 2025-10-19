@@ -57,9 +57,8 @@ jobs:
       - name: Build table row
         if: ${{ steps.artifacts.outputs.has_plan == 'true' }}
         id: row
-        shell: bash
+        shell: python
         run: |
-          python - <<'PY' > row.txt
           import json, pathlib, datetime, os
           p = pathlib.Path('artifacts/doc_sync_plan.json')
           d = json.loads(p.read_text())
@@ -71,9 +70,9 @@ jobs:
           date  = datetime.datetime.now(jst).strftime('%Y-%m-%d')
           run_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
           branch  = "${{ github.event.workflow_run.head_branch }}"
-          print(f"| {date} | docsync-check | {branch} | {equal} | {src} | {tgt} | {run_url} |")
-          PY
-
+          open('row.txt','w',encoding='utf-8').write(
+            f"| {date} | docsync-check | {branch} | {equal} | {src} | {tgt} | {run_url} |\n"
+          )
       - name: Append to report.md
         if: ${{ steps.artifacts.outputs.has_plan == 'true' }}
         run: |
