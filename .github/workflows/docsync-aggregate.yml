@@ -87,4 +87,4 @@ PY
           title: "docs(report): append row to report.md [skip docsync]"
           body: "Automated append from docsync-aggregate."
           add-paths: docs/agile/report.md
-          labels: docsync:needs-apply
+          labels: "docsync:needs-apply"  
