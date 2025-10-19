@@ -1,7 +1,7 @@
 name: docsync-aggregate
 on:
   workflow_run:
-    workflows: ["docsync-check"]   # ← name 完全一致
+    workflows: ["docsync-check"]     # name 完全一致
     types: [completed]
 
 permissions:
@@ -15,10 +15,9 @@ concurrency:
 
 jobs:
   append:
-    # success / failure のときだけ実行（skipped / cancelled を除外）
+    # success / failure のときだけ動かす（skipped/cancelled を除外）
     if: ${{ contains(fromJson('["success","failure"]'), github.event.workflow_run.conclusion) }}
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
@@ -29,35 +28,30 @@ jobs:
       - name: Download docsync artifacts from triggering run
         uses: actions/download-artifact@v4
         with:
-          name: docsync-artifacts           # docsync-check 側の artifact 名と一致
+          name: docsync-artifacts              # docsync-check 側のartifact名と一致
           run-id: ${{ github.event.workflow_run.id }}
           path: artifacts
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Debug artifacts
+      - name: Check artifacts and expose has_plan
         id: artifacts
         run: |
-          echo "== ls artifacts =="
-          ls -R artifacts || true
           if [ -f artifacts/doc_sync_plan.json ]; then
             echo "has_plan=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::missing doc_sync_plan.json; skip append"
+            echo "::warning::missing doc_sync_plan.json (docsync-check likely skipped)"
             echo "has_plan=false" >> "$GITHUB_OUTPUT"
-            exit 0
           fi
 
       - name: Ensure report.md exists with header
-        if: ${{ steps.artifacts.outputs.has_plan == 'true' }}
         run: |
+          mkdir -p docs/agile
           if [ ! -f docs/agile/report.md ]; then
-            mkdir -p docs/agile
-            cat > docs/agile/report.md <<'MD'
-# DocSync Report (weekly)
-
-| Date (JST) | Event | Branch | equal | src_paths | tgt_paths | Run |
-|---|---|---|---|---|---|---|
-MD
+            printf "%s\n\n%s\n%s\n" \
+              "# DocSync Report (weekly)" \
+              "| Date (JST) | Event | Branch | equal | src_paths | tgt_paths | Run |" \
+              "|---|---|---|---|---|---|---|" \
+              > docs/agile/report.md
           fi
 
       - name: Build table row
