@@ -13,3 +13,4 @@ mappings:
   #   source: backend/app/fragment.yaml
   #   target: docs/specs/openapi.yaml
   #   mode: overlay
+# green-smoke: trigger docsync-check (no OAS change)
