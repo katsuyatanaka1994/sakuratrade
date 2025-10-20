@@ -6,7 +6,7 @@
 | GET | /alerts/{trade_id} | List alerts for trade | no payload | array:alert |
 | POST | /auth/oauth | Authenticate via OAuth | type:object | type:object |
 | POST | /auth/register | Register user account | type:object | ref:user-- |
-| GET | /health | Check service health | no payload | OK-------- |
+| GET | /health | Check service health (check) | no payload | OK-------- |
 | POST | /images | Request image upload URL | type:object | type:object |
 | GET | /patterns/{trade_id} | Get pattern result for trade | no payload | ref:pattern_result |
 | POST | /trades | Create trade | ref:trade- | ref:trade- |
