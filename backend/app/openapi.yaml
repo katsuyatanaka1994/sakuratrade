@@ -419,3 +419,4 @@ security:
 servers:
   - description: Internal API
     url: /api/v1
+# ds-17 smoke 2025-10-20
