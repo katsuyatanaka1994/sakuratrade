@@ -1,0 +1,36 @@
+name: Generate Implementation Details (AUTO)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: impl-auto-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Generate implementation details table
+        run: python scripts/oas_to_impl_table.py > docs/specs/implementation-details.md
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: docs-sync/impl-${{ github.run_id }}
+          title: "[skip docsync] docs: implementation details (AUTO)"
+          commit-message: "docs(auto): regenerate implementation details from OpenAPI"
+          labels: docsync:needs-apply
+          add-paths: |
+            docs/specs/implementation-details.md
