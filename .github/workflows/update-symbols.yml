@@ -114,42 +114,37 @@ jobs:
           
           git commit -m "feat: update JPX symbols data ($current_date)
 
-Automated update of symbols.json from JPX data
-- Total symbols: $entry_count
-- Updated: $current_date
+          Automated update of symbols.json from JPX data
 
-🤖 Generated with [Claude Code](https://claude.ai/code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
+          Co-Authored-By: Claude <noreply@anthropic.com>"
           
           # プッシュ
           git push
       
-      - name: Create summary
+      - name: Write update summary
+        if: ${{ always() }}
+        shell: bash
         run: |
-          echo "## Symbols Update Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "${{ steps.check-changes.outputs.changed }}" == "true" ]; then
-            entry_count=$(jq length frontend/public/data/symbols.json)
-            echo "✅ **Status:** Updated successfully" >> $GITHUB_STEP_SUMMARY
-            echo "📊 **Total symbols:** $entry_count" >> $GITHUB_STEP_SUMMARY
-            echo "🔄 **Changes:** Committed and pushed to repository" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "ℹ️ **Status:** No changes detected" >> $GITHUB_STEP_SUMMARY
-            echo "📊 **Current symbols:** $(jq length frontend/public/data/symbols.json)" >> $GITHUB_STEP_SUMMARY
+          if [ -z "${entry_count:-}" ] && [ -f frontend/public/data/symbols.json ]; then
+            entry_count=$(jq length frontend/public/data/symbols.json 2>/dev/null || echo "unknown")
           fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Sample data:**" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          jq '.[0:3]' frontend/public/data/symbols.json >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          if [ -z "${current_date:-}" ]; then
+            current_date=$(date '+%Y-%m-%d')
+          fi
+
+          entry_count=${entry_count:-unknown}
+          current_date=${current_date:-unknown}
+
+          {
+            echo "## JPX Symbols Update"
+            echo ""
+            echo "- Total symbols: ${entry_count}"
+            echo "- Updated: ${current_date}"
+          } >> "$GITHUB_STEP_SUMMARY"
       
       - name: Cleanup
         if: always()
         run: |
           # 一時ファイルのクリーンアップ
           rm -rf data/
+
