@@ -1,0 +1,65 @@
+name: docsync-report-append
+
+on:
+  workflow_run:
+    workflows:
+      - docsync-check
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  append:
+    name: Append DocSync report
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    concurrency:
+      group: report-${{ github.event.workflow_run.id }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download docsync artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: docsync-artifacts
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Append line to docs/agile/report.md
+        shell: bash
+        run: |
+          python3 - <<'PY'
+import json, datetime, zoneinfo, pathlib
+repo = "${{ github.repository }}"
+run_id = "${{ github.event.workflow_run.id }}"
+plan_path = pathlib.Path("doc_sync_plan.json")
+data = json.loads(plan_path.read_text(encoding="utf-8"))
+jst = zoneinfo.ZoneInfo("Asia/Tokyo")
+date = datetime.datetime.now(jst).date().isoformat()
+event = "docsync-check"
+branch = data.get("target", "-").split("/")[-1]
+equal = str(data.get("equal")).lower()
+stats = data.get("stats", {})
+src_paths = stats.get("src_paths", "-")
+tgt_paths = stats.get("tgt_paths", "-")
+run = f"https://github.com/{repo}/actions/runs/{run_id}"
+line = f"| {date} | {event} | {branch} | {equal} | {src_paths} | {tgt_paths} | {run} |"
+report_path = pathlib.Path("docs/agile/report.md")
+report_text = report_path.read_text(encoding="utf-8")
+if line not in report_text:
+    report_path.write_text(report_text.rstrip() + "\n" + line + "\n", encoding="utf-8")
+PY
+
+      - name: Open report pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: docs-sync/report-${{ github.run_id }}
+          title: "[skip docsync] docs: append DocSync report line"
+          commit-message: "docs(auto): append report line from docsync-check run"
+          add-paths: docs/agile/report.md
+          labels: docsync:needs-apply
