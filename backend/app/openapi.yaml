@@ -307,7 +307,7 @@ paths:
       security: []
   /health:
     get:
-      summary: Check service health
+      summary: Check service health (check)
       tags: [health]
       operationId: getHealth
       responses:
