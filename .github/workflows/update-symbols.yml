@@ -26,6 +26,12 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install pandas openpyxl jaconv requests beautifulsoup4
+
+      # DS-18.x: jq を使うので明示的に導入しておく
+      - name: Install jq
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
       
       - name: Download JPX Excel file
         run: |
@@ -88,11 +94,11 @@ jobs:
             echo "Changes detected in symbols.json:"
             git diff --stat frontend/public/data/symbols.json
             
-            # 新旧のエントリ数を比較
-            if [ -f frontend/public/data/symbols.json ]; then
-              old_count=$(git show HEAD:frontend/public/data/symbols.json | jq length)
-              new_count=$(jq length frontend/public/data/symbols.json)
-              echo "Entry count change: $old_count → $new_count"
+            # 新旧のエントリ数を比較（HEAD にファイルがある時のみ）
+            if git cat-file -e HEAD:frontend/public/data/symbols.json 2>/dev/null; then
+              old_count="$(git show HEAD:frontend/public/data/symbols.json | jq length)"
+              new_count="$(jq length frontend/public/data/symbols.json)"
+              echo "Entry count change: ${old_count} → ${new_count}"
             fi
           else
             echo "No changes detected in symbols.json"
@@ -143,8 +149,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       
       - name: Cleanup
-        if: always()
+        if: ${{ always() }}
         run: |
           # 一時ファイルのクリーンアップ
           rm -rf data/
-
