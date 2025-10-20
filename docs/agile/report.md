@@ -7,3 +7,4 @@
 | 2025-10-19 | docsync-check | chore/ds-18-green-equal | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18627723311 |
 | 2025-10-20 | docsync-check | chore/ds-20-recheck | false | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18640082369 |
 | 2025-10-20 | docsync-check | chore/ds-17-smoke | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18642338340 |
+| 2025-10-20 | docsync-check | main | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18646616630 |
