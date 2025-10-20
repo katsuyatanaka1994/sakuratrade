@@ -67,6 +67,7 @@
 | [DocSync レポート（週次）](docs/agile/report.md) | DocSync自動実行の週次結果ログ | Codex | 毎週 / DocSync完了時 | Actions Summaryを転記 |
 | [ブランチ戦略](docs/agile/branching.md) | 1タスク=1ブランチ運用ルール | Codex + Dev | 運用ルール変更時 | 命名規約・Draft運用を定義 |
 | [AUTO/MANUAL 境界ルール](docs/agile/auto-manual-boundary.md) | AUTO/MANUAL/CO-EDIT 境界の原本 | Codex + PO | ルール変更時 | README-agile.md と連携 |
+| [DocSync 日常運転（v3）](docs/agile/runbooks/docsync-daily-v3.md) | DocSync日常運転スナップショット | Codex + Ops | DocSync運用変更時 | DS-17/18/18.1/14/20基準 |
 | [Runbook: UI Spec Manual](docs/agile/runbooks/ui-spec-manual.md) | UI仕様ASSIST同期のRunbook | Codex + QA | UI仕様更新後 | Actions `ui-spec-manual` 手順 |
 <!-- ASSIST-END:index -->
 
