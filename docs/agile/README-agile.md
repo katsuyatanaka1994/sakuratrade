@@ -51,6 +51,7 @@
 スプリント計画・実装・検証で使用するドキュメントの入口を提供し、Codex と人間が共同で更新する際のルールと依存関係を明確化する。
 
 ## ドキュメント索引
+<!-- ASSIST-START:index -->
 | ドキュメント | 役割 / 内容 | 主担当 | 更新タイミング | 備考 |
 | --- | --- | --- | --- | --- |
 | `document-operations.md` | ドキュメント運用方針まとめ | Codex + PO | ルール変更時 | 更新手順・責務一覧 |
@@ -67,6 +68,7 @@
 | [ブランチ戦略](docs/agile/branching.md) | 1タスク=1ブランチ運用ルール | Codex + Dev | 運用ルール変更時 | 命名規約・Draft運用を定義 |
 | [AUTO/MANUAL 境界ルール](docs/agile/auto-manual-boundary.md) | AUTO/MANUAL/CO-EDIT 境界の原本 | Codex + PO | ルール変更時 | README-agile.md と連携 |
 | [Runbook: UI Spec Manual](docs/agile/runbooks/ui-spec-manual.md) | UI仕様ASSIST同期のRunbook | Codex + QA | UI仕様更新後 | Actions `ui-spec-manual` 手順 |
+<!-- ASSIST-END:index -->
 
 ## スプリント内ワークフロー
 1. **バックログ確認** — Issue Tracker / プロダクトバックログで対象ストーリーを確定し、影響範囲を把握。  
