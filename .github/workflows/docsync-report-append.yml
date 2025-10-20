@@ -13,7 +13,6 @@ permissions:
 
 jobs:
   append:
-    name: Append DocSync report
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -38,36 +37,35 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Append line to docs/agile/report.md
-        shell: bash
         run: |
           python - <<'PY'
-import json, datetime, zoneinfo, pathlib
-repo="${{ github.repository }}"
-run_id="${{ github.event.workflow_run.id }}"
-plan_path = pathlib.Path("docsync-artifacts/doc_sync_plan.json")
-d = json.loads(plan_path.read_text(encoding="utf-8"))
+          import json, datetime, zoneinfo, pathlib
+          repo = "${{ github.repository }}"
+          run_id = "${{ github.event.workflow_run.id }}"
+          plan_path = pathlib.Path("docsync-artifacts/doc_sync_plan.json")
+          d = json.loads(plan_path.read_text(encoding="utf-8"))
 
-jst = zoneinfo.ZoneInfo("Asia/Tokyo")
-date = datetime.datetime.now(jst).date().isoformat()
-event = "docsync-check"
-branch = d.get("target","-").split("/")[-1]
-equal  = str(d.get("equal")).lower()
-s = d.get("stats",{})
-src = s.get("src_paths","-"); tgt = s.get("tgt_paths","-")
-run = f"https://github.com/{repo}/actions/runs/{run_id}"
-line = f"| {date} | {event} | {branch} | {equal} | {src} | {tgt} | {run} |"
+          jst = zoneinfo.ZoneInfo("Asia/Tokyo")
+          date = datetime.datetime.now(jst).date().isoformat()
+          event = "docsync-check"
+          branch = d.get("target","-").split("/")[-1]
+          equal  = str(d.get("equal")).lower()
+          s = d.get("stats",{})
+          src = s.get("src_paths","-")
+          tgt = s.get("tgt_paths","-")
+          run = f"https://github.com/{repo}/actions/runs/{run_id}"
+          line = f"| {date} | {event} | {branch} | {equal} | {src} | {tgt} | {run} |"
 
-rp = pathlib.Path("docs/agile/report.md")
-txt = rp.read_text(encoding="utf-8")
-if line not in txt:
-    rp.write_text(txt.rstrip()+"\n"+line+"\n", encoding="utf-8")
-PY
+          rp  = pathlib.Path("docs/agile/report.md")
+          txt = rp.read_text(encoding="utf-8")
+          if line not in txt:
+              rp.write_text(txt.rstrip() + "\n" + line + "\n", encoding="utf-8")
+          PY
 
-      - name: Open report pull request
+      - name: Create PR for report line
         uses: peter-evans/create-pull-request@v6
         with:
           branch: docs-sync/report-${{ github.run_id }}
           title: "[skip docsync] docs: append DocSync report line"
           commit-message: "docs(auto): append report line from docsync-check run"
-          add-paths: docs/agile/report.md
-          labels: docsync:needs-apply
+          labels: "docsync:needs-apply"
