@@ -1,0 +1,43 @@
+name: docs-index-validate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs-index-validate.yml'
+
+concurrency:
+  group: docs-index-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' &&
+            !startsWith(github.head_ref, 'docs-sync/') &&
+            !contains(github.event.pull_request.title, '[skip docsync]') ||
+            github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate docs index & links
+        run: |
+          python scripts/docs_index_validate.py || EXIT=$?
+          echo "exit_code=${EXIT:-0}" >> $GITHUB_OUTPUT
+          exit ${EXIT:-0}
+      - name: Write summary
+        if: ${{ always() }}
+        run: |
+          echo "## DS-14 Report" >> $GITHUB_STEP_SUMMARY
+          test -f docs_index_report.json && jq -r '
+            "[件数] " + ( .issues|length|tostring ) + "\n" +
+            ( .issues[0:10] | map("- " + .kind + ": " + .note) | join("\n") )
+          ' docs_index_report.json >> $GITHUB_STEP_SUMMARY || echo "No report"
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: ds14-report
+          path: docs_index_report.json
