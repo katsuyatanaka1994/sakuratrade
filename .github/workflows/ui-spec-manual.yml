@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: ui-spec-${{ github.ref }}
+  group: docsync-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
