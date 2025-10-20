@@ -11,7 +11,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: docs-sync-${{ github.event.workflow_run.head_branch }}
+  group: docsync-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -3,9 +3,13 @@ name: Generate Implementation Details (AUTO)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 concurrency:
-  group: impl-auto-${{ github.ref }}
-  cancel-in-progress: true
+  group: docsync-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   generate:
@@ -28,9 +32,11 @@ jobs:
       - name: Create pull request
         uses: peter-evans/create-pull-request@v6
         with:
+          base: main
           branch: docs-sync/impl-${{ github.run_id }}
           title: "[skip docsync] docs: implementation details (AUTO)"
           commit-message: "docs(auto): regenerate implementation details from OpenAPI"
           labels: docsync:needs-apply
           add-paths: |
             docs/specs/implementation-details.md
+          delete-branch: true

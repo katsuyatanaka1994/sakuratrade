@@ -6,11 +6,21 @@ on:
 permissions: { contents: read }
 
 concurrency:
-  group: guard-readme-assist-${{ github.ref }}
+  group: docsync-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   guard:
+    if: >-
+      ${{
+        (github.event_name == 'pull_request' &&
+         !startsWith(github.event.pull_request.head.ref, 'docs-sync/') &&
+         !contains(github.event.pull_request.title, '[skip docsync]'))
+        ||
+        (github.event_name == 'push' &&
+         !startsWith(github.ref, 'refs/heads/docs-sync/') &&
+         !contains(github.event.head_commit.message, '[skip docsync]'))
+      }}
     runs-on: ubuntu-latest
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}

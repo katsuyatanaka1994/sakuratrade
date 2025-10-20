@@ -9,11 +9,21 @@ on:
 permissions: { contents: read }
 
 concurrency:
-  group: docs-sync-${{ github.ref }}
+  group: docsync-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   validate:
+    if: >-
+      ${{
+        (github.event_name == 'pull_request' &&
+         !startsWith(github.event.pull_request.head.ref, 'docs-sync/') &&
+         !contains(github.event.pull_request.title, '[skip docsync]'))
+        ||
+        (github.event_name == 'push' &&
+         !startsWith(github.ref, 'refs/heads/docs-sync/') &&
+         !contains(github.event.head_commit.message, '[skip docsync]'))
+      }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
