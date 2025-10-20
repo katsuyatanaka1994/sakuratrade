@@ -6,12 +6,15 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 import yaml
 
 
 DEFAULT_OPENAPI_PATH = Path("backend/app/openapi.yaml")
+SUMMARY_MAX_LENGTH = 60
+SUMMARY_TRIM_CHARS = " .,:;!?、。！？"
+ELLIPSIS = "…"
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,6 +32,8 @@ def ensure_length(text: str) -> str:
     cleaned = " ".join(text.strip().split()) if text else ""
     if not cleaned:
         cleaned = "unspecified"
+    if cleaned.lower() == "none":
+        return "none"
     if len(cleaned) > 20:
         return f"{cleaned[:17]}..."
     while len(cleaned) < 10:
@@ -36,56 +41,118 @@ def ensure_length(text: str) -> str:
     return cleaned
 
 
-def describe_schema(schema: Dict[str, Any] | None) -> str:
+def _base_name_from_ref(ref: str) -> str:
+    return ref.split("/")[-1]
+
+
+def _summarize_schema(schema: Dict[str, Any] | None) -> str:
     if not schema:
-        return "no payload"
+        return "none"
     if "$ref" in schema:
-        return f"ref:{schema['$ref'].split('/')[-1]}"
+        return f"object:{_base_name_from_ref(schema['$ref'])}"
 
     schema_type = schema.get("type")
-    if isinstance(schema_type, list):  # union type
+    if isinstance(schema_type, list):
         schema_type = "/".join(str(part) for part in schema_type)
 
     if schema_type == "array":
-        inner = describe_schema(schema.get("items"))
-        inner_desc = inner.split(":", 1)[-1]
-        return f"array:{inner_desc}"
+        inner = _summarize_schema(schema.get("items"))
+        inner_name = inner.split(":", 1)[-1] if ":" in inner else inner
+        return f"array:{inner_name}"
+    if schema_type == "object":
+        title = schema.get("title")
+        if title:
+            return f"object:{title}"
+        return "object"
     if schema_type:
         return f"type:{schema_type}"
     if "properties" in schema:
-        return "object props"
-    if "oneOf" in schema or "anyOf" in schema or "allOf" in schema:
-        return "composed schema"
-    return "schema data"
+        return "object"
+    if any(key in schema for key in ("oneOf", "anyOf", "allOf")):
+        return "composed"
+    return "schema"
+
+
+def _format_schema_cell(schema: Dict[str, Any] | None) -> str:
+    label = _summarize_schema(schema)
+    if label == "none":
+        return "none"
+    return ensure_length(label)
+
+
+def _format_description(text: str | None) -> str | None:
+    if not text:
+        return None
+    cleaned = " ".join(str(text).split())
+    if not cleaned:
+        return None
+    return ensure_length(cleaned)
 
 
 def summarize_request(details: Dict[str, Any]) -> str:
     request_body = details.get("requestBody")
     if not request_body:
-        return ensure_length("no payload")
+        return "none"
 
     content = request_body.get("content") or {}
     for media_type in sorted(content.keys()):
         schema = content[media_type].get("schema")
-        return ensure_length(describe_schema(schema))
-    return ensure_length("no payload")
+        if schema:
+            return _format_schema_cell(schema)
+    return "none"
 
 
 def summarize_2xx_response(details: Dict[str, Any]) -> str:
     responses = details.get("responses") or {}
+    summaries: List[Tuple[str, str]] = []
     for status, response in sorted(responses.items(), key=_status_sort_key):
         if not str(status).startswith("2"):
             continue
+        label = None
         if isinstance(response, dict):
             content = response.get("content") or {}
             for media_type in sorted(content.keys()):
                 schema = content[media_type].get("schema")
-                return ensure_length(describe_schema(schema))
-            description = response.get("description")
-            if description:
-                return ensure_length(description)
-        return ensure_length("no payload")
-    return ensure_length("no payload")
+                if schema:
+                    label = _format_schema_cell(schema)
+                    break
+            if not label:
+                label = _format_description(response.get("description"))
+        summaries.append((str(status), label or "none"))
+
+    if not summaries:
+        return "none"
+
+    statuses = ",".join(status for status, _ in summaries)
+    labels = {label for _, label in summaries}
+    if len(summaries) == 1:
+        status, label = summaries[0]
+        if label == "none":
+            return "none"
+        return ensure_length(label if statuses == label else label)
+
+    if len(labels) == 1:
+        label = labels.pop()
+        if label == "none":
+            return ensure_length(f"{statuses} none")
+        return ensure_length(f"{statuses} {label}")
+
+    status, label = summaries[0]
+    if label == "none":
+        return ensure_length(f"{statuses} none")
+    return ensure_length(f"{status} {label}")
+
+
+def format_summary(details: Dict[str, Any]) -> str:
+    raw = details.get("summary") or details.get("operationId") or "No summary"
+    cleaned = " ".join(str(raw).split())
+    cleaned = cleaned.rstrip(SUMMARY_TRIM_CHARS)
+    if not cleaned:
+        cleaned = "No summary"
+    if len(cleaned) > SUMMARY_MAX_LENGTH:
+        trimmed = cleaned[: SUMMARY_MAX_LENGTH - 1].rstrip()
+        cleaned = f"{trimmed}{ELLIPSIS}"
+    return cleaned
 
 
 def _status_sort_key(item: Tuple[str, Any]) -> Tuple[int, str]:
@@ -108,10 +175,14 @@ def iter_operations(paths: Dict[str, Any]) -> Iterable[Tuple[str, str, Dict[str,
 
 
 def render_table(rows: Iterable[Tuple[str, str, Dict[str, Any]]]) -> str:
-    lines = ["# AUTO-GENERATED FILE. DO NOT EDIT.", "", "| Method | Path | Summary | Request Body | 2xx Response |", "| --- | --- | --- | --- | --- |"]
-    for method, path, details in rows:
-        summary = details.get("summary") or details.get("operationId") or "No summary"
-        summary = " ".join(str(summary).split())
+    sorted_rows = sorted(rows, key=lambda item: (item[1], item[0]))
+    lines = [
+        "# AUTO-GENERATED FILE. DO NOT EDIT.",
+        "| Method | Path | Summary | Request Body | 2xx Response |",
+        "|--------|------|---------|--------------|--------------|",
+    ]
+    for method, path, details in sorted_rows:
+        summary = format_summary(details)
         request_summary = summarize_request(details)
         response_summary = summarize_2xx_response(details)
         lines.append(f"| {method} | {path} | {summary} | {request_summary} | {response_summary} |")
