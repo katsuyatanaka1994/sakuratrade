@@ -27,3 +27,4 @@
 
 | 2025-10-21 | nfr-xref | chore/ds-21-report-aggregate | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18670772264 |
 | sec-review | NG | 5 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18670772300 |
+| sec-review | NG | 5 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18671174892 |
