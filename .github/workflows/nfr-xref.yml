@@ -18,44 +18,61 @@ permissions:
 jobs:
   xref:
     runs-on: ubuntu-latest
-    env:
-      DOCSYNC_HEAD: ${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) ||
-        (github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) }}
-      DOCSYNC_SKIP_TITLE: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]') }}
     steps:
-      - name: No-op on docs-sync PR
-        if: ${{ env.DOCSYNC_HEAD == 'true' || env.DOCSYNC_SKIP_TITLE == 'true' }}
-        run: echo "docs-sync PR: no-op (success)"
+      - name: No-op on docs-sync or skip-title PR
+        if: >
+          (github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) ||
+          (github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) ||
+          (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]'))
+        run: echo "docs-sync/skip-title PR: no-op (success)"
 
       - uses: actions/checkout@v4
-        if: ${{ env.DOCSYNC_HEAD != 'true' && env.DOCSYNC_SKIP_TITLE != 'true' }}
+        if: >
+          !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) &&
+          !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) &&
+          !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]'))
 
       - name: Setup Python
-        if: ${{ env.DOCSYNC_HEAD != 'true' && env.DOCSYNC_SKIP_TITLE != 'true' }}
+        if: >
+          !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) &&
+          !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) &&
+          !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]'))
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install deps
-        if: ${{ env.DOCSYNC_HEAD != 'true' && env.DOCSYNC_SKIP_TITLE != 'true' }}
+        if: >
+          !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) &&
+          !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) &&
+          !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]'))
         run: python -m pip install --upgrade pip && pip install PyYAML
 
       - name: Run NFR cross-reference
-        if: ${{ env.DOCSYNC_HEAD != 'true' && env.DOCSYNC_SKIP_TITLE != 'true' }}
+        if: >
+          !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) &&
+          !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) &&
+          !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]'))
         env:
           NFR_XREF_FAIL_STREAK: ${{ inputs.fail_streak || '2' }}
           NFR_XREF_STRICT: ${{ github.event_name == 'workflow_dispatch' && inputs.strict || 'false' }}
         run: python scripts/nfr_xref_check.py
 
       - name: Prepare docs-sync content
-        if: ${{ env.DOCSYNC_HEAD != 'true' && env.DOCSYNC_SKIP_TITLE != 'true' }}
+        if: >
+          !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) &&
+          !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) &&
+          !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]'))
         run: |
           row=$(cat docs/agile/.nfr-xref-row)
           printf "\n%s\n" "$row" >> docs/agile/report.md
           rm docs/agile/.nfr-xref-row
 
       - name: Create docs-sync PR ([skip docsync])
-        if: ${{ env.DOCSYNC_HEAD != 'true' && env.DOCSYNC_SKIP_TITLE != 'true' }}
+        if: >
+          !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) &&
+          !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) &&
+          !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]'))
         uses: peter-evans/create-pull-request@v6
         with:
           branch: docs-sync/nfr-xref-${{ github.run_id }}
