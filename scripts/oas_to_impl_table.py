@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: I001
 """Generate a Markdown table of main OpenAPI endpoints."""
 
 from __future__ import annotations
