@@ -31,3 +31,5 @@
 | sec-review | NG | 5 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18671126305 |
 
 | 2025-10-21 | nfr-xref | chore/ds-21.2-sec-review-single-pr | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18671386993 |
+| sec-review | NG | 5 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18671532115
+| sec-review | NG | 5 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18671257928 |
