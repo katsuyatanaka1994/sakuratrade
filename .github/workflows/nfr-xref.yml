@@ -2,6 +2,15 @@ name: nfr-xref
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      strict:
+        description: 'Fail CI when deficits exceed threshold'
+        required: false
+        default: 'false'
+      fail_streak:
+        description: 'Threshold for consecutive deficits to fail'
+        required: false
+        default: '2'
 permissions:
   contents: write
   pull-requests: write
@@ -23,8 +32,8 @@ jobs:
 
       - name: Run NFR cross-reference
         env:
-          NFR_XREF_FAIL_STREAK: "2"
-          NFR_XREF_STRICT: "false"
+          NFR_XREF_FAIL_STREAK: ${{ inputs.fail_streak || '2' }}
+          NFR_XREF_STRICT: ${{ github.event_name == 'workflow_dispatch' && inputs.strict || 'false' }}
         run: python scripts/nfr_xref_check.py
 
       - name: Prepare docs-sync content
