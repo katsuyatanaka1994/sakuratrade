@@ -15,6 +15,9 @@ on:
       - "docs/specs/openapi.yaml"
       - "scripts/**"
 
+permissions:
+  contents: read
+
 jobs:
   diff:
     runs-on: ubuntu-latest
@@ -28,6 +31,8 @@ jobs:
          !startsWith(github.ref, 'refs/heads/docs-sync/') &&
          !contains(github.event.head_commit.message, '[skip docsync]'))
       }}
+    permissions:
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
