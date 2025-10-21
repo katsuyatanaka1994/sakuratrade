@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-import os, re, sys, subprocess, pathlib
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
 
 FILE = "docs/agile/README-agile.md"
 
@@ -81,16 +87,16 @@ def main():
         # PR以外でも動くようフォールバック
         base_sha = run(["git","merge-base","origin/main","HEAD"])
 
-    if not pathlib.Path(FILE).exists():
+    if not Path(FILE).exists():
         print(f"::notice::{FILE} が存在しません。ガードをスキップします。")
         return
 
-    if not pathlib.Path(FILE).exists():
+    if not Path(FILE).exists():
         print(f"::notice::{FILE} が存在しません。ガードをスキップします。")
         return
 
     # HEAD側（新）とBASE側（旧）を読み込む
-    head_text = pathlib.Path(FILE).read_text(encoding="utf-8")
+    head_text = Path(FILE).read_text(encoding="utf-8")
     head_lines = head_text.splitlines()
     base_text = run(["git","show", f"{base_sha}:{FILE}"])
     base_lines = base_text.splitlines()
@@ -103,17 +109,17 @@ def main():
     ranges_head = ranges_without_markers(pairs_head)
     ranges_base = ranges_without_markers(pairs_base)
 
-    existing_labels_base = {base_lines[s - 1].strip() for s, _ in pairs_base}
     allowed_marker_additions = {INDEX_LABEL}
 
     diff = run(["git","diff","--unified=0","--no-color", f"{base_sha}...HEAD","--",FILE])
+    diff_lines = diff.splitlines()
 
     # @@ -oldStart,oldLen +newStart,newLen @@
     hunk_re = re.compile(r"^\@\@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? \@\@")
     bad_changes = []
     old_ln = new_ln = None
 
-    for line in diff.splitlines():
+    for idx, line in enumerate(diff_lines):
         m = hunk_re.match(line)
         if m:
             old_ln = int(m.group(1))
@@ -127,9 +133,12 @@ def main():
             if marker_line_in_diff(content, allowed_marker_additions):
                 new_ln += 1
                 continue
-            if content.strip() == '' and marker_line_in_diff(diff.splitlines()[diff.splitlines().index(line) - 1][1:], allowed_marker_additions):
-                new_ln += 1
-                continue
+            if content.strip() == "":
+                prev_line = diff_lines[idx - 1] if idx > 0 else ""
+                prev_body = prev_line[1:] if prev_line[:1] in "+- " else prev_line
+                if marker_line_in_diff(prev_body, allowed_marker_additions):
+                    new_ln += 1
+                    continue
             if not in_ranges(new_ln, ranges_head):
                 bad_changes.append(("add", new_ln))
             new_ln += 1
@@ -138,15 +147,19 @@ def main():
             if marker_line_in_diff(content, allowed_marker_additions):
                 old_ln += 1
                 continue
-            if content.strip() == '' and marker_line_in_diff(diff.splitlines()[diff.splitlines().index(line) - 1][1:], allowed_marker_additions):
-                old_ln += 1
-                continue
+            if content.strip() == "":
+                prev_line = diff_lines[idx - 1] if idx > 0 else ""
+                prev_body = prev_line[1:] if prev_line[:1] in "+- " else prev_line
+                if marker_line_in_diff(prev_body, allowed_marker_additions):
+                    old_ln += 1
+                    continue
             if not in_ranges(old_ln, ranges_base):
                 bad_changes.append(("del", old_ln))
             old_ln += 1
         elif line.startswith(' ') or line == '':
             # 文脈行（--unified=0では稀）
-            old_ln += 1; new_ln += 1
+            old_ln += 1
+            new_ln += 1
         elif line.startswith('\\'):
             # "\ No newline at end of file" 等は無視
             continue
