@@ -66,8 +66,10 @@ def main():
     for n in nfr_ids:
         miss = ",".join(missing[n]) if missing[n] else "-"
         lines.append(f"| {n} | {miss} | {streak.get(n,0)} |")
+    strict = os.environ.get("NFR_XREF_STRICT","false").lower() == "true"
     summary = [
         "### DS-15 NFRクロスリファレンス",
+        "**Mode:** " + ("STRICT (CI may fail)" if strict else "WARN (no fail)"),
         "",
         "| NFR | 欠落エリア(unit/e2e/ci/docs) | 連続欠落 |",
         "|---|---|---|",
@@ -87,7 +89,7 @@ def main():
     row = f"| {jst_date.date()} | nfr-xref | {os.environ.get('GITHUB_HEAD_REF') or os.environ.get('GITHUB_REF_NAME','')} | - | - | - | {run_url} |"
     (ROOT / "docs/agile/.nfr-xref-row").write_text(row, encoding="utf-8")
 
-    if will_fail and os.environ.get("NFR_XREF_STRICT","false").lower() == "true":
+    if will_fail and strict:
         print("::error::NFR cross-ref deficit exceeded threshold")
         sys.exit(1)
     print("No blocking errors (warn mode).")
