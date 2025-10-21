@@ -12,12 +12,18 @@ on:
         required: false
         default: '2'
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+
+concurrency:
+  group: nfr-xref-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   xref:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: No-op on docs-sync or skip-title PR
         if: >
@@ -55,7 +61,7 @@ jobs:
           !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]'))
         env:
           NFR_XREF_FAIL_STREAK: ${{ inputs.fail_streak || '2' }}
-          NFR_XREF_STRICT: ${{ github.event_name == 'workflow_dispatch' && inputs.strict || 'false' }}
+          NFR_XREF_STRICT: ${{ (github.event_name == 'workflow_dispatch' && inputs.strict) || 'false' }}
         run: python scripts/nfr_xref_check.py
 
       - name: Prepare docs-sync content
@@ -64,18 +70,23 @@ jobs:
           !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) &&
           !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]'))
         run: |
-          row=$(cat docs/agile/.nfr-xref-row)
-          printf "\n%s\n" "$row" >> docs/agile/report.md
-          rm docs/agile/.nfr-xref-row
+          if [ -f docs/agile/.nfr-xref-row ]; then
+            row=$(cat docs/agile/.nfr-xref-row)
+            printf "\n%s\n" "$row" >> docs/agile/report.md
+            rm docs/agile/.nfr-xref-row
+          else
+            echo "no .nfr-xref-row (skip append)"
+          fi
 
       - name: Create docs-sync PR ([skip docsync])
         if: >
           !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) &&
           !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) &&
-          !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]'))
+          !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         uses: peter-evans/create-pull-request@v6
         with:
-          branch: docs-sync/nfr-xref-${{ github.run_id }}
+          branch: docs-sync/nfr-xref
           base: main
           title: "[skip docsync] chore(docs): append DS-15 nfr-xref result"
           commit-message: "docs(report): append DS-15 nfr-xref row + update state"
