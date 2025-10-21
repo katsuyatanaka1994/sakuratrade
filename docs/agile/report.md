@@ -38,3 +38,4 @@
 
 | 2025-10-21 | nfr-xref | chore/ds-21.1-perms-baseline | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18676333063 |
 | sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18677070939
+| sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18678329641
