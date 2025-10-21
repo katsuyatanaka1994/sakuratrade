@@ -6,6 +6,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: sec-review-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -39,8 +43,8 @@ jobs:
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         uses: peter-evans/create-pull-request@v6
         with:
-          branch: docs-sync/sec-review-${{ github.run_id }}
-          base: ${{ github.base_ref != '' && github.base_ref || github.ref_name }}
+          branch: docs-sync/sec-review
+          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || 'main' }}
           title: "[skip docsync] chore(docs): append DS-21 sec-review result"
           commit-message: "docs(report): append DS-21 sec-review row"
           add-paths: docs/agile/report.md
