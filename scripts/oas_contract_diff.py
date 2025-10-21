@@ -147,7 +147,6 @@ def detect_breaking(
 
 def detect_reqbody_harder(base: Dict[str, Any], head: Dict[str, Any]) -> List[str]:
     hits: List[str] = []
-    bpo = get_paths_ops(base)
     hpo = get_paths_ops(head)
     for p, hops in hpo.items():
         for op in hops:
@@ -167,9 +166,11 @@ def main() -> None:
     breaking = len(rp) + len(ro) + len(rr) + len(rq) + len(rh)
     header = "### 🔎 OpenAPI Contract Diff\n\n"
     md: List[str] = [header]
-    md.append(
-        f"- Base: `{BASE_SHA or 'merge-base(origin/main, HEAD)'}`\n- Head: `{sh(['git', 'rev-parse', '--short', 'HEAD'])}`\n"
-    )
+    base_sha = BASE_SHA or "merge-base(origin/main, HEAD)"
+    head_sha = sh(["git", "rev-parse", "--short", "HEAD"])
+    md.append(f"- Base: `{base_sha}`")
+    md.append(f"- Head: `{head_sha}`")
+    md.append("")
 
     if breaking == 0 and len(rt) == 0:
         md.append("\n✅ **No breaking changes detected.**\n")
