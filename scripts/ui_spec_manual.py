@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 
 FILE = Path("docs/agile/ui-specification.md")
-START_RE = re.compile(r'<!--\s*ASSIST-START(?:\s*:\s*ui-spec)?\s*-->')
-END_RE = re.compile(r'<!--\s*ASSIST-END(?:\s*:\s*ui-spec)?\s*-->')
+START_RE = re.compile(r"<!--\s*ASSIST-START(?:\s*:\s*ui-spec)?\s*-->")
+END_RE = re.compile(r"<!--\s*ASSIST-END(?:\s*:\s*ui-spec)?\s*-->")
+
 
 def ensure_file_and_markers():
     if not FILE.exists():
@@ -19,13 +20,15 @@ def ensure_file_and_markers():
         FILE.write_text(text, encoding="utf-8")
     return FILE.read_text(encoding="utf-8")
 
+
 def replace_block(text, body):
     start = START_RE.search(text)
     end = END_RE.search(text)
     if not (start and end) or start.end() > end.start():
         print("::error title=ASSIST markers invalid::ui-spec markers are missing or mis-ordered.")
         sys.exit(1)
-    return text[: start.end()] + "\n" + body.strip() + "\n" + text[end.start():]
+    return text[: start.end()] + "\n" + body.strip() + "\n" + text[end.start() :]
+
 
 def main():
     screen = os.environ.get("INPUT_SCREEN", "(screen)")  # workflow_dispatch inputs
@@ -58,6 +61,7 @@ def main():
     new_text = replace_block(text, content)
     FILE.write_text(new_text, encoding="utf-8")
     print("ui-spec manual: OK")
+
 
 if __name__ == "__main__":
     main()

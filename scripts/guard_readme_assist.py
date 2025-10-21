@@ -10,16 +10,18 @@ from pathlib import Path
 FILE = "docs/agile/README-agile.md"
 
 # ラベル付きも許可（例: <!-- ASSIST-START:status -->）
-START_RE = re.compile(r'<!--\s*ASSIST-START(?:\s*:\s*[\w.\-]+)?\s*-->')
-END_RE   = re.compile(r'<!--\s*ASSIST-END(?:\s*:\s*[\w.\-]+)?\s*-->')
+START_RE = re.compile(r"<!--\s*ASSIST-START(?:\s*:\s*[\w.\-]+)?\s*-->")
+END_RE = re.compile(r"<!--\s*ASSIST-END(?:\s*:\s*[\w.\-]+)?\s*-->")
 START_DESC = "ASSIST-START(:label)"
-END_DESC   = "ASSIST-END(:label)"
+END_DESC = "ASSIST-END(:label)"
 
 INDEX_LABEL = "index"
 INDEX_MAX_DISTANCE = 100
 
+
 def run(cmd: list[str]) -> str:
     return subprocess.check_output(cmd, text=True).strip()
+
 
 def is_assist_line(label, line):
     start = f"<!-- ASSIST-START:{label} -->"
@@ -57,7 +59,8 @@ def enforce_index_constraints(lines, pairs):
     if not index_pairs:
         return  # nothing to validate
     if len(index_pairs) != 1:
-        print(f"::error title=Invalid index block::{FILE} の {INDEX_LABEL} ブロックが複数あります。"); sys.exit(1)
+        print(f"::error title=Invalid index block::{FILE} の {INDEX_LABEL} ブロックが複数あります。")
+        sys.exit(1)
     s, e = index_pairs[0]
     if not headings:
         print(f"::error title=Missing index heading::{FILE} に索引/Index 見出しが見つかりません。")
@@ -67,7 +70,10 @@ def enforce_index_constraints(lines, pairs):
         print(f"::error title=Index marker position::{INDEX_LABEL} ブロックが索引見出しより上にあります。")
         sys.exit(1)
     if (s - nearest) > INDEX_MAX_DISTANCE:
-        print(f"::error title=Index marker distance::{INDEX_LABEL} ブロックが索引見出しから離れすぎています (>{INDEX_MAX_DISTANCE} 行)。")
+        print(
+            "::error title=Index marker distance::"
+            f"{INDEX_LABEL} ブロックが索引見出しから離れすぎています (>{INDEX_MAX_DISTANCE} 行)。"
+        )
         sys.exit(1)
 
 
@@ -78,14 +84,16 @@ def marker_line_in_diff(line, allowed_labels):
             return True
     return False
 
+
 def in_ranges(n, ranges):
     return any(s <= n <= e for (s, e) in ranges)
+
 
 def main():
     base_sha = os.environ.get("BASE_SHA")
     if not base_sha:
         # PR以外でも動くようフォールバック
-        base_sha = run(["git","merge-base","origin/main","HEAD"])
+        base_sha = run(["git", "merge-base", "origin/main", "HEAD"])
 
     if not Path(FILE).exists():
         print(f"::notice::{FILE} が存在しません。ガードをスキップします。")
@@ -98,7 +106,7 @@ def main():
     # HEAD側（新）とBASE側（旧）を読み込む
     head_text = Path(FILE).read_text(encoding="utf-8")
     head_lines = head_text.splitlines()
-    base_text = run(["git","show", f"{base_sha}:{FILE}"])
+    base_text = run(["git", "show", f"{base_sha}:{FILE}"])
     base_lines = base_text.splitlines()
 
     pairs_head = allowed_ranges(head_lines)
@@ -111,7 +119,7 @@ def main():
 
     allowed_marker_additions = {INDEX_LABEL}
 
-    diff = run(["git","diff","--unified=0","--no-color", f"{base_sha}...HEAD","--",FILE])
+    diff = run(["git", "diff", "--unified=0", "--no-color", f"{base_sha}...HEAD", "--", FILE])
     diff_lines = diff.splitlines()
 
     # @@ -oldStart,oldLen +newStart,newLen @@
@@ -128,7 +136,7 @@ def main():
         if old_ln is None or new_ln is None:
             continue
 
-        if line.startswith('+') and not line.startswith('+++'):
+        if line.startswith("+") and not line.startswith("+++"):
             content = line[1:]
             if marker_line_in_diff(content, allowed_marker_additions):
                 new_ln += 1
@@ -142,7 +150,7 @@ def main():
             if not in_ranges(new_ln, ranges_head):
                 bad_changes.append(("add", new_ln))
             new_ln += 1
-        elif line.startswith('-') and not line.startswith('---'):
+        elif line.startswith("-") and not line.startswith("---"):
             content = line[1:]
             if marker_line_in_diff(content, allowed_marker_additions):
                 old_ln += 1
@@ -156,11 +164,11 @@ def main():
             if not in_ranges(old_ln, ranges_base):
                 bad_changes.append(("del", old_ln))
             old_ln += 1
-        elif line.startswith(' ') or line == '':
+        elif line.startswith(" ") or line == "":
             # 文脈行（--unified=0では稀）
             old_ln += 1
             new_ln += 1
-        elif line.startswith('\\'):
+        elif line.startswith("\\"):
             # "\ No newline at end of file" 等は無視
             continue
 
@@ -174,6 +182,7 @@ def main():
         sys.exit(1)
 
     print("ASSIST guard: OK")
+
 
 if __name__ == "__main__":
     main()

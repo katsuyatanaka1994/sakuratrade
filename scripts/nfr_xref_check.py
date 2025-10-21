@@ -19,17 +19,20 @@ NFR_FILE = ROOT / "docs/agile/nfr.yml"
 STATE_OUT = ROOT / "docs/agile/nfr-xref-state.json"
 REPORT_MD = ROOT / "docs/agile/report.md"
 
+
 def load_nfrs():
     data = yaml.safe_load(NFR_FILE.read_text(encoding="utf-8"))
     return [n["id"] for n in data.get("nfrs", [])]
 
+
 PAT = re.compile(r"NFR:\s*([A-Za-z0-9_-]+)")
 AREAS = {
     "unit": [ROOT / "tests"],
-    "e2e":  [ROOT / "tests" / "e2e"],
-    "ci":   [ROOT / ".github" / "workflows"],
+    "e2e": [ROOT / "tests" / "e2e"],
+    "ci": [ROOT / ".github" / "workflows"],
     "docs": [ROOT / "docs"],
 }
+
 
 def scan_ids(paths):
     ids = set()
@@ -44,6 +47,7 @@ def scan_ids(paths):
                 except Exception:
                     pass
     return ids
+
 
 def main():
     nfr_ids = load_nfrs()
@@ -76,8 +80,8 @@ def main():
     lines = []
     for n in nfr_ids:
         miss = ",".join(missing[n]) if missing[n] else "-"
-        lines.append(f"| {n} | {miss} | {streak.get(n,0)} |")
-    strict = os.environ.get("NFR_XREF_STRICT","false").lower() == "true"
+        lines.append(f"| {n} | {miss} | {streak.get(n, 0)} |")
+    strict = os.environ.get("NFR_XREF_STRICT", "false").lower() == "true"
     summary = [
         "### DS-15 NFRクロスリファレンス",
         "**Mode:** " + ("STRICT (CI may fail)" if strict else "WARN (no fail)"),
@@ -88,7 +92,7 @@ def main():
         "",
         f"Run: {run_url}",
     ]
-    with open(os.environ.get("GITHUB_STEP_SUMMARY","/tmp/summary.md"), "a", encoding="utf-8") as w:
+    with open(os.environ.get("GITHUB_STEP_SUMMARY", "/tmp/summary.md"), "a", encoding="utf-8") as w:
         w.write("\n".join(summary) + "\n")
 
     payload = {
@@ -111,6 +115,7 @@ def main():
         sys.exit(1)
     print("No blocking errors (warn mode).")
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

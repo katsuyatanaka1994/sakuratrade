@@ -51,10 +51,7 @@ def get_paths_ops(doc: Dict[str, Any]) -> Dict[str, List[str]]:
         if not isinstance(node, dict):
             continue
         ops = [
-            m
-            for m in node.keys()
-            if m.lower()
-            in ("get", "post", "put", "patch", "delete", "head", "options", "trace")
+            m for m in node.keys() if m.lower() in ("get", "post", "put", "patch", "delete", "head", "options", "trace")
         ]
         out[p] = sorted(ops)
     return out
@@ -87,7 +84,7 @@ def response_content_schema(resp: Dict[str, Any]) -> Any:
     content = resp.get("content") or {}
     for ctype in ("application/json", "application/*+json", "*/*"):
         if ctype in content:
-            return (content[ctype].get("schema") or {})
+            return content[ctype].get("schema") or {}
     return resp.get("schema") or {}
 
 
@@ -134,9 +131,7 @@ def detect_breaking(
                 hh = resp_headers(hnode or {})
                 for hname in bh.keys():
                     if hname not in hh:
-                        out_removed_hdr.append(
-                            f"{op.upper()} {p} :: {code} header '{hname}'"
-                        )
+                        out_removed_hdr.append(f"{op.upper()} {p} :: {code} header '{hname}'")
                 bt = first_schema_type(response_content_schema(bnode))
                 ht = first_schema_type(response_content_schema(hnode))
                 if bt is None or ht is None:
