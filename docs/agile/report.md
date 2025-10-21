@@ -35,7 +35,12 @@
 | sec-review | NG | 5 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18671532115
 | sec-review | NG | 5 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18671257928 |
 | sec-review | NG | 5 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18671827107
+| 2025-10-21 | docsync-check | openapi.yaml | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18677167656 |
+| 2025-10-21 | docsync-check | main | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18677179173 |
 
+| 2025-10-21 | nfr-xref | chore/ds-21.1-perms-baseline | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18677070914 |
 | 2025-10-21 | nfr-xref | chore/ds-21.1-perms-baseline | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18676333063 |
 | sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18677070939
 | sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18678329641
+
+| 2025-10-21 | nfr-xref | chore/ci-docssync-noop-success | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18678329563 |
