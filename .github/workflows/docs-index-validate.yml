@@ -7,6 +7,9 @@ on:
       - 'docs/**'
       - '.github/workflows/docs-index-validate.yml'
 
+permissions:
+  contents: read
+
 concurrency:
   group: docs-index-${{ github.ref }}
   cancel-in-progress: true
@@ -18,6 +21,9 @@ jobs:
             !startsWith(github.head_ref, 'docs-sync/') &&
             !contains(github.event.pull_request.title, '[skip docsync]') ||
             github.event_name == 'workflow_dispatch' }}
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

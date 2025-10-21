@@ -20,6 +20,9 @@ on:
       - "test_*.py"
       - ".github/workflows/backend-ci.yml"
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
@@ -36,8 +39,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install -r requirements.txt
           pip install -r app/requirements.txt
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; else pip install pytest ruff; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
       - name: Show tool versions
         run: |
@@ -55,4 +59,41 @@ jobs:
         run: python scripts/check_import_paths.py
 
       - name: Run pytest (critical path)
-        run: python -m pytest tests/test_chat_message_delete.py
+        run: python -m pytest -q -m "not integration"
+
+  integration-tests:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r app/requirements.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Start FastAPI server
+        run: |
+          python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          echo $! > server.pid
+          sleep 5
+
+      - name: Run integration tests
+        run: python -m pytest -q -m "integration"
+
+      - name: Stop FastAPI server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill "$(cat server.pid)" >/dev/null 2>&1 || true
+          fi
