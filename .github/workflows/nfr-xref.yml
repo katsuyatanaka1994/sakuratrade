@@ -1,0 +1,43 @@
+name: nfr-xref
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  xref:
+    if: ${{ (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'docs-sync/') && !contains(github.event.pull_request.title, '[skip docsync]')) || (github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: python -m pip install --upgrade pip && pip install PyYAML
+
+      - name: Run NFR cross-reference
+        env:
+          NFR_XREF_FAIL_STREAK: "2"
+          NFR_XREF_STRICT: "false"
+        run: python scripts/nfr_xref_check.py
+
+      - name: Prepare docs-sync content
+        run: |
+          row=$(cat docs/agile/.nfr-xref-row)
+          printf "\n%s\n" "$row" >> docs/agile/report.md
+          rm docs/agile/.nfr-xref-row
+
+      - name: Create docs-sync PR ([skip docsync])
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: docs-sync/nfr-xref-${{ github.run_id }}
+          title: "[skip docsync] chore(docs): append DS-15 nfr-xref result"
+          commit-message: "docs(report): append DS-15 nfr-xref row + update state"
+          add-paths: |
+            docs/agile/report.md
+            docs/agile/nfr-xref-state.json
+          labels: "docsync:needs-apply"
+          delete-branch: true

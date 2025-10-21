@@ -1,0 +1,10 @@
+# docs/agile/nfr.yml
+nfrs:
+  - id: NFR-001
+    title: API応答時間
+    target: p95 <= 500ms
+    rationale: 主要画面の体感速度確保
+  - id: NFR-002
+    title: E2E安定性
+    target: flaky rate < 2%
+    rationale: リリース前の信頼性確保
