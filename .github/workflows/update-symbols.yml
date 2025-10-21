@@ -8,9 +8,14 @@ on:
   # 手動実行も可能
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   update-symbols:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
       - name: Checkout repository

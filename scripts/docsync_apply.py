@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-import sys, json, glob, traceback
+from __future__ import annotations
+
+import glob
+import json
+import sys
+import traceback
 from pathlib import Path
+
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MAP = ROOT / "docs/agile/mapping.yml"
+
 
 def deep_merge(dst, src):
     if isinstance(dst, dict) and isinstance(src, dict):
@@ -13,6 +20,7 @@ def deep_merge(dst, src):
             out[k] = deep_merge(out.get(k), v)
         return out
     return src if src is not None else dst
+
 
 def load_mapping():
     try:
@@ -28,6 +36,7 @@ def load_mapping():
     print("::error ::mapping id 'openapi' not found in docs/agile/mapping.yml")
     sys.exit(2)
 
+
 def resolve_source(src):
     candidates = []
     if isinstance(src, str):
@@ -42,17 +51,20 @@ def resolve_source(src):
     print(f"::error ::source file not found: {candidates}")
     sys.exit(2)
 
+
 def read_obj(path: Path):
     txt = path.read_text(encoding="utf-8")
     if path.suffix.lower() == ".json":
         return json.loads(txt)
     return yaml.safe_load(txt)
 
+
 def load_yaml_safe(path: Path):
     try:
         return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except Exception:
         return {}
+
 
 def main():
     m = load_mapping()
@@ -89,10 +101,15 @@ def main():
     else:
         merged = obj
 
-    header = "\n".join([
-        "# AUTO-GENERATED FILE",
-        "# このファイルは自動生成されます。直接編集しないでください。",
-    ]) + "\n"
+    header = (
+        "\n".join(
+            [
+                "# AUTO-GENERATED FILE",
+                "# このファイルは自動生成されます。直接編集しないでください。",
+            ]
+        )
+        + "\n"
+    )
     body = yaml.safe_dump(
         merged,
         sort_keys=False,
@@ -109,6 +126,7 @@ def main():
 
     print(f"SRC: {src_path}")
     print(f"WROTE: {tgt_path}")
+
 
 if __name__ == "__main__":
     main()
