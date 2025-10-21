@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Validate docs index and Markdown links for DS-14."""
+
 from __future__ import annotations
 
 import json
@@ -10,7 +11,7 @@ import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterator, List, Optional, Sequence, Set, Tuple
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -112,16 +113,16 @@ def iter_links(line: str) -> Iterator[Tuple[bool, str, str]]:
     idx = 0
     length = len(line)
     while idx < length:
-        start = line.find('[', idx)
+        start = line.find("[", idx)
         if start == -1:
             break
-        if start > 0 and line[start - 1] == '\\':
+        if start > 0 and line[start - 1] == "\\":
             idx = start + 1
             continue
-        end = line.find(']', start)
+        end = line.find("]", start)
         if end == -1:
             break
-        if end + 1 >= length or line[end + 1] != '(':
+        if end + 1 >= length or line[end + 1] != "(":
             idx = end + 1
             continue
         dest_start = end + 2
@@ -129,16 +130,16 @@ def iter_links(line: str) -> Iterator[Tuple[bool, str, str]]:
         pos = dest_start
         while pos < length and depth > 0:
             ch = line[pos]
-            if ch == '(':
+            if ch == "(":
                 depth += 1
-            elif ch == ')':
+            elif ch == ")":
                 depth -= 1
             pos += 1
         if depth != 0:
             break
-        dest = line[dest_start:pos - 1]
-        text = line[start + 1:end]
-        is_image = start > 0 and line[start - 1] == '!'
+        dest = line[dest_start : pos - 1]
+        text = line[start + 1 : end]
+        is_image = start > 0 and line[start - 1] == "!"
         yield is_image, text, dest
         idx = pos
 
@@ -148,11 +149,11 @@ def resolve_target(base: Path, href: str) -> Optional[Path]:
     if not href:
         return base
 
-    if href.startswith('/'):
-        candidate = (ROOT / href.lstrip('/')).resolve()
+    if href.startswith("/"):
+        candidate = (ROOT / href.lstrip("/")).resolve()
     else:
         href_path = Path(href)
-        if href_path.parts and href_path.parts[0] == 'docs':
+        if href_path.parts and href_path.parts[0] == "docs":
             candidate = (ROOT / href_path).resolve()
         else:
             candidate = (base.parent / href_path).resolve()
@@ -176,48 +177,54 @@ def check_links(md_paths: Sequence[Path], anchors_by_path: Dict[Path, Set[str]])
                     continue
                 href = split_destination(raw_dest)
                 href = unquote(href)
-                if not href or href.startswith('#'):
+                if not href or href.startswith("#"):
                     dest_path = md_path
-                    anchor = href[1:] if href.startswith('#') else None
+                    anchor = href[1:] if href.startswith("#") else None
                 else:
                     if is_external_destination(href):
                         continue
-                    if '?' in href:
-                        href, _query = href.split('?', 1)
+                    if "?" in href:
+                        href, _query = href.split("?", 1)
                     anchor = None
-                    if '#' in href:
-                        href, anchor = href.split('#', 1)
+                    if "#" in href:
+                        href, anchor = href.split("#", 1)
                     dest_path = resolve_target(md_path, href)
                     if dest_path is None:
-                        issues.append(Issue(
-                            kind="broken_link",
-                            file=str(md_path.relative_to(ROOT)),
-                            link=href,
-                            note=f"link resolves outside repository: {href}",
-                            line=lineno,
-                        ))
+                        issues.append(
+                            Issue(
+                                kind="broken_link",
+                                file=str(md_path.relative_to(ROOT)),
+                                link=href,
+                                note=f"link resolves outside repository: {href}",
+                                line=lineno,
+                            )
+                        )
                         continue
-                if dest_path is not None and dest_path.suffix.lower() == '.md':
+                if dest_path is not None and dest_path.suffix.lower() == ".md":
                     if not dest_path.exists():
-                        issues.append(Issue(
-                            kind="broken_link",
-                            file=str(md_path.relative_to(ROOT)),
-                            link=href or dest_path.name,
-                            note=f"referenced file not found: {dest_path.relative_to(ROOT)}",
-                            line=lineno,
-                        ))
+                        issues.append(
+                            Issue(
+                                kind="broken_link",
+                                file=str(md_path.relative_to(ROOT)),
+                                link=href or dest_path.name,
+                                note=f"referenced file not found: {dest_path.relative_to(ROOT)}",
+                                line=lineno,
+                            )
+                        )
                         continue
                     if anchor:
                         anchor_key = gfm_slug(unquote(anchor))
                         known_anchors = anchors_by_path.get(dest_path, set())
                         if anchor_key not in known_anchors:
-                            issues.append(Issue(
-                                kind="missing_anchor",
-                                file=str(md_path.relative_to(ROOT)),
-                                link=f"{dest_path.relative_to(ROOT)}#{anchor}",
-                                note=f"anchor '#{anchor}' not found in {dest_path.relative_to(ROOT)}",
-                                line=lineno,
-                            ))
+                            issues.append(
+                                Issue(
+                                    kind="missing_anchor",
+                                    file=str(md_path.relative_to(ROOT)),
+                                    link=f"{dest_path.relative_to(ROOT)}#{anchor}",
+                                    note=f"anchor '#{anchor}' not found in {dest_path.relative_to(ROOT)}",
+                                    line=lineno,
+                                )
+                            )
                 elif dest_path is not None and anchor:
                     # Non-Markdown target with anchor; nothing to validate
                     continue
@@ -265,61 +272,69 @@ def collect_index_entries() -> Tuple[Set[Path], List[Issue]]:
                 continue
             href = split_destination(raw_dest)
             href = unquote(href)
-            if not href or href.startswith('#'):
+            if not href or href.startswith("#"):
                 continue
             if is_external_destination(href):
                 continue
-            if '?' in href:
-                href, _query = href.split('?', 1)
-            if '#' in href:
-                href, _anchor = href.split('#', 1)
+            if "?" in href:
+                href, _query = href.split("?", 1)
+            if "#" in href:
+                href, _anchor = href.split("#", 1)
             dest_path = resolve_target(README_INDEX_PATH, href)
             if dest_path is None:
-                issues.append(Issue(
-                    kind="dangling_index_entry",
-                    file=str(README_INDEX_PATH.relative_to(ROOT)),
-                    link=href,
-                    note=f"index entry escapes repository: {href}",
-                    line=lineno,
-                ))
+                issues.append(
+                    Issue(
+                        kind="dangling_index_entry",
+                        file=str(README_INDEX_PATH.relative_to(ROOT)),
+                        link=href,
+                        note=f"index entry escapes repository: {href}",
+                        line=lineno,
+                    )
+                )
                 continue
             entries.add(dest_path)
             if not dest_path.exists():
-                issues.append(Issue(
-                    kind="dangling_index_entry",
-                    file=str(README_INDEX_PATH.relative_to(ROOT)),
-                    link=href,
-                    note=f"indexed file missing: {dest_path.relative_to(ROOT)}",
-                    line=lineno,
-                ))
+                issues.append(
+                    Issue(
+                        kind="dangling_index_entry",
+                        file=str(README_INDEX_PATH.relative_to(ROOT)),
+                        link=href,
+                        note=f"indexed file missing: {dest_path.relative_to(ROOT)}",
+                        line=lineno,
+                    )
+                )
         for match in code_md_pattern.finditer(line):
             candidate = match.group(1).strip()
             if not candidate:
                 continue
-            if '#' in candidate:
-                candidate, _anchor = candidate.split('#', 1)
+            if "#" in candidate:
+                candidate, _anchor = candidate.split("#", 1)
             if is_external_destination(candidate):
                 continue
             dest_path = resolve_target(README_INDEX_PATH, candidate)
             if dest_path is None:
-                issues.append(Issue(
-                    kind="dangling_index_entry",
-                    file=str(README_INDEX_PATH.relative_to(ROOT)),
-                    link=candidate,
-                    note=f"index entry escapes repository: {candidate}",
-                    line=lineno,
-                ))
+                issues.append(
+                    Issue(
+                        kind="dangling_index_entry",
+                        file=str(README_INDEX_PATH.relative_to(ROOT)),
+                        link=candidate,
+                        note=f"index entry escapes repository: {candidate}",
+                        line=lineno,
+                    )
+                )
                 continue
             if dest_path not in entries:
                 entries.add(dest_path)
             if not dest_path.exists():
-                issues.append(Issue(
-                    kind="dangling_index_entry",
-                    file=str(README_INDEX_PATH.relative_to(ROOT)),
-                    link=candidate,
-                    note=f"indexed file missing: {dest_path.relative_to(ROOT)}",
-                    line=lineno,
-                ))
+                issues.append(
+                    Issue(
+                        kind="dangling_index_entry",
+                        file=str(README_INDEX_PATH.relative_to(ROOT)),
+                        link=candidate,
+                        note=f"indexed file missing: {dest_path.relative_to(ROOT)}",
+                        line=lineno,
+                    )
+                )
     return entries, issues
 
 
@@ -330,19 +345,21 @@ def check_orphans(index_entries: Set[Path]) -> List[Issue]:
     for path in agile_docs:
         if path in index_entries:
             continue
-        issues.append(Issue(
-            kind="orphan_doc",
-            file=str(path.relative_to(ROOT)),
-            link="",
-            note=f"not listed in {README_INDEX_PATH.relative_to(ROOT)}",
-            line=1,
-        ))
+        issues.append(
+            Issue(
+                kind="orphan_doc",
+                file=str(path.relative_to(ROOT)),
+                link="",
+                note=f"not listed in {README_INDEX_PATH.relative_to(ROOT)}",
+                line=1,
+            )
+        )
     return issues
 
 
 def emit_issues(issues: Sequence[Issue]) -> None:
     for issue in issues:
-        note = issue.note.replace('\n', ' ')
+        note = issue.note.replace("\n", " ")
         print(f"::error file={issue.file},line={issue.line},title=DS-14 {note}")
 
 

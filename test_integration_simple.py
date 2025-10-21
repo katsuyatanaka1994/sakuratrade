@@ -9,6 +9,8 @@ import os
 import pytest
 import requests
 
+pytestmark = pytest.mark.integration
+
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 

@@ -1,27 +1,38 @@
 #!/usr/bin/env python3
-import os, re, json, sys, pathlib, datetime
+from __future__ import annotations
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-NFR_FILE = ROOT / "docs/agile/nfr.yml"
-STATE_OUT = ROOT / "docs/agile/nfr-xref-state.json"
-REPORT_MD = ROOT / "docs/agile/report.md"
+import datetime
+import json
+import os
+import re
+import sys
+from pathlib import Path
 
 try:
     import yaml
 except Exception:
-    print("::error::PyYAML not installed"); sys.exit(1)
+    print("::error::PyYAML not installed")
+    sys.exit(1)
+
+ROOT = Path(__file__).resolve().parents[1]
+NFR_FILE = ROOT / "docs/agile/nfr.yml"
+STATE_OUT = ROOT / "docs/agile/nfr-xref-state.json"
+REPORT_MD = ROOT / "docs/agile/report.md"
+
 
 def load_nfrs():
     data = yaml.safe_load(NFR_FILE.read_text(encoding="utf-8"))
     return [n["id"] for n in data.get("nfrs", [])]
 
+
 PAT = re.compile(r"NFR:\s*([A-Za-z0-9_-]+)")
 AREAS = {
     "unit": [ROOT / "tests"],
-    "e2e":  [ROOT / "tests" / "e2e"],
-    "ci":   [ROOT / ".github" / "workflows"],
+    "e2e": [ROOT / "tests" / "e2e"],
+    "ci": [ROOT / ".github" / "workflows"],
     "docs": [ROOT / "docs"],
 }
+
 
 def scan_ids(paths):
     ids = set()
@@ -36,6 +47,7 @@ def scan_ids(paths):
                 except Exception:
                     pass
     return ids
+
 
 def main():
     nfr_ids = load_nfrs()
@@ -61,12 +73,15 @@ def main():
     THRESH = int(os.environ.get("NFR_XREF_FAIL_STREAK", "2"))
     will_fail = any(v >= THRESH for v in streak.values())
 
-    run_url = f"{os.environ.get('GITHUB_SERVER_URL','https://github.com')}/{os.environ.get('GITHUB_REPOSITORY','')}/actions/runs/{os.environ.get('GITHUB_RUN_ID','')}"
+    server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    run_url = f"{server_url}/{repo}/actions/runs/{run_id}"
     lines = []
     for n in nfr_ids:
         miss = ",".join(missing[n]) if missing[n] else "-"
-        lines.append(f"| {n} | {miss} | {streak.get(n,0)} |")
-    strict = os.environ.get("NFR_XREF_STRICT","false").lower() == "true"
+        lines.append(f"| {n} | {miss} | {streak.get(n, 0)} |")
+    strict = os.environ.get("NFR_XREF_STRICT", "false").lower() == "true"
     summary = [
         "### DS-15 NFRクロスリファレンス",
         "**Mode:** " + ("STRICT (CI may fail)" if strict else "WARN (no fail)"),
@@ -77,16 +92,22 @@ def main():
         "",
         f"Run: {run_url}",
     ]
-    with open(os.environ.get("GITHUB_STEP_SUMMARY","/tmp/summary.md"), "a", encoding="utf-8") as w:
+    with open(os.environ.get("GITHUB_STEP_SUMMARY", "/tmp/summary.md"), "a", encoding="utf-8") as w:
         w.write("\n".join(summary) + "\n")
 
+    payload = {
+        "streak": streak,
+        "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
+    }
     STATE_OUT.write_text(
-        json.dumps({"streak": streak, "generated_at": datetime.datetime.utcnow().isoformat()+"Z"}, ensure_ascii=False, indent=2),
-        encoding="utf-8"
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
 
     jst_date = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
-    row = f"| {jst_date.date()} | nfr-xref | {os.environ.get('GITHUB_HEAD_REF') or os.environ.get('GITHUB_REF_NAME','')} | - | - | - | {run_url} |"
+    branch = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME", "")
+    cols = [str(jst_date.date()), "nfr-xref", branch, "-", "-", "-", run_url]
+    row = "| " + " | ".join(cols) + " |"
     (ROOT / "docs/agile/.nfr-xref-row").write_text(row, encoding="utf-8")
 
     if will_fail and strict:
@@ -94,6 +115,7 @@ def main():
         sys.exit(1)
     print("No blocking errors (warn mode).")
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

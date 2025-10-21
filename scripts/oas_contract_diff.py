@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-import json
+# ruff: noqa: I001
+from __future__ import annotations
+
 import os
 import subprocess
 import sys
@@ -49,10 +51,7 @@ def get_paths_ops(doc: Dict[str, Any]) -> Dict[str, List[str]]:
         if not isinstance(node, dict):
             continue
         ops = [
-            m
-            for m in node.keys()
-            if m.lower()
-            in ("get", "post", "put", "patch", "delete", "head", "options", "trace")
+            m for m in node.keys() if m.lower() in ("get", "post", "put", "patch", "delete", "head", "options", "trace")
         ]
         out[p] = sorted(ops)
     return out
@@ -85,7 +84,7 @@ def response_content_schema(resp: Dict[str, Any]) -> Any:
     content = resp.get("content") or {}
     for ctype in ("application/json", "application/*+json", "*/*"):
         if ctype in content:
-            return (content[ctype].get("schema") or {})
+            return content[ctype].get("schema") or {}
     return resp.get("schema") or {}
 
 
@@ -132,9 +131,7 @@ def detect_breaking(
                 hh = resp_headers(hnode or {})
                 for hname in bh.keys():
                     if hname not in hh:
-                        out_removed_hdr.append(
-                            f"{op.upper()} {p} :: {code} header '{hname}'"
-                        )
+                        out_removed_hdr.append(f"{op.upper()} {p} :: {code} header '{hname}'")
                 bt = first_schema_type(response_content_schema(bnode))
                 ht = first_schema_type(response_content_schema(hnode))
                 if bt is None or ht is None:
@@ -147,7 +144,6 @@ def detect_breaking(
 
 def detect_reqbody_harder(base: Dict[str, Any], head: Dict[str, Any]) -> List[str]:
     hits: List[str] = []
-    bpo = get_paths_ops(base)
     hpo = get_paths_ops(head)
     for p, hops in hpo.items():
         for op in hops:
@@ -167,9 +163,11 @@ def main() -> None:
     breaking = len(rp) + len(ro) + len(rr) + len(rq) + len(rh)
     header = "### 🔎 OpenAPI Contract Diff\n\n"
     md: List[str] = [header]
-    md.append(
-        f"- Base: `{BASE_SHA or 'merge-base(origin/main, HEAD)'}`\n- Head: `{sh(['git', 'rev-parse', '--short', 'HEAD'])}`\n"
-    )
+    base_sha = BASE_SHA or "merge-base(origin/main, HEAD)"
+    head_sha = sh(["git", "rev-parse", "--short", "HEAD"])
+    md.append(f"- Base: `{base_sha}`")
+    md.append(f"- Head: `{head_sha}`")
+    md.append("")
 
     if breaking == 0 and len(rt) == 0:
         md.append("\n✅ **No breaking changes detected.**\n")

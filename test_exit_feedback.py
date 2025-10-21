@@ -9,6 +9,8 @@ import os
 import pytest
 import requests
 
+pytestmark = pytest.mark.integration
+
 
 def test_exit_feedback_endpoint():
     """決済フィードバックエンドポイントのテスト"""

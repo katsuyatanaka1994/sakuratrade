@@ -10,6 +10,8 @@ import pytest
 import requests
 from PIL import Image
 
+pytestmark = pytest.mark.integration
+
 
 def create_sample_chart_image():
     """サンプルチャート画像を作成"""

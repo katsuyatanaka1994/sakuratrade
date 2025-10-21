@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
+# ruff: noqa: I001
 """Generate a Markdown table of main OpenAPI endpoints."""
 
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
+import sys
 from typing import Any, Dict, Iterable, List, Tuple
 
 import yaml
