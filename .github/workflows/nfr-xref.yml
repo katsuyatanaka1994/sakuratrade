@@ -2,6 +2,9 @@ name: nfr-xref
 on:
   pull_request:
   workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   xref:
@@ -34,6 +37,7 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           branch: docs-sync/nfr-xref-${{ github.run_id }}
+          base: main
           title: "[skip docsync] chore(docs): append DS-15 nfr-xref result"
           commit-message: "docs(report): append DS-15 nfr-xref row + update state"
           add-paths: |
