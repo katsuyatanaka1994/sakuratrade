@@ -47,6 +47,12 @@
 | perf-test | performance | 任意 (Nightly) | k6 smoke perf |
 |  |  |  |  |
 
+### テスト構成と実行条件
+- Unit（常時）: `python -m pytest -q -m "not integration"`
+- Integration（任意・手動）: `python -m pytest -q -m "integration"`
+  - 実行方法: GitHub Actions → Backend CI → Run workflow（`workflow_dispatch`）
+- Required checks: Backend CI (unit), docsync-check, docs-index-validate, security-permissions-lint, nfr-xref
+
 ## 各ジョブ定義
 | 項目 | 内容 |
 | --- | --- |
