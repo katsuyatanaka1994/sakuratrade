@@ -63,6 +63,8 @@
 | `integration-test-specification.md` | 統合テスト仕様 | Codex + QA | フロー実装時 | seed/cleanup明記 |
 | `smoke-e2e-specification.md` | スモークE2E仕様 | Codex + QA | リリース前 / 回帰発生時 | Playwright等と同期 |
 | `ci-specification.md` | CI / パイプライン定義 | Codex + SRE | CI変更時 | `.github/workflows` とリンク |
+| [DS-21 セキュリティ／権限運用ガイド](./security-actions-guidelines.md) | GitHub Actions権限運用ガイドライン | セキュリティチーム | 監査ポリシー変更時 | pull_request_target/permissions 基準 |
+| [DS-21 セキュリティ監査チェックリスト](./checklists/security-actions-audit.md) | Actions権限監査チェックリスト | セキュリティチーム | 週次 / リリース前 | lintスクリプト連携 |
 | `implementation-details.md` | 実装詳細・Runbook | Codex + Dev | 実装完了時 | 変更時はテスト/CIと連携更新 |
 | [DocSync レポート（週次）](docs/agile/report.md) | DocSync自動実行の週次結果ログ | Codex | 毎週 / DocSync完了時 | Actions Summaryを転記 |
 | [ブランチ戦略](docs/agile/branching.md) | 1タスク=1ブランチ運用ルール | Codex + Dev | 運用ルール変更時 | 命名規約・Draft運用を定義 |
