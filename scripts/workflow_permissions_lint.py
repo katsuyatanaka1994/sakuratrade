@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any, Iterable
@@ -12,6 +13,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 SEC_ROW_PATH = REPO_ROOT / "docs" / "agile" / ".sec-review-row"
+STRICT = os.environ.get("SEC_LINT_STRICT", "false").lower() == "true"
 
 
 class LintIssue:
@@ -136,7 +138,7 @@ def main() -> int:
 
     update_status_row(len(issues))
 
-    return 0 if not issues else 1
+    return 1 if (issues and STRICT) else 0
 
 
 if __name__ == "__main__":

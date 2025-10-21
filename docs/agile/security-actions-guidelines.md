@@ -1,4 +1,4 @@
-# GitHub Actions Security & Permissions Guidelines
+# DS-21 セキュリティ／権限運用ガイド
 
 ## Minimum permissions by default
 - Declare a top-level `permissions` block in every workflow. Start from `permissions: {}` or granular read scopes, then add only the writes that each job truly needs.

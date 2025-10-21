@@ -1,4 +1,4 @@
-# GitHub Actions Security Audit Checklist
+# DS-21 セキュリティ監査チェックリスト
 
 ## Workflow configuration checks
 - [ ] Every workflow under `.github/workflows/` defines a top-level `permissions` block with the minimum scopes required per job.
