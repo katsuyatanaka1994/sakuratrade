@@ -22,6 +22,7 @@ jobs:
             !contains(github.event.pull_request.title, '[skip docsync]') ||
             github.event_name == 'workflow_dispatch' }}
     permissions:
+      contents: read
       actions: write
     steps:
       - uses: actions/checkout@v4
