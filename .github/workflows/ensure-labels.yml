@@ -20,11 +20,15 @@ jobs:
             for (const l of wanted) {
               try {
                 // 既存なら更新、無ければ作成（idempotent）
-                await github.issues.getLabel({ owner, repo, name: l.name });
-                await github.issues.updateLabel({ owner, repo, name: l.name, color: l.color, description: l.description });
+                await github.rest.issues.getLabel({ owner, repo, name: l.name });
+                await github.rest.issues.updateLabel({
+                  owner, repo, name: l.name, color: l.color, description: l.description
+                });
                 core.info(`Updated label: ${l.name}`);
               } catch (e) {
-                await github.issues.createLabel({ owner, repo, name: l.name, color: l.color, description: l.description });
+                await github.rest.issues.createLabel({
+                  owner, repo, name: l.name, color: l.color, description: l.description
+                });
                 core.info(`Created label: ${l.name}`);
               }
             }
