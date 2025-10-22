@@ -4,22 +4,65 @@ on:
     workflows: ["docs-index-validate", "nfr-xref", "security-permissions-lint"]
     types: [completed]
 permissions:
+  contents: read
   pull-requests: write
+  issues: write
 jobs:
   draft:
-    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'success' }}
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/github-script@v7
         with:
           script: |
+            const path = require('path');
+            const helperPath = path.join(process.env.GITHUB_WORKSPACE, '.github/scripts/ds27-check-state.js');
+            const { evaluateChecks, REQUIRED_CHECKS } = require(helperPath);
+
             const run = context.payload.workflow_run;
-            const pr  = run.pull_requests?.[0];
-            if (!pr) return;
+            const pr = run.pull_requests?.[0];
+            if (!pr) {
+              core.info('DS-27: workflow run not tied to a PR; skipping draft update');
+              return;
+            }
 
             const { owner, repo } = context.repo;
-            await github.rest.pulls.update({ owner, repo, pull_number: pr.number, draft: true });
-            await github.rest.issues.createComment({
-              owner, repo, issue_number: pr.number,
-              body: "🚧 チェック失敗のため PR を Draft に戻しました。修正後に Ready for review へ。"
-            });
+            let sha = run.head_sha || pr.head?.sha;
+            if (!sha) {
+              core.info('DS-27: resolving head SHA via API');
+              try {
+                const prData = await github.rest.pulls.get({ owner, repo, pull_number: pr.number });
+                sha = prData.data.head.sha;
+              } catch (error) {
+                core.warning(`DS-27: failed to resolve head SHA (${error?.message || error})`);
+              }
+            }
+
+            const draftForSafety = async (reason) => {
+              core.info(`DS-27: ${reason}; setting PR #${pr.number} to draft`);
+              await github.rest.pulls.update({ owner, repo, pull_number: pr.number, draft: true });
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr.number,
+                body: '🚧 チェック未完/失敗を検出したため PR を Draft に戻しました。修正後に Ready for review へ。',
+              });
+            };
+
+            if (!sha) {
+              await draftForSafety('missing head SHA');
+              return;
+            }
+
+            try {
+              const result = await evaluateChecks({ github, owner, repo, sha, requiredChecks: REQUIRED_CHECKS });
+              if (result.allSuccess) {
+                core.info(`DS-27: all checks green; no draft action for PR #${pr.number}`);
+              } else {
+                await draftForSafety('checks not all green');
+              }
+            } catch (error) {
+              core.warning(`DS-27: evaluation failed (${error?.message || error})`);
+              await draftForSafety('evaluation failure (fail-safe)');
+            }
