@@ -15,16 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: >-
-    ${{
-      (
-        github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')
-      ) || (
-        github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/docs-sync/')
-      )
-        && 'nfr-xref-docssync'
-        || format('nfr-xref-{0}', github.event_name == 'pull_request' ? github.head_ref : github.ref)
-    }}
+  group: "${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) || (github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/docs-sync/')) ? 'nfr-xref-docssync' : format('nfr-xref-{0}', github.event_name == 'pull_request' ? github.head_ref : github.ref) }}"
   cancel-in-progress: false
 
 jobs:
