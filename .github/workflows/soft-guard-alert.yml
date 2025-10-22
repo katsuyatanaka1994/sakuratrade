@@ -8,8 +8,13 @@ permissions:
   pull-requests: read
   issues: write
 
+concurrency:
+  group: soft-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   alert:
+    if: ${{ github.event.pull_request.merged == true }}
     permissions:
       contents: read
       pull-requests: read
@@ -24,6 +29,18 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const number = context.payload.pull_request.number;
+            const prUrl = context.payload.pull_request.html_url;
+            const title = `Soft guard violation: PR #${number} merged with docs:invalid`;
+
+            const existing = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner, repo, state: 'open', per_page: 100 }
+            );
+            if (existing.some(i => i.title === title)) {
+              core.info('issue already exists; skip');
+              core.setOutput('hasInvalid', 'false');
+              return;
+            }
 
             const labels = await github.paginate(
               github.rest.issues.listLabelsOnIssue,
@@ -33,11 +50,7 @@ jobs:
             core.setOutput('hasInvalid', String(hasInvalid));
 
             if (hasInvalid) {
-              await github.rest.issues.create({
-                owner, repo,
-                title: `Soft guard violation: PR #${number} merged with docs:invalid`,
-                body: context.payload.pull_request.html_url
-              });
+              await github.rest.issues.create({ owner, repo, title, body: prUrl });
               core.info(`created issue for PR #${number}`);
             } else {
               core.info('no docs:invalid on merged PR; no issue needed');
