@@ -60,3 +60,4 @@
 | sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18709379830
 
 | 2025-10-22 | nfr-xref | chore/ds-27-soft-guard-labels | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18709337730 |
+| sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18711683183
