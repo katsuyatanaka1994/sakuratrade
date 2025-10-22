@@ -136,3 +136,44 @@
 ## 変更履歴
 - YYYY-MM-DD: 初版作成 (PR # / 担当者)
 - YYYY-MM-DD:
+
+## DS-26: 無料プランにおける CI ソフトガード方針
+
+### 目的
+- **PR は軽く緑（No-Op）**、**本処理は push(main)**（＋必要時の **workflow_dispatch(main)**）でのみ実行。
+- Private Free で Branch protection を強制できない制約下でも、**止まらない CI と可視化**を担保する。
+
+### 設計（要点）
+- Workflow: `.github/workflows/security-permissions-lint.yml`
+  - **イベント分離**: `noop-pr`（`pull_request`）＝No-Op Success、`run-on-main`＝本処理。
+  - **実行条件**: `run-on-main` は  
+    `if: (event == push && ref == main) || (event == workflow_dispatch && ref == main)`  
+    ※将来 `release/**` を守る場合は `branches` と `if` の両方を拡張。
+  - **paths**: `on.push.paths = .github/workflows/**, scripts/**`（WF/スクリプト変更で本処理を再実行）
+  - **permissions**: ルート `contents: read`、本処理ジョブのみ `contents: write`, `pull-requests: write`
+  - **concurrency**: `group = ${{ github.workflow }}-${{ github.ref_name }}`, `cancel-in-progress: true`
+  - **timeout**: `timeout-minutes: 15`
+  - **出力**: `docs/agile/report.md` に追記。`docs/agile/.sec-review-row` が無い場合はフォールバック生成  
+    **注意**: `report.md` は `on.push.paths` に含めない（**マージで再トリガーしない**）
+  - **Create PR**: `peter-evans/create-pull-request` で `docs-sync/sec-review` を作成（`base: ${{ github.ref_name }}`, `labels: docsync:needs-apply`）
+
+### 運用ルール
+- マージ方式は **Squash** を基本
+- PR テンプレ冒頭: **「CI確認：docs-index / nfr-xref / security-permissions-lint の3チェックが緑」**
+- **DS-27 補強**  
+  - 失敗 → `docs:invalid` 自動付与 & PR Draft化（Botコメント）  
+  - 成功 → `docs:invalid` 自動除去  
+  - **即時フォールバック**: `docs:invalid` のまま merged なら Issue＋Slack/Webhook 通知  
+  - （任意）週次監査で取りこぼし検出
+
+### 受け入れ基準（Acceptance）
+- PR作成: `noop-pr` が Success（サマリに「本処理は main push/dispatch」）
+- `workflow_dispatch(main)`: `run-on-main` が **lint → report追記 → docs-sync PR作成** まで完走
+- main への push でも同様に本処理が走る
+- 連続実行で古い Run が **Cancelled**／新しい Run が **Success**
+- `report.md` の運用（重複抑止はRun URLで判断 or レビューで確認）
+
+### 将来の切替（Team/Pro へ移行時）
+- `noop-pr` を廃止し、PR側で本処理を実行  
+- Branch protection（Required checks）を有効化  
+- 必要に応じて `branches` / `if` を `release/**` に拡張
