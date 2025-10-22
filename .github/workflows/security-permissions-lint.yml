@@ -4,67 +4,66 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - main  # release/** を保護したくなったらここに追加
     paths:
-      - .github/workflows/security-permissions-lint.yml
-      - scripts/workflow_permissions_lint.py
+      - .github/workflows/**
+      - scripts/**
 
 permissions:
   contents: read  # top-levelは最小権限を明示
 
 concurrency:
-  group: sec-review-docsync  # 固定キーで直列化
+  group: ${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: true
-
 jobs:
-  lint:
+  noop-pr:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
+    steps:
+      - name: pull_request は No-op
+        run: 'echo "security-permissions-lint: pull_request は No-Op (success)"'
+
+      - name: PR向けサマリ
+        run: |
+          echo "## security-permissions-lint" >> $GITHUB_STEP_SUMMARY
+          echo "- 本処理は push(main) または workflow_dispatch で実行されます" >> $GITHUB_STEP_SUMMARY
+
+  run-on-main:
+    # push(main) もしくは workflow_dispatch(main) のときだけ本処理を実行
+    if: ${{ (github.event_name == 'push' && github.ref_name == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'main') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
-
     steps:
-      - name: No-op on docs-sync or skip-title PR
-        if: ${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) || (github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
-        run: 'echo "docs-sync/skip-title PR: no-op (success)"'
-
-      - name: Skip for fork PR
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
-        run: 'echo "fork PR: lint skipped (success)"'
-
       - name: Checkout
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         uses: actions/checkout@v4
 
       - name: Setup Python
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         run: python -m pip install --upgrade pip PyYAML
 
       - name: Run workflow permissions lint
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         env:
           SEC_LINT_STRICT: "false"  # Warn運用
         run: python scripts/workflow_permissions_lint.py
 
       - name: Append security review report
-        if: ${{ always() && !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         run: |
+          test -f docs/agile/.sec-review-row || echo "$(date +%F) | security-permissions-lint | auto | generated-by-workflow" > docs/agile/.sec-review-row
           row=$(cat docs/agile/.sec-review-row)
           echo "$row | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> docs/agile/report.md
 
       - name: Create docs-sync pull request
-        # fork PRやdocs-sync PRでは書込みをしない
-        if: ${{ always() && !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         uses: peter-evans/create-pull-request@v6
         with:
           branch: docs-sync/sec-review
-          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || 'main' }}
+          base: ${{ github.ref_name }}
           title: "[skip docsync] chore(docs): append DS-21 sec-review result"
           commit-message: "docs(report): append DS-21 sec-review row"
           add-paths: docs/agile/report.md
