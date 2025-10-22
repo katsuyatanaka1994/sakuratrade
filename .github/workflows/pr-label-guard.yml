@@ -14,23 +14,49 @@ jobs:
       - uses: actions/github-script@v7
         with:
           script: |
-            // workflow_run payloadにはPRが無いケースもある（再実行等）
+            const core = require('@actions/core');
+            const { evaluateChecks, REQUIRED_CHECKS } = require('./.github/scripts/ds27-check-state');
+
             const run = context.payload.workflow_run;
-            const pr  = run.pull_requests?.[0];
-            if (!pr) return;
+            const pr = run.pull_requests?.[0];
+            if (!pr) {
+              core.info('DS-27: workflow run not tied to a PR, skipping');
+              return;
+            }
+
+            const sha = pr.head?.sha ?? pr.head_sha;
+            if (!sha) {
+              core.warning('DS-27: missing head SHA for PR, skipping');
+              return;
+            }
 
             const { owner, repo } = context.repo;
-            const number = pr.number;
-            const failed = run.conclusion !== 'success';
+            const evaluation = await evaluateChecks({ github, owner, repo, sha, requiredChecks: REQUIRED_CHECKS });
+            const issue_number = pr.number;
 
-            if (failed) {
-              await github.rest.issues.addLabels({
-                owner, repo, issue_number: number, labels: ['docs:invalid']
-              });
-            } else {
+            if (evaluation.allSuccess) {
+              core.info('DS-27: all required checks are green; removing docs:invalid if present');
               try {
-                await github.rest.issues.removeLabel({
-                  owner, repo, issue_number: number, name: 'docs:invalid'
-                });
-              } catch (_) { /* labelが無ければ何もしない */ }
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: 'docs:invalid' });
+                core.info('DS-27: removed docs:invalid label');
+              } catch (error) {
+                if (error.status === 404) {
+                  core.info('DS-27: docs:invalid label was already absent');
+                } else {
+                  throw error;
+                }
+              }
+              return;
+            }
+
+            core.info('DS-27: checks not all green; ensuring docs:invalid label is present');
+            try {
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['docs:invalid'] });
+              core.info('DS-27: applied docs:invalid label');
+            } catch (error) {
+              if (error.status === 422) {
+                core.info('DS-27: docs:invalid label already present');
+              } else {
+                throw error;
+              }
             }
