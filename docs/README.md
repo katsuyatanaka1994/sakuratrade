@@ -29,5 +29,3 @@
 - OpenAPI やCI設定を更新するPRでは、`docs/agile/api-specification.md` や `ci-specification.md` の同期を忘れずに行う。
 - ドキュメント運用ルールの詳細は `docs/agile/document-operations.md` を参照。
 
-
-[broken-link-check](./__no_such_file__.md)
