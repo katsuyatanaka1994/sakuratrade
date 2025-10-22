@@ -1,8 +1,13 @@
 name: security-permissions-lint
 on:
   pull_request:
-  push:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/security-permissions-lint.yml
+      - scripts/workflow_permissions_lint.py
 
 permissions:
   contents: read  # top-levelは最小権限を明示
