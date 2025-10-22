@@ -21,11 +21,11 @@ jobs:
     steps:
       - name: No-op on docs-sync or skip-title PR
         if: "${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) || (github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}"
-        run: echo "docs-sync/skip-title PR: no-op (success)"
+        run: 'echo "docs-sync/skip-title PR: no-op (success)"'
 
       - name: Skip for fork PR
         if: "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}"
-        run: echo "fork PR: lint skipped (success)"
+        run: 'echo "fork PR: lint skipped (success)"'
 
       - name: Checkout
         if: "${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}"
