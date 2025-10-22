@@ -50,4 +50,6 @@
 | sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18703524454
 
 | 2025-10-22 | nfr-xref | main | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18703524137 |
+
+| 2025-10-22 | nfr-xref | chore/ds-26-soft-guard-final | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18707651871 |
 | sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18707747096
