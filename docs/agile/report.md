@@ -44,4 +44,6 @@
 | sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18678329641
 
 | 2025-10-21 | nfr-xref | chore/ci-docssync-noop-success | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18678329563 |
+
+| 2025-10-22 | nfr-xref | chore/ci-nfr-xref-concurrency-global | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18703302321 |
 | sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18703333176
