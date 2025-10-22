@@ -30,4 +30,4 @@
 - ドキュメント運用ルールの詳細は `docs/agile/document-operations.md` を参照。
 
 
-[broken-link-check](./__no_such_file__.md)
+
