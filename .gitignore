@@ -32,3 +32,6 @@ gptset.egg-info/
 
 .env
 doc_sync_plan.json
+
+# UI PoC artifacts
+artifacts/

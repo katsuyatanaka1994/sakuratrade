@@ -1,0 +1,47 @@
+name: Node Playwright PoC
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL to capture via Playwright'
+        required: true
+        type: string
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tools/ui-poc/package-lock.json
+
+      - name: Install Node dependencies
+        run: npm ci
+        working-directory: tools/ui-poc
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+        working-directory: tools/ui-poc
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run capture
+        run: python scripts/node_bridge.py --url "${{ inputs.url }}"
+
+      - name: Upload capture artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-poc-artifacts
+          path: artifacts/ui-poc
+          if-no-files-found: ignore
