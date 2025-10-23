@@ -1,0 +1,57 @@
+name: code-quality
+
+on:
+  pull_request:
+
+jobs:
+  # 1) docs-syncブランチ / [skip docsync] タイトル → No-Op Success（1行式）
+  noop:
+    if: ${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) || (github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'No-Op on docs-sync/* or [skip docsync]'
+
+  # 2) 本処理（No-Opの“否定”1行式）— Python 側
+  py-quality:
+    if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -q -r requirements.txt -r scripts/requirements.txt -r requirements-dev.txt
+      - run: pip install --disable-pip-version-check -q -e .
+      - name: Preflight: required imports
+        run: |
+          python - <<'PY'
+          import importlib, sys
+
+          modules = ["fastapi", "pydantic_settings", "jose", "sqlalchemy"]
+          missing = [m for m in modules if importlib.util.find_spec(m) is None]
+
+          if missing:
+              print("Missing runtime deps:", ", ".join(missing))
+              sys.exit(1)
+          PY
+      - run: ruff check scripts
+      - run: mypy scripts
+      - run: pytest -q
+
+  # 3) 本処理（同上）— Frontend 側
+  fe-quality:
+    if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+    defaults:
+      run:
+        working-directory: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+      - run: npx tsc --noEmit
+      - run: npx eslint '.'
+      - run: npm test --silent

@@ -3,3 +3,6 @@ pillow>=10,<11
 
 pytest>=8,<9
 pytest-asyncio>=0.24,<0.25
+mypy>=1.11,<1.12
+types-PyYAML>=6.0.12
+pandas-stubs>=2.2.2.240807

@@ -47,6 +47,12 @@
 | perf-test | performance | 任意 (Nightly) | k6 smoke perf |
 |  |  |  |  |
 
+### DS-23: code-quality ワークフロー暫定運用
+- GitHub Actions `.github/workflows/code-quality.yml` を PR トリガで常時実行し、Python (`ruff`/`mypy`/`pytest`) と Frontend (`tsc`/`eslint`/`npm test`) を別ジョブで走らせる。
+- 既存負債と共存するため、ESLint は Flat Config の `globalIgnores` で `coverage/` や `tests/e2e/` 等を除外し、`no-explicit-any` など高頻度違反ルールは当面 `warn` に変更。段階的強化の TODO を別チケットで管理する。
+- mypy は `requirements-dev.txt` に追加した `types-PyYAML` / `pandas-stubs` 等をインストールし、`mypy.ini` で `jaconv` の型不足を無視する設定を追加した。
+- `docs-index-validate` 他の Required check は変更なし。docs-sync ブランチと `[skip docsync]` タイトルは `noop` ガードでスキップする。
+
 ### テスト構成と実行条件
 - Unit（常時）: `python -m pytest -q -m "not integration"`
 - Integration（任意・手動）: `python -m pytest -q -m "integration"`
