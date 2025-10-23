@@ -83,4 +83,4 @@
 
 | 2025-10-23 | nfr-xref | chore/ds-23-quality-gates | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18736999122 |
 
-| 2025-10-23 | nfr-xref | chore/ds-23-quality-gates | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18738506152 |
+| 2025-10-23 | nfr-xref | chore/ds-23-quality-gates | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18738591774 |
