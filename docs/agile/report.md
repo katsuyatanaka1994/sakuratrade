@@ -96,3 +96,4 @@
 | 2025-10-23 | docsync-check | main | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18739007647 |
 | 2025-10-23 | docsync-check | openapi.yaml | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18739002119 |
 | 2025-10-23 | docsync-check | openapi.yaml | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18738697087 |
+| 2025-10-23 | docsync-check | feat/ds-22-node-poc | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18742577005 |
