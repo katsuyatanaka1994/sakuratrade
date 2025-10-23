@@ -71,3 +71,5 @@
 | 2025-10-22 | nfr-xref | chore/ds-27-alert-hardening | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18714350412 |
 
 | 2025-10-22 | nfr-xref | revert-203-chore/ds-27-violation-test-final | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18714859877 |
+
+| 2025-10-23 | nfr-xref | chore/ds-27-violation-test-4 | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18734293317 |
