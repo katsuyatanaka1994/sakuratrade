@@ -85,3 +85,4 @@
 | 2025-10-23 | docsync-check | chore/ds-23-quality-gates | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18738302299 |
 
 | 2025-10-23 | nfr-xref | chore/ds-23-quality-gates | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18738506152 |
+| 2025-10-23 | docsync-check | openapi.yaml | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18738591801 |
