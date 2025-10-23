@@ -26,6 +26,10 @@ jobs:
         run: npm ci
         working-directory: tools/ui-poc
 
+      - name: Sanity: playwright resolves
+        working-directory: tools/ui-poc
+        run: node -e "require.resolve('playwright'); console.log('playwright ok')"
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
         working-directory: tools/ui-poc
@@ -35,8 +39,16 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Run capture
-        run: python scripts/node_bridge.py --url "${{ inputs.url }}"
+      - name: Run capture (Python bridge)
+        env:
+          URL_INPUT: ${{ inputs.url }}
+        shell: bash
+        run: |
+          python3 scripts/node_bridge.py --url "$URL_INPUT"
+
+      - name: List artifacts (debug)
+        if: always()
+        run: ls -la artifacts/ui-poc || true
 
       - name: Upload capture artifacts
         if: always()
