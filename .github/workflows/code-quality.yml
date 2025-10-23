@@ -1,0 +1,40 @@
+name: code-quality
+
+on:
+  pull_request:
+
+jobs:
+  # 1) docs-syncブランチ / [skip docsync] タイトル → No-Op Success（1行式）
+  noop:
+    if: ${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) || (github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'No-Op on docs-sync/* or [skip docsync]'
+
+  # 2) 本処理（No-Opの“否定”1行式）— Python 側
+  py-quality:
+    if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -q ruff mypy pytest
+      - run: ruff check backend scripts
+      - run: mypy backend scripts
+      - run: pytest -q
+
+  # 3) 本処理（同上）— Frontend 側
+  fe-quality:
+    if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx eslint 'frontend/**/*.{ts,tsx,js,jsx}'
+      - run: npm test --silent
