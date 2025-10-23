@@ -78,6 +78,7 @@
 | sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18734810319
 
 | 2025-10-23 | nfr-xref | chore/docs-ds27-final-spec | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18734751796 |
+| 2025-10-23 | docsync-check | chore/ds-23-quality-gates | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18737006056 |
 | 2025-10-23 | docsync-check | openapi.yaml | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18736999133 |
 
 | 2025-10-23 | nfr-xref | chore/ds-23-quality-gates | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18736999122 |
