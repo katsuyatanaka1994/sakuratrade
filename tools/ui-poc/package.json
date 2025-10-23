@@ -1,0 +1,13 @@
+{
+  "name": "ui-poc",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Playwright capture utility for DS-22 PoC",
+  "scripts": {
+    "capture": "node pw-capture.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.44.1"
+  }
+}
