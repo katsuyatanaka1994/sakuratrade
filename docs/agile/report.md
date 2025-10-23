@@ -75,3 +75,4 @@
 | 2025-10-23 | nfr-xref | chore/ds-27-violation-test-4 | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18734293317 |
 
 | 2025-10-23 | nfr-xref | chore/ds-27-violation-fix-final | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18734510942 |
+| sec-review | OK | 0 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18734810319
