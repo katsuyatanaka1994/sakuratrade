@@ -21,6 +21,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install --disable-pip-version-check -q -r requirements.txt -r scripts/requirements.txt -r requirements-dev.txt
+      - run: pip install --disable-pip-version-check -q -e .
       - run: ruff check scripts
       - run: mypy scripts
       - run: pytest -q
