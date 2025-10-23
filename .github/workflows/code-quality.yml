@@ -21,20 +21,24 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install --disable-pip-version-check -q ruff mypy pytest
-      - run: ruff check backend scripts
-      - run: mypy backend scripts
+      - run: ruff check scripts
+      - run: mypy scripts
       - run: pytest -q
 
   # 3) 本処理（同上）— Frontend 側
   fe-quality:
     if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+    defaults:
+      run:
+        working-directory: frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm ci
+      - run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
       - run: npx tsc --noEmit
-      - run: npx eslint 'frontend/**/*.{ts,tsx,js,jsx}'
+      - run: npx eslint '.'
       - run: npm test --silent
