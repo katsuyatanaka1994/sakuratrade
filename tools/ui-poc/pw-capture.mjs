@@ -30,11 +30,21 @@ async function ensureArtifactsDir() {
 }
 
 async function capture(url) {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu'
+    ]
+  });
   const context = await browser.newContext();
   const page = await context.newPage();
   try {
-    await page.goto(url, { waitUntil: 'networkidle' });
+    console.log(`[pw] goto ${url}`);
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    console.log('[pw] done');
     const { screenshot, dom } = await ensureArtifactsDir();
     await page.screenshot({ path: screenshot, fullPage: true });
     const html = await page.content();
@@ -57,7 +67,7 @@ async function main() {
   try {
     await capture(url);
   } catch (error) {
-    console.error('Failed to capture page:', error);
+    console.error('[pw] error:', error && error.stack ? error.stack : error);
     process.exitCode = 1;
   }
 }
