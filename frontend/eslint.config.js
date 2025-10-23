@@ -71,6 +71,7 @@ const jsOverride = {
 export default tseslint.config([
   globalIgnores([
     'dist/**',
+    'build/**',
     'coverage/**',
     'tests/e2e/**',
     'src/test-utils/**',
@@ -82,5 +83,37 @@ export default tseslint.config([
   reactRefresh.configs.vite,
   baseTsConfig,
   testOverride,
+  {
+    files: [
+      '*.{js,cjs,mjs}',
+      'tools/**/*.{js,cjs,mjs}',
+      '**/*.config.{js,cjs,mjs}',
+    ],
+    languageOptions: {
+      ecmaVersion: 2020,
+      sourceType: 'script',
+      globals: {
+        ...globals.node,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      'no-redeclare': 'off',
+    },
+  },
+  {
+    files: ['*.config.{ts,cts,mts}'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
   jsOverride,
 ])
