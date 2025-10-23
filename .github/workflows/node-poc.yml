@@ -40,7 +40,11 @@ jobs:
           python-version: '3.x'
 
       - name: Run capture (Python bridge)
-        run: python3 scripts/node_bridge.py --url "${{ inputs.url }}"
+        env:
+          URL_INPUT: ${{ inputs.url }}
+        shell: bash
+        run: |
+          python3 scripts/node_bridge.py --url "$URL_INPUT"
 
       - name: List artifacts (debug)
         if: always()
