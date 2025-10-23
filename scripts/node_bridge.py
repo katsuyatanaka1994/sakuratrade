@@ -6,6 +6,7 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 def run_capture(url: str) -> int:
@@ -46,6 +47,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    parsed = urlparse(args.url)
+    if parsed.scheme not in ("http", "https"):
+        raise SystemExit("URL scheme must be http/https")
     return run_capture(args.url)
 
 
