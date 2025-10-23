@@ -177,6 +177,7 @@ def check_links(md_paths: Sequence[Path], anchors_by_path: Dict[Path, Set[str]])
                     continue
                 href = split_destination(raw_dest)
                 href = unquote(href)
+                dest_path: Optional[Path]
                 if not href or href.startswith("#"):
                     dest_path = md_path
                     anchor = href[1:] if href.startswith("#") else None

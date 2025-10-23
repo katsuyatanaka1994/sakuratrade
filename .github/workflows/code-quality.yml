@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install --disable-pip-version-check -q ruff mypy pytest
+      - run: pip install --disable-pip-version-check -q -r requirements.txt -r scripts/requirements.txt -r requirements-dev.txt
       - run: ruff check scripts
       - run: mypy scripts
       - run: pytest -q
