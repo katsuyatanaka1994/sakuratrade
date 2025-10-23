@@ -177,3 +177,9 @@
 - `noop-pr` を廃止し、PR側で本処理を実行  
 - Branch protection（Required checks）を有効化  
 - 必要に応じて `branches` / `if` を `release/**` に拡張
+
+### DS-27（github無料ソフトガード）最終仕様
+- 合成判定（`validate` / `xref` / `noop-pr`）で `docs:invalid` と Draft を制御（非緑＝付与＆Draft維持、緑＝自動除去）。
+- 違反検知は **merged-only**。`docs:invalid` が付いたままマージされたPRを **soft-guard-alert** が検出し、Issue（＋Slack任意）を即時作成。
+- 同名Issueは重複発行しない（idempotent）、同一PRの同時発火は concurrency で最新1件に抑制。
+- 例外や取得失敗時は安全側（= ラベル付与・Draft維持）。
