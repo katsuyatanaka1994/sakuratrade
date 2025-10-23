@@ -11,6 +11,9 @@ on:
 jobs:
   capture:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,7 +29,7 @@ jobs:
         run: npm ci
         working-directory: tools/ui-poc
 
-      - name: Sanity: playwright resolves
+      - name: "Sanity: playwright resolves"
         working-directory: tools/ui-poc
         run: node -e "require.resolve('playwright'); console.log('playwright ok')"
 

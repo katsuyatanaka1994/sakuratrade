@@ -102,3 +102,6 @@
 | 2025-10-23 | docsync-check | main | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18742687889 |
 | 2025-10-23 | docsync-check | openapi.yaml | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18742678550 |
 | 2025-10-23 | docsync-check | fix/ds-22-secure-url | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18743601025 |
+
+| 2025-10-23 | nfr-xref | fix/ds-22-workflow-header | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18744631001 |
+| 2025-10-23 | docsync-check | openapi.yaml | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18743604218 |
