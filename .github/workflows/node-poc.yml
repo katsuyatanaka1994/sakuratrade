@@ -10,7 +10,7 @@ on:
 
 jobs:
   capture:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04 # pin: 24.04 (ubuntu-latest) breaks Playwright deps
     permissions:
       contents: read
     timeout-minutes: 15
