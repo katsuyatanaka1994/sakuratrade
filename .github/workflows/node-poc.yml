@@ -43,13 +43,14 @@ jobs:
           python-version: '3.x'
 
       - name: Env snapshot (node/python/playwright)
+        working-directory: tools/ui-poc
         run: |
           node -v
           npm -v
           python3 --version
           node -e "console.log('playwright', require('playwright/package.json').version)"
 
-      - name: Sanity: chromium headless launch
+      - name: "Sanity: chromium headless launch"
         working-directory: tools/ui-poc
         run: node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close())"
 
