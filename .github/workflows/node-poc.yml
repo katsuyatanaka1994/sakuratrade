@@ -7,10 +7,15 @@ on:
         description: 'URL to capture via Playwright'
         required: true
         type: string
+        default: 'https://example.com'
+
+concurrency:
+  group: node-poc-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   capture:
-    runs-on: ubuntu-22.04 # pin: 24.04 (ubuntu-latest) breaks Playwright deps
+    runs-on: ubuntu-22.04 # pinned because 24.04 (ubuntu-latest) breaks Playwright deps
     permissions:
       contents: read
     timeout-minutes: 15
@@ -72,3 +77,4 @@ jobs:
           name: ui-poc-artifacts
           path: artifacts/ui-poc
           if-no-files-found: ignore
+          retention-days: 7

@@ -47,6 +47,14 @@
 | perf-test | performance | 任意 (Nightly) | k6 smoke perf |
 |  |  |  |  |
 
+### DS-22: Node Playwright PoC
+- トリガ: GitHub Actions `workflow_dispatch`（Branch: main）のみで手動実行し、URL入力は `https://example.com` をデフォルトとする。
+- ランナー: `ubuntu-22.04` を固定（24.04 は Playwright 依存の整合が取れないため）。
+- セキュリティ: URL は `env: URL_INPUT` 経由で Python ブリッジに渡し、`scripts/node_bridge.py` が http/https をバリデートする。
+- 成功/失敗: `https://example.com` は成功し `screenshot.png` / `dom.html` を成果物として保存、`http://example.invalid` は非0終了で失敗とする。
+- 併設ステップ: Env snapshot は実行環境ログ、Sanity launch は Playwright 起動確認、debug-list は成果物確認用リスト。
+- アーティファクト: `ui-poc-artifacts` を Actions Artifacts に7日間保持する。
+
 ### DS-23: code-quality ワークフロー暫定運用
 - GitHub Actions `.github/workflows/code-quality.yml` を PR トリガで常時実行し、Python (`ruff`/`mypy`/`pytest`) と Frontend (`tsc`/`eslint`/`npm test`) を別ジョブで走らせる。
 - 既存負債と共存するため、ESLint は Flat Config の `globalIgnores` で `coverage/` や `tests/e2e/` 等を除外し、`no-explicit-any` など高頻度違反ルールは当面 `warn` に変更。段階的強化の TODO を別チケットで管理する。
