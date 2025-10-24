@@ -142,3 +142,5 @@
 | sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18777389339
 
 | 2025-10-24 | nfr-xref | chore/ds-16-guard-pr-resolve | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18777328117 |
+
+| 2025-10-24 | nfr-xref | chore/ds16-smoke-2step | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18777546988 |
