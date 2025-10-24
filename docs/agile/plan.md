@@ -16,3 +16,5 @@
 - 対策：
 
 <!-- noop: manual check -->
+
+- relnotes test A @2025-10-24_11:57:42
