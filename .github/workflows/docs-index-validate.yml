@@ -49,3 +49,48 @@ jobs:
         with:
           name: ds14-report
           path: docs_index_report.json
+
+  report-failure:
+    needs: [validate]
+    if: ${{ needs.validate.result == 'failure' && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Report docs index failure
+        uses: ./.github/actions/on-failure
+        with:
+          pr-number: ${{ github.event.pull_request.number }}
+          labels: docs:invalid
+          message: |
+            ❌ docs-index-validate failed.
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  report-success:
+    needs: [validate]
+    if: ${{ needs.validate.result == 'success' && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Clear docs failure labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            for (const name of ['docs:invalid', 'triage:urgent']) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+              } catch (error) {
+                if (error.status === 404) {
+                  core.info(`Label ${name} already absent`);
+                } else {
+                  throw error;
+                }
+              }
+            }

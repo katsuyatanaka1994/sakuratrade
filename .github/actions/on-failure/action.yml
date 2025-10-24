@@ -1,0 +1,97 @@
+name: On Failure Reporter
+description: Apply failure labels, escalate on repeat failures, comment, and optionally notify Slack.
+author: Codex
+inputs:
+  pr-number:
+    description: Pull request number to update.
+    required: true
+  labels:
+    description: Comma-separated labels to ensure present on failure.
+    required: false
+    default: ''
+  message:
+    description: Comment body to post on the pull request.
+    required: false
+    default: ''
+  slack-webhook:
+    description: Optional Slack webhook URL for failure notifications.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Update labels and comment
+      uses: actions/github-script@v7
+      env:
+        PR_NUMBER: ${{ inputs.pr-number }}
+        LABELS: ${{ inputs.labels }}
+        MESSAGE: ${{ inputs.message }}
+      with:
+        script: |
+          const prNumber = Number(process.env.PR_NUMBER);
+          if (!Number.isInteger(prNumber) || prNumber <= 0) {
+            core.setFailed(`Invalid pr-number '${process.env.PR_NUMBER}'`);
+            return;
+          }
+
+          const labels = (process.env.LABELS || '')
+            .split(',')
+            .map((label) => label.trim())
+            .filter((label) => label.length > 0);
+
+          const message = (process.env.MESSAGE || '').trim();
+          const { owner, repo } = context.repo;
+
+          let existingLabels = [];
+          if (labels.length > 0) {
+            existingLabels = await github.paginate(
+              github.rest.issues.listLabelsOnIssue,
+              {
+                owner,
+                repo,
+                issue_number: prNumber,
+                per_page: 100,
+              },
+              (response) => response.data.map((label) => label.name)
+            );
+          }
+
+          let hadAnyBaseLabel = false;
+          if (labels.length > 0) {
+            hadAnyBaseLabel = labels.some((label) => existingLabels.includes(label));
+            const toAdd = labels.filter((label) => !existingLabels.includes(label));
+            if (toAdd.length > 0) {
+              core.info(`Adding labels: ${toAdd.join(', ')}`);
+              await github.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels: toAdd });
+              existingLabels = Array.from(new Set([...existingLabels, ...toAdd]));
+            } else {
+              core.info('Base labels already present; skipping add');
+            }
+
+            if (hadAnyBaseLabel && !existingLabels.includes('triage:urgent')) {
+              core.info('Escalating with triage:urgent label');
+              await github.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels: ['triage:urgent'] });
+            }
+          }
+
+          if (message) {
+            core.info('Posting failure comment');
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: prNumber,
+              body: message,
+            });
+          } else {
+            core.info('No comment body provided; skipping comment');
+          }
+    - name: Notify Slack
+      if: ${{ inputs.slack-webhook != '' && inputs.message != '' }}
+      shell: bash
+      env:
+        SLACK_WEBHOOK: ${{ inputs.slack-webhook }}
+        SLACK_TEXT: ${{ inputs.message }}
+      run: |
+        set -euo pipefail
+        payload=$(jq -n --arg text "$SLACK_TEXT" '{text: $text}')
+        curl -sS -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK"
