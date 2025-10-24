@@ -109,3 +109,5 @@
 | sec-review | NG | 2 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18765677287
 
 | 2025-10-24 | nfr-xref | fix/ds-22-pin-ubuntu2204 | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18765662311 |
+
+| 2025-10-24 | nfr-xref | chore/ds-22-postclean | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18765960420 |
