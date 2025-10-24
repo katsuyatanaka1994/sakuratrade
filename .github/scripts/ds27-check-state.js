@@ -50,12 +50,50 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
 
   const latestByName = new Map();
 
+  const classifyPriority = (run) => {
+    if (!run) return Number.POSITIVE_INFINITY;
+    if (run.status !== 'completed') {
+      return 1; // pending or in progress should block success
+    }
+
+    const conclusion = (run.conclusion || '').toLowerCase();
+    if (['failure', 'timed_out', 'cancelled', 'action_required'].includes(conclusion)) {
+      return 0; // any failure-like conclusion is highest priority
+    }
+
+    if (conclusion === 'success') {
+      return 2; // success is lowest priority (best outcome)
+    }
+
+    return 1; // neutral / skipped / other keep the label
+  };
+
+  const resolveSuiteId = (run) => run?.check_suite?.id || run?.check_suite?.url || run?.id;
+
   for (const run of runs) {
-    const name = run.name;
-    if (!requiredChecks.includes(name)) continue;
-    const current = latestByName.get(name);
-    if (isCandidateNewer(current, run)) {
-      latestByName.set(name, run);
+    if (!run?.name) continue;
+
+    const workflowName = run.name.split(' / ')[0] || run.name;
+    if (!requiredChecks.includes(workflowName)) continue;
+
+    const priority = classifyPriority(run);
+    const suiteId = resolveSuiteId(run);
+    const current = latestByName.get(workflowName);
+
+    if (!current) {
+      latestByName.set(workflowName, { run, priority, suiteId });
+      continue;
+    }
+
+    if (current.suiteId !== suiteId) {
+      if (isCandidateNewer(current.run, run)) {
+        latestByName.set(workflowName, { run, priority, suiteId });
+      }
+      continue;
+    }
+
+    if (priority < current.priority || (priority === current.priority && isCandidateNewer(current.run, run))) {
+      latestByName.set(workflowName, { run, priority, suiteId });
     }
   }
 
@@ -69,8 +107,8 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
   };
 
   for (const name of requiredChecks) {
-    const run = latestByName.get(name);
-    if (!run) {
+    const entry = latestByName.get(name);
+    if (!entry) {
       core.info(`DS-27: run missing for ${name}`);
       result.missing.push(name);
       result.details[name] = { status: 'missing' };
@@ -78,6 +116,7 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
       continue;
     }
 
+    const { run, priority } = entry;
     const status = run.status;
     const conclusion = run.conclusion;
     result.details[name] = {
@@ -88,14 +127,14 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
       completed_at: run.completed_at,
     };
 
-    if (status !== 'completed') {
+    if (priority === 1 && status !== 'completed') {
       core.info(`DS-27: run pending for ${name} (status=${status})`);
       result.pending.push(name);
       result.allSuccess = false;
       continue;
     }
 
-    if (conclusion === 'success') {
+    if (priority === 2 && conclusion === 'success') {
       result.success.push(name);
       continue;
     }
