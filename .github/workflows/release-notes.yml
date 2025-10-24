@@ -10,7 +10,7 @@ on:
 
 jobs:
   append:
-    if: ${{ github.event.pull_request.merged == true && github.base_ref == 'main' && !contains(join(github.event.pull_request.labels.*.name, ','), 'relnotes:skip') }}
+    if: ${{ github.event.pull_request.merged == true && github.base_ref == 'main' && !startsWith(github.event.pull_request.head.ref, 'docs-sync/') && !contains(github.event.pull_request.title, '[skip docsync]') && !contains(join(github.event.pull_request.labels.*.name, ','), 'relnotes:skip') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -31,7 +31,7 @@ jobs:
               pull_number: pr.number,
               per_page: 300
             });
-            const docs = files.filter((f) => f.filename.startsWith('docs/'));
+            const docs = files.filter((f) => f.filename.startsWith('docs/') && f.filename !== 'docs/agile/release-notes.md');
             core.setOutput('has_docs', String(docs.length > 0));
             const date = new Date().toISOString().slice(0, 10);
             const line = `- ${date} #${pr.number} ${pr.title} by @${pr.user.login} (${docs.length} docs)`;
