@@ -13,4 +13,5 @@
 - 2025-10-24 #266 [skip docsync] chore(docs): append DS-15 nfr-xref result by @github-actions[bot] (2 docs)
 - 2025-10-24 #268 [skip docsync] docs: append release notes by @github-actions[bot] (1 docs)
 - 2025-10-24 #274 docs(test): relnotes auto-merge smoke (MANUAL note) by @katsuyatanaka1994 (1 docs)
+- 2025-10-24 #277 Chore/ds 24 release notes manual by @katsuyatanaka1994 (1 docs)
 <!-- AUTO:END -->

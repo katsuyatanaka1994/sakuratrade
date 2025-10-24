@@ -125,3 +125,5 @@
 
 | 2025-10-24 | nfr-xref | chore/relnotes-automerge-smoke | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18768806418 |
 | sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18769411007
+
+| 2025-10-24 | nfr-xref | chore/ds-24-release-notes-manual | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18769402793 |
