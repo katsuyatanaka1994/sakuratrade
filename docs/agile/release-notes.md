@@ -11,4 +11,5 @@
 - 2025-10-24 #267 docs(test): relnotes smoke B (MANUAL note) by @katsuyatanaka1994 (1 docs)
 - 2025-10-24 #264 [skip docsync] docs: append release notes by @github-actions[bot] (1 docs)
 - 2025-10-24 #266 [skip docsync] chore(docs): append DS-15 nfr-xref result by @github-actions[bot] (2 docs)
+- 2025-10-24 #268 [skip docsync] docs: append release notes by @github-actions[bot] (1 docs)
 <!-- AUTO:END -->
