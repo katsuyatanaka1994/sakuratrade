@@ -135,3 +135,5 @@
 | 2025-10-24 | nfr-xref | chore/ds16-check-docs | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18772999869 |
 
 | 2025-10-24 | nfr-xref | chore/ds16-recheck-xref-only | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18774032874 |
+
+| 2025-10-24 | nfr-xref | chore/ds-16-triage-removal-to-guard | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18774540231 |
