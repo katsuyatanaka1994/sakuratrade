@@ -1,7 +1,7 @@
 name: pr-label-guard
 on:
   workflow_run:
-    workflows: ["docs-index-validate", "nfr-xref", "security-permissions-lint"]
+    workflows: ["docs-index-validate", "nfr-xref"]
     types: [completed]
 permissions:
   contents: read
@@ -72,8 +72,15 @@ jobs:
               return null;
             };
 
+            const logMeta = ({ headSha, prNumber, bothGreen }) => {
+              const prLabel = prNumber ? `#${prNumber}` : 'none';
+              const shaLabel = headSha || 'none';
+              core.info(`DS-27: guard-meta head_sha=${shaLabel} resolved_pr=${prLabel} bothGreen=${bothGreen}`);
+            };
+
             const pr = await resolvePullRequest();
             if (!pr) {
+              logMeta({ headSha: run.head_sha, prNumber: null, bothGreen: false });
               core.info('DS-27: workflow run not tied to a PR; skipping label update');
               return;
             }
@@ -107,14 +114,17 @@ jobs:
 
             if (!sha) {
               core.warning('DS-27: missing head SHA; defaulting to keeping docs:invalid label');
+              logMeta({ headSha: sha, prNumber: pr.number, bothGreen: false });
               await ensureLabelPresent();
               return;
             }
 
             try {
               const evaluation = await evaluateChecks({ github, owner, repo, sha, requiredChecks: REQUIRED_CHECKS });
+              const bothGreen = Boolean(evaluation?.allSuccess);
+              logMeta({ headSha: sha, prNumber: pr.number, bothGreen });
 
-              if (evaluation.allSuccess) {
+              if (bothGreen) {
                 core.info('DS-27: all required checks green; removing docs labels');
                 for (const name of ['docs:invalid','triage:urgent']) {
                   try {
@@ -133,5 +143,6 @@ jobs:
               }
             } catch (error) {
               core.warning(`DS-27: evaluation failed (${error?.message || error}); defaulting to docs:invalid`);
+              logMeta({ headSha: sha, prNumber: pr.number, bothGreen: false });
               await ensureLabelPresent();
             }
