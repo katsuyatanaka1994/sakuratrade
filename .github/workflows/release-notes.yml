@@ -8,6 +8,9 @@ jobs:
   append:
     if: ${{ github.event.pull_request.merged == true && github.base_ref == 'main' && !contains(join(github.event.pull_request.labels.*.name, ','), 'relnotes:skip') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
