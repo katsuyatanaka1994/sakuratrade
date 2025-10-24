@@ -112,3 +112,5 @@
 | sec-review | NG | 2 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18765961883
 
 | 2025-10-24 | nfr-xref | chore/ds-22-postclean | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18765960420 |
+
+| 2025-10-24 | nfr-xref | feat/ds-25-core-docs | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18766810662 |
