@@ -14,4 +14,5 @@
 - 2025-10-24 #268 [skip docsync] docs: append release notes by @github-actions[bot] (1 docs)
 - 2025-10-24 #274 docs(test): relnotes auto-merge smoke (MANUAL note) by @katsuyatanaka1994 (1 docs)
 - 2025-10-24 #277 Chore/ds 24 release notes manual by @katsuyatanaka1994 (1 docs)
+- 2025-10-24 #281 Feat/ds 16 fail handling by @katsuyatanaka1994 (2 docs)
 <!-- AUTO:END -->
