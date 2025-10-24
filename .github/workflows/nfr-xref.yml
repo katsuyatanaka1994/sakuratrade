@@ -83,7 +83,7 @@ jobs:
 
   report-failure:
     needs: [xref]
-    if: ${{ needs.xref.result == 'failure' && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) }}
+    if: ${{ always() && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) && needs.xref.result == 'failure' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -101,7 +101,7 @@ jobs:
 
   report-success:
     needs: [xref]
-    if: ${{ success() && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) }}
+    if: ${{ always() && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) && needs.xref.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
