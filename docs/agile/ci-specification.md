@@ -204,3 +204,4 @@
 - 成功時: 上記ラベル（`docs:invalid` / `ci:fail` / `triage:urgent`）を自動除去し、`security-permissions-lint` は発行済みの `triage:urgent` Issue をクローズする。
 - 権限: 追加ジョブは必要最小の `pull-requests: write` / `issues: write`（Issue 起票ジョブは `issues: write` のみ）。既存の No-Op や concurrency ガードは変更しない。
 - Slack 通知は任意: `on-failure` の `slack-webhook` 入力を指定した WF から流用可能。
+- docs:invalid の除去は pr-label-guard が総合判定で実施。一次WFは成功時に `triage:urgent` のみ除去して競合を回避。
