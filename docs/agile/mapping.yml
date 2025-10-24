@@ -13,3 +13,13 @@ mappings:
   #   source: backend/app/fragment.yaml
   #   target: docs/specs/openapi.yaml
   #   mode: overlay
+
+docs_changed:
+  targets:
+    - path: docs/agile/plan.md
+      sections: ['plan.meta']
+    - path: docs/agile/workorder.md
+      sections: ['workorder.meta']
+    - path: docs/agile/review.md
+      sections: ['review.meta']
+

@@ -55,6 +55,9 @@
 | ドキュメント | 役割 / 内容 | 主担当 | 更新タイミング | 備考 |
 | --- | --- | --- | --- | --- |
 | `document-operations.md` | ドキュメント運用方針まとめ | Codex + PO | ルール変更時 | 更新手順・責務一覧 |
+| `plan.md` | プロジェクト計画テンプレ | Codex + PO | スプリント計画開始時 | AUTO: plan.meta（DocSync管理） |
+| `workorder.md` | 作業指示テンプレ | Codex + Devリード | 着手時 / 作業指示更新時 | AUTO: workorder.meta（DocSync管理） |
+| `review.md` | 振り返り・レビュー記録テンプレ | Codex + QA | Sprintレビュー / 事後振り返り時 | AUTO: review.meta（DocSync管理） |
 | `ui-specification.md` | UI仕様テンプレ | Codex + デザイナー | デザイナー/POが指示したタイミング | MANUAL起動: 人→Codex指示でセクション追加 |
 | `api-specification.md` | API仕様テンプレ | Codex | API設計時 | `docs/specs/openapi.yaml` と同期 |
 | `security-considerations.md` | セキュリティ要件 | セキュリティチーム | 四半期レビュー | 非機能要件と連携 |
