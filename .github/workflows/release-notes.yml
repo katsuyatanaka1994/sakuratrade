@@ -1,5 +1,9 @@
 name: release-notes
 
+concurrency:
+  group: relnotes-global
+  cancel-in-progress: false
+
 on:
   pull_request:
     types: [closed]
@@ -32,6 +36,14 @@ jobs:
             const date = new Date().toISOString().slice(0, 10);
             const line = `- ${date} #${pr.number} ${pr.title} by @${pr.user.login} (${docs.length} docs)`;
             core.setOutput('line', line);
+
+      - name: Prime from existing relnotes PR (accumulate)
+        if: ${{ steps.diff.outputs.has_docs == 'true' }}
+        run: |
+          git fetch origin docs-sync/release-notes || true
+          if git ls-remote --exit-code origin docs-sync/release-notes >/dev/null 2>&1; then
+            git show origin/docs-sync/release-notes:docs/agile/release-notes.md > docs/agile/release-notes.md || true
+          fi
 
       - name: No docs change → noop
         if: ${{ steps.diff.outputs.has_docs != 'true' }}
