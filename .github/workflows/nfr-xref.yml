@@ -80,3 +80,42 @@ jobs:
             docs/agile/nfr-xref-state.json
           labels: "docsync:needs-apply"
           delete-branch: true
+
+  report-failure:
+    needs: [xref]
+    if: ${{ needs.xref.result == 'failure' && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Report NFR xref failure
+        uses: ./.github/actions/on-failure
+        with:
+          pr-number: ${{ github.event.pull_request.number }}
+          labels: docs:invalid
+          message: |
+            ❌ nfr-xref failed.
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  report-success:
+    needs: [xref]
+    if: ${{ success() && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            // docs:invalid の除去は pr-label-guard に委譲（競合回避）
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request.number;
+            try {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: pr, name: 'triage:urgent' });
+            } catch (error) {
+              core.info(`triage:urgent removal skipped: ${error?.status === 404 ? 'label absent' : error?.message || error}`);
+            }

@@ -69,3 +69,71 @@ jobs:
           add-paths: docs/agile/report.md
           labels: "docsync:needs-apply"
           delete-branch: true
+
+  report-failure:
+    needs: [run-on-main]
+    if: ${{ needs.run-on-main.result == 'failure' && ((github.event_name == 'push' && github.ref_name == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'main')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open triage issue on failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const refName = process.env.GITHUB_REF_NAME || context.ref?.split('/')?.pop() || 'unknown';
+            const title = `security-permissions-lint failed on ${refName}`;
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            const body = `Run: ${runUrl}`;
+
+            const openIssues = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner,
+                repo,
+                state: 'open',
+                labels: 'triage:urgent',
+                per_page: 100,
+              },
+              (response) => response.data
+            );
+
+            if (!openIssues.some((issue) => issue.title === title)) {
+              await github.rest.issues.create({ owner, repo, title, body, labels: ['triage:urgent'] });
+              core.info('Created triage:urgent issue');
+            } else {
+              core.info('triage:urgent issue already open; skipping create');
+            }
+
+  report-success:
+    needs: [run-on-main]
+    if: ${{ needs.run-on-main.result == 'success' && ((github.event_name == 'push' && github.ref_name == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'main')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Close triage issue on recovery
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const refName = process.env.GITHUB_REF_NAME || context.ref?.split('/')?.pop() || 'unknown';
+            const title = `security-permissions-lint failed on ${refName}`;
+
+            const openIssues = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner,
+                repo,
+                state: 'open',
+                labels: 'triage:urgent',
+                per_page: 100,
+              },
+              (response) => response.data
+            );
+
+            for (const issue of openIssues.filter((entry) => entry.title === title)) {
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+              core.info(`Closed issue #${issue.number}`);
+            }

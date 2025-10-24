@@ -197,3 +197,11 @@
 - 違反検知は **merged-only**。`docs:invalid` が付いたままマージされたPRを **soft-guard-alert** が検出し、Issue（＋Slack任意）を即時作成。
 - 同名Issueは重複発行しない（idempotent）、同一PRの同時発火は concurrency で最新1件に抑制。
 - 例外や取得失敗時は安全側（= ラベル付与・Draft維持）。
+
+### DS-16: 失敗→可視化 / 成功→自動回復
+- 対象: `docs-index-validate.yml`, `nfr-xref.yml`, `code-quality.yml`, `security-permissions-lint.yml`。
+- 失敗時: 共通アクション `.github/actions/on-failure` が PR へコメント＆カテゴリ別ラベルを付与。既に同ラベルが付いている再失敗は `triage:urgent` で格上げする。
+- 成功時: 上記ラベル（`docs:invalid` / `ci:fail` / `triage:urgent`）を自動除去し、`security-permissions-lint` は発行済みの `triage:urgent` Issue をクローズする。
+- 権限: 追加ジョブは必要最小の `pull-requests: write` / `issues: write`（Issue 起票ジョブは `issues: write` のみ）。既存の No-Op や concurrency ガードは変更しない。
+- Slack 通知は任意: `on-failure` の `slack-webhook` 入力を指定した WF から流用可能。
+- docs:invalid の除去は pr-label-guard が総合判定で実施。一次WFは成功時に `triage:urgent` のみ除去して競合を回避。
