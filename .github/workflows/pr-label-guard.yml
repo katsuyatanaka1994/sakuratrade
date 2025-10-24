@@ -4,6 +4,7 @@ on:
     workflows: ["docs-index-validate", "nfr-xref", "security-permissions-lint"]
     types: [completed]
 permissions:
+  contents: read
   pull-requests: write
   issues: write
 jobs:
@@ -64,15 +65,17 @@ jobs:
               const evaluation = await evaluateChecks({ github, owner, repo, sha, requiredChecks: REQUIRED_CHECKS });
 
               if (evaluation.allSuccess) {
-                core.info('DS-27: all required checks green; removing docs:invalid if present');
-                try {
-                  await github.rest.issues.removeLabel({ owner, repo, issue_number, name: 'docs:invalid' });
-                  core.info('DS-27: removed docs:invalid label');
-                } catch (error) {
-                  if (error.status === 404) {
-                    core.info('DS-27: docs:invalid label already absent');
-                  } else {
-                    throw error;
+                core.info('DS-27: all required checks green; removing failure and triage labels if present');
+                for (const labelName of ['docs:invalid', 'triage:urgent']) {
+                  try {
+                    await github.rest.issues.removeLabel({ owner, repo, issue_number, name: labelName });
+                    core.info(`DS-27: removed ${labelName} label`);
+                  } catch (error) {
+                    if (error.status === 404) {
+                      core.info(`DS-27: ${labelName} label already absent`);
+                    } else {
+                      throw error;
+                    }
                   }
                 }
               } else {
