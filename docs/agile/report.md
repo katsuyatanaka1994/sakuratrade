@@ -106,3 +106,6 @@
 
 | 2025-10-23 | nfr-xref | fix/ds-22-workflow-header | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18744631001 |
 | 2025-10-23 | docsync-check | openapi.yaml | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18743604218 |
+| sec-review | NG | 2 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18765677287
+
+| 2025-10-24 | nfr-xref | fix/ds-22-pin-ubuntu2204 | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18765662311 |
