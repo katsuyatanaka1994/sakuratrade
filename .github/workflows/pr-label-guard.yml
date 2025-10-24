@@ -20,13 +20,57 @@ jobs:
             const { evaluateChecks, REQUIRED_CHECKS } = require(helperPath);
 
             const run = context.payload.workflow_run;
-            const pr = run.pull_requests?.[0];
+            const { owner, repo } = context.repo;
+
+            const resolvePullRequest = async () => {
+              const direct = run.pull_requests?.[0];
+              if (direct) {
+                core.info(`DS-27: pull_request found in payload (#${direct.number})`);
+                return direct;
+              }
+
+              const headSha = run.head_sha;
+              if (!headSha) {
+                core.warning('DS-27: workflow_run missing head_sha; cannot resolve PR');
+                return null;
+              }
+
+              try {
+                const associated = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: headSha });
+                if (associated.data.length > 0) {
+                  const pr = associated.data[0];
+                  core.info(`DS-27: resolved PR #${pr.number} via associated commit`);
+                  return pr;
+                }
+              } catch (error) {
+                core.warning(`DS-27: failed listPullRequestsAssociatedWithCommit (${error?.message || error})`);
+              }
+
+              try {
+                const searchResult = await github.rest.search.issuesAndPullRequests({
+                  q: `${headSha} type:pr repo:${owner}/${repo}`,
+                  per_page: 1,
+                });
+                const prItem = searchResult.data.items?.[0];
+                if (prItem) {
+                  core.info(`DS-27: resolved PR #${prItem.number} via search`);
+                  const pr = await github.rest.pulls.get({ owner, repo, pull_number: prItem.number });
+                  return pr.data;
+                }
+              } catch (error) {
+                core.warning(`DS-27: fallback search failed (${error?.message || error})`);
+              }
+
+              core.warning('DS-27: unable to resolve PR from workflow_run');
+              return null;
+            };
+
+            const pr = await resolvePullRequest();
             if (!pr) {
               core.info('DS-27: workflow run not tied to a PR; skipping label update');
               return;
             }
 
-            const { owner, repo } = context.repo;
             let sha = run.head_sha || pr.head?.sha;
             if (!sha) {
               core.info('DS-27: resolving head SHA via API');
