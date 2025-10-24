@@ -58,13 +58,11 @@ jobs:
 
   report-failure:
     needs: [py-quality, fe-quality]
-    if: ${{ github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) && (needs.py-quality.result == 'failure' || needs.fe-quality.result == 'failure') }}
+    if: ${{ always() && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) && failure() }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
+    permissions: { contents: read, pull-requests: write, issues: write }
     steps:
+      - uses: actions/checkout@v4
       - name: Report CI failure
         uses: ./.github/actions/on-failure
         with:
@@ -76,7 +74,7 @@ jobs:
 
   report-success:
     needs: [py-quality, fe-quality]
-    if: ${{ github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) && needs.py-quality.result == 'success' && needs.fe-quality.result == 'success' }}
+    if: ${{ always() && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) && needs.py-quality.result == 'success' && needs.fe-quality.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

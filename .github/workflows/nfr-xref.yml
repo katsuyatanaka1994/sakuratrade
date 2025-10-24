@@ -83,13 +83,11 @@ jobs:
 
   report-failure:
     needs: [xref]
-    if: ${{ needs.xref.result == 'failure' && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) }}
+    if: ${{ always() && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) && failure() }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
+    permissions: { contents: read, pull-requests: write, issues: write }
     steps:
+      - uses: actions/checkout@v4
       - name: Report NFR xref failure
         uses: ./.github/actions/on-failure
         with:
@@ -101,7 +99,7 @@ jobs:
 
   report-success:
     needs: [xref]
-    if: ${{ success() && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) }}
+    if: ${{ always() && github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'docs-sync/')) && !(contains(github.event.pull_request.title, '[skip docsync]')) && needs.xref.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
