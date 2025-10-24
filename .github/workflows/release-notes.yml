@@ -1,0 +1,59 @@
+name: release-notes
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  append:
+    if: ${{ github.event.pull_request.merged == true && github.base_ref == 'main' && !contains(join(github.event.pull_request.labels.*.name, ','), 'relnotes:skip') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Collect changed doc files
+        id: diff
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 300
+            });
+            const docs = files.filter((f) => f.filename.startsWith('docs/'));
+            core.setOutput('has_docs', String(docs.length > 0));
+            const date = new Date().toISOString().slice(0, 10);
+            const line = `- ${date} #${pr.number} ${pr.title} by @${pr.user.login} (${docs.length} docs)`;
+            core.setOutput('line', line);
+
+      - name: No docs change → noop
+        if: ${{ steps.diff.outputs.has_docs != 'true' }}
+        run: echo 'no docs change; noop'
+
+      - name: Append into relnotes AUTO block
+        if: ${{ steps.diff.outputs.has_docs == 'true' }}
+        run: |
+          file="docs/agile/release-notes.md"
+          ins="${{ steps.diff.outputs.line }}"
+          if grep -Fx "$ins" "$file"; then
+            echo 'release notes already up to date'
+            exit 0
+          fi
+          awk -v ins="$ins" '
+            /<!-- AUTO:END -->/ { print ins }
+            { print }
+          ' "$file" > tmp && mv tmp "$file"
+
+      - name: Create PR to update release notes
+        if: ${{ steps.diff.outputs.has_docs == 'true' }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: docs-sync/release-notes
+          title: "[skip docsync] docs: append release notes"
+          commit-message: "chore(relnotes): append line for #${{ github.event.pull_request.number }}"
+          labels: "docsync:needs-apply, area:docs, type:automation"
+          delete-branch: true
