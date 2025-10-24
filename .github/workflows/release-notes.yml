@@ -64,6 +64,7 @@ jobs:
           ' "$file" > tmp && mv tmp "$file"
 
       - name: Create PR to update release notes
+        id: cpr
         if: ${{ steps.diff.outputs.has_docs == 'true' }}
         uses: peter-evans/create-pull-request@v6
         with:
@@ -72,3 +73,10 @@ jobs:
           commit-message: "chore(relnotes): append line for #${{ github.event.pull_request.number }}"
           labels: "docsync:needs-apply, area:docs, type:automation"
           delete-branch: true
+
+      - name: Enable auto-merge (squash)
+        if: ${{ steps.cpr.outputs.pull-request-number != '' }}
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
+          merge-method: squash
