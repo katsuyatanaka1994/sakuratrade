@@ -107,4 +107,4 @@
 ## 変更履歴
 - YYYY-MM-DD: 初版作成 (PR # / 担当者)
 - YYYY-MM-DD:
-xref: NFR-9999 (dummy)
+- xref: NFR-9999 (dummy)
