@@ -130,3 +130,4 @@
 | sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18771988067
 
 | 2025-10-24 | nfr-xref | feat/ds-16-fail-handling | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18771953498 |
+| sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18773317049
