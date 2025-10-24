@@ -115,3 +115,5 @@
 
 | 2025-10-24 | nfr-xref | feat/ds-25-core-docs | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18766810662 |
 | sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18768057724
+
+| 2025-10-24 | nfr-xref | chore/ds-24-relnotes-index-fix | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18768007060 |
