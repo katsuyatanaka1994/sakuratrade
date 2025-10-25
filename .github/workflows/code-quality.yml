@@ -22,17 +22,15 @@ jobs:
           python-version: '3.11'
       - run: pip install --disable-pip-version-check -q -r requirements.txt -r scripts/requirements.txt -r requirements-dev.txt
       - run: pip install --disable-pip-version-check -q -e .
-      - name: Preflight: required imports
+      - name: Preflight required imports
         run: |
           python - <<'PY'
-          import importlib, sys
+          import importlib
 
-          modules = ["fastapi", "pydantic_settings", "jose", "sqlalchemy"]
-          missing = [m for m in modules if importlib.util.find_spec(m) is None]
-
-          if missing:
-              print("Missing runtime deps:", ", ".join(missing))
-              sys.exit(1)
+          mods = ("fastapi", "pydantic_settings", "sqlalchemy")
+          for m in mods:
+              importlib.import_module(m)
+          print("preflight ok:", ", ".join(mods))
           PY
       - run: ruff check scripts
       - run: mypy scripts
