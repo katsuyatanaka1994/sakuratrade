@@ -3,15 +3,23 @@ on:
   workflow_run:
     workflows: ["security-permissions-lint"]
     types: [completed]
+
+env:
+  DS16_MODE: ${{ vars.DS16_MODE || 'observe' }}
 permissions:
   contents: read
   pull-requests: write
   issues: write
 jobs:
   draft:
-    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    env:
+      DS16_MODE: ${{ vars.DS16_MODE || 'observe' }}
+    if: ${{ (vars.DS16_MODE || 'observe') != 'observe' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.pull_requests[0].number != '' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Guard observe mode
+        if: ${{ env.DS16_MODE == 'observe' }}
+        run: echo "observe mode; draft disabled (no action)."
       - uses: actions/checkout@v4
       - uses: actions/github-script@v7
         with:
