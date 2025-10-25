@@ -4,120 +4,185 @@ on:
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch:
-
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
-
-env:
-  DS16_MODE: ${{ vars.DS16_MODE || 'observe' }}
+    inputs:
+      limit:
+        description: "Max PRs to process"
+        default: "30"
+      dry_run:
+        description: "No label removal (log only)"
+        default: "false"
 
 jobs:
   sweep:
+    env:
+      DS16_MODE: ${{ vars.DS16_MODE || 'observe' }}
+    if: ${{ env.DS16_MODE == 'observe' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - uses: actions/github-script@v7
+      - name: Checkout guardlib main
+        uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
+          ref: main
+          path: guardlib
+          fetch-depth: 1
+      - name: Run label cleanup
+        uses: actions/github-script@v7
+        env:
+          INPUT_LIMIT: ${{ github.event.inputs.limit || '30' }}
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const path = require('path');
-            const helperPath = path.join(process.env.GITHUB_WORKSPACE, '.github', 'scripts', 'ds27-check-state.js');
-            const { evaluateChecks } = require(helperPath);
+            const guardLibScript = path.join(process.env.GITHUB_WORKSPACE, 'guardlib', '.github', 'scripts', 'ds27-check-state.js');
+            const { evaluateChecks } = require(guardLibScript);
 
-            const mode = (process.env.DS16_MODE || 'observe').toLowerCase();
-            if (mode !== 'observe') {
-              core.info(`DS16 cleanup skips because mode=${mode}`);
-              return;
+            const limitInput = process.env.INPUT_LIMIT || '30';
+            let limit = parseInt(limitInput, 10);
+            if (!Number.isFinite(limit) || limit <= 0) {
+              core.warning(`Invalid limit input (${limitInput}); defaulting to 30`);
+              limit = 30;
             }
+            const dryRun = (process.env.INPUT_DRY_RUN || 'false').toLowerCase() === 'true';
 
+            const TARGET_LABELS = ['docs:invalid', 'triage:urgent'];
+            const THROTTLE_MS = 300;
             const { owner, repo } = context.repo;
-            const LIMIT = 30;
+
+            const openPRs = await github.paginate(
+              github.rest.pulls.list,
+              { owner, repo, state: 'open', per_page: 100 },
+            );
+
+            const candidates = openPRs.filter((pr) => {
+              const names = new Set((pr.labels || []).map((label) => (label?.name || '').toLowerCase()));
+              return TARGET_LABELS.some((label) => names.has(label));
+            });
+
+            core.info(`DS16 cleanup: ${candidates.length} candidate PRs (limit ${limit}) dryRun=${dryRun}`);
+
             let processed = 0;
             let cleaned = 0;
+            const warnings = [];
 
-            const pulls = await github.paginate(github.rest.pulls.list, {
-              owner,
-              repo,
-              state: 'open',
-              per_page: 50,
-            });
-
-            const needsReview = pulls.filter((pr) => {
-              const labels = (pr.labels || []).map((l) => l.name);
-              return labels.includes('docs:invalid') || labels.includes('triage:urgent');
-            });
-
-            core.info(`DS16 cleanup: evaluating ${needsReview.length} open PRs with docs labels`);
-
-            for (const pr of needsReview) {
-              if (processed >= LIMIT) {
-                core.info(`DS16 cleanup: reached processing limit (${LIMIT}); stopping`);
+            for (const pr of candidates) {
+              if (processed >= limit) {
+                core.info(`DS16 cleanup: reached processing limit (${limit}); stopping`);
                 break;
               }
               processed += 1;
 
-              const files = await github.paginate(github.rest.pulls.listFiles, {
-                owner,
-                repo,
-                pull_number: pr.number,
-                per_page: 100,
-              });
-              const changedDocs = files.some((file) => (file.filename || '').startsWith('docs/'));
+              const prNumber = pr.number;
 
-              if (!changedDocs) {
-                await removeDocsLabels(pr.number);
-                cleaned += 1;
-                core.info(`PR #${pr.number}: no docs changes detected; labels removed`);
-                continue;
-              }
-
-              const sha = pr.head?.sha;
-              if (!sha) {
-                core.info(`PR #${pr.number}: missing head SHA; skipping`);
-                continue;
-              }
-
-              let evaluation;
               try {
-                evaluation = await evaluateChecks({
-                  github,
-                  owner,
-                  repo,
-                  sha,
-                  requiredChecks: ['docs-index-validate','nfr-xref'],
-                });
+                const files = await github.paginate(
+                  github.rest.pulls.listFiles,
+                  { owner, repo, pull_number: prNumber, per_page: 100 },
+                );
+                const changedDocs = files.some((file) => (file.filename || '').startsWith('docs/'));
+
+                if (!changedDocs) {
+                  if (dryRun) {
+                    core.info(`PR #${prNumber}: no docs changes detected; dry-run so labels stay`);
+                  } else {
+                    await removeDocsLabels(prNumber);
+                    cleaned += 1;
+                    core.info(`PR #${prNumber}: no docs changes detected; labels removed`);
+                  }
+                  await sleep(THROTTLE_MS);
+                  continue;
+                }
+
+                let sha;
+                try {
+                  const prData = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                  sha = prData.data?.head?.sha;
+                } catch (error) {
+                  throw new Error(`failed to refresh PR head (${error?.message || error})`);
+                }
+
+                if (!sha) {
+                  const message = `PR #${prNumber}: missing head SHA; skipped`;
+                  warnings.push(message);
+                  core.warning(`${message}`);
+                  await sleep(THROTTLE_MS);
+                  continue;
+                }
+
+                let evaluation;
+                try {
+                  evaluation = await evaluateChecks({
+                    github,
+                    owner,
+                    repo,
+                    sha,
+                    requiredChecks: ['docs-index-validate', 'nfr-xref'],
+                  });
+                } catch (error) {
+                  throw new Error(`evaluation failed (${error?.message || error})`);
+                }
+
+                if (evaluation?.allSuccess) {
+                  if (dryRun) {
+                    core.info(`PR #${prNumber}: docs checks green; dry-run so labels stay`);
+                  } else {
+                    await removeDocsLabels(prNumber);
+                    cleaned += 1;
+                    core.info(`PR #${prNumber}: docs checks green; labels removed`);
+                  }
+                } else {
+                  core.info(`PR #${prNumber}: docs checks not green; keeping labels`);
+                }
               } catch (error) {
-                core.warning(`PR #${pr.number}: evaluation failed (${error?.message || error})`);
-                continue;
+                const message = `PR #${prNumber}: ${error?.message || error}`;
+                warnings.push(message);
+                core.warning(`${message}; skipped`);
               }
 
-              if (evaluation?.allSuccess) {
-                await removeDocsLabels(pr.number);
-                cleaned += 1;
-                core.info(`PR #${pr.number}: docs checks all green; labels removed`);
-              } else {
-                core.info(`PR #${pr.number}: docs checks not green; keeping labels`);
+              await sleep(THROTTLE_MS);
+            }
+
+            const summaryLines = [
+              'DS16 cleanup summary',
+              `Processed: ${processed}`,
+              `Cleaned: ${cleaned}`,
+              `Warnings: ${warnings.length}`,
+            ];
+            if (warnings.length) {
+              summaryLines.push('Warning details:');
+              for (const warning of warnings) {
+                summaryLines.push(`- ${warning}`);
               }
             }
 
-            core.info(`DS16 cleanup summary: processed=${processed}, cleaned=${cleaned}`);
-            await core.summary.addHeading('DS16 cleanup summary');
-            await core.summary.addRaw(`Processed: ${processed}\\nCleaned: ${cleaned}`);
-            await core.summary.write();
+            await core.summary
+              .addHeading('DS16 cleanup summary')
+              .addRaw(summaryLines.slice(1).join('\n'))
+              .write();
 
             async function removeDocsLabels(issue_number) {
-              for (const name of ['docs:invalid', 'triage:urgent']) {
+              for (const name of TARGET_LABELS) {
                 try {
                   await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
                   core.info(`PR #${issue_number}: removed ${name}`);
                 } catch (error) {
-                  if (error.status !== 404) {
-                    throw error;
+                  if (error.status === 404) {
+                    core.info(`PR #${issue_number}: ${name} already absent`);
+                    continue;
                   }
-                  core.info(`PR #${issue_number}: ${name} already absent`);
+                  throw error;
                 }
               }
+            }
+
+            function sleep(ms) {
+              return new Promise((resolve) => setTimeout(resolve, ms));
             }
