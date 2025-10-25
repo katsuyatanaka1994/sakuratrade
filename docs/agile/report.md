@@ -158,3 +158,5 @@
 
 | 2025-10-25 | nfr-xref | revert-318-chore/ds16-ds27-fallback-hotfix | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18796664992 |
 | sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18796805998
+
+| 2025-10-25 | nfr-xref | chore/ds16-guard-changedDocs | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18796780355 |
