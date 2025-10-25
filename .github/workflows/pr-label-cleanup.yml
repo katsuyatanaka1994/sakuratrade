@@ -137,6 +137,7 @@ jobs:
 
                 const requiredChecks = REQUIRED_DOC_CHECKS;
                 let docsChecksGreen = false;
+                let checkVerdictSource = 'head';
                 try {
                   const evaluation = await evaluateChecks({
                     github,
@@ -145,23 +146,54 @@ jobs:
                     sha,
                     requiredChecks,
                   });
-                  docsChecksGreen = Boolean(evaluation?.allSuccess);
+                  const headRuns = evaluation?.runCount ?? 0;
+                  const headSuccess = Boolean(evaluation?.allSuccess);
+                  const shortSha = (sha || '').toString().substring(0, 7);
+                  core.info(`PR #${prNumber}: evaluate on head.sha=${shortSha} runs=${headRuns} allSuccess=${headSuccess}`);
+                  docsChecksGreen = headSuccess;
+
+                  if (!docsChecksGreen || headRuns === 0) {
+                    const mergeRef = `refs/pull/${prNumber}/merge`;
+                    core.info(`PR #${prNumber}: retry evaluateChecks on ${mergeRef}`);
+                    const mergeEvaluation = await evaluateChecks({
+                      github,
+                      owner,
+                      repo,
+                      sha: mergeRef,
+                      requiredChecks,
+                    });
+                    const mergeRuns = mergeEvaluation?.runCount ?? 0;
+                    const mergeSuccess = Boolean(mergeEvaluation?.allSuccess);
+                    core.info(`PR #${prNumber}: evaluate on ${mergeRef} runs=${mergeRuns} allSuccess=${mergeSuccess}`);
+                    docsChecksGreen = mergeSuccess;
+                    if (docsChecksGreen) {
+                      checkVerdictSource = 'merge';
+                    }
+                  }
                 } catch (error) {
                   core.warning(`PR #${prNumber}: checks API failed (${error?.message || error}); fallback to combined status`);
                   try {
                     docsChecksGreen = await isDocsGreenViaStatus(sha, requiredChecks);
+                    if (docsChecksGreen) {
+                      checkVerdictSource = 'status';
+                    }
                   } catch (statusError) {
                     throw new Error(`combined status fallback failed (${statusError?.message || statusError})`);
                   }
                 }
 
                 if (docsChecksGreen) {
+                  const successMessage = checkVerdictSource === 'merge'
+                    ? 'merge-ref checks green'
+                    : checkVerdictSource === 'status'
+                      ? 'combined status indicates docs checks green'
+                      : 'docs checks green';
                   if (dryRun) {
-                    core.info(`PR #${prNumber}: docs checks green; dry-run so labels stay`);
+                    core.info(`PR #${prNumber}: ${successMessage}; dry-run so labels stay`);
                   } else {
                     await removeDocsLabels(prNumber);
                     cleaned += 1;
-                    core.info(`PR #${prNumber}: docs checks green; labels removed`);
+                    core.info(`PR #${prNumber}: ${successMessage}; labels removed`);
                   }
                 } else {
                   core.info(`PR #${prNumber}: docs checks not green; keeping labels`);
