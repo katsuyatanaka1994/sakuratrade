@@ -93,10 +93,16 @@ jobs:
               const prNumber = pr.number;
 
               try {
-                const files = await github.paginate(
-                  github.rest.pulls.listFiles,
-                  { owner, repo, pull_number: prNumber, per_page: 100 },
-                );
+                let files = [];
+                try {
+                  files = await github.paginate(
+                    github.rest.pulls.listFiles,
+                    { owner, repo, pull_number: prNumber, per_page: 100 },
+                  );
+                } catch (e) {
+                  core.warning(`PR #${prNumber}: listFiles failed (${e.message || e}); treating as nodocs`);
+                  files = [];
+                }
                 const changedDocs = files.some((file) => (file.filename || '').startsWith('docs/'));
 
                 if (!changedDocs) {
