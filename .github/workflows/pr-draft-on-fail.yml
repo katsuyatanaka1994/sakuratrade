@@ -3,13 +3,16 @@ on:
   workflow_run:
     workflows: ["security-permissions-lint"]
     types: [completed]
+
+env:
+  DS16_MODE: ${{ vars.DS16_MODE || 'observe' }}
 permissions:
   contents: read
   pull-requests: write
   issues: write
 jobs:
   draft:
-    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    if: ${{ env.DS16_MODE != 'observe' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
