@@ -26,6 +26,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      checks: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,41 +65,55 @@ jobs:
             const dryRun = (process.env.INPUT_DRY_RUN || 'false').toLowerCase() === 'true';
 
             const TARGET_LABELS = ['docs:invalid', 'triage:urgent'];
+            const REQUIRED_DOC_CHECKS = ['docs-index-validate', 'nfr-xref'];
             const THROTTLE_MS = 300;
             const { owner, repo } = context.repo;
 
-            const openPRs = await github.paginate(
-              github.rest.pulls.list,
-              { owner, repo, state: 'open', per_page: 100 },
-            );
-
-            const candidates = openPRs.filter((pr) => {
-              const names = new Set((pr.labels || []).map((label) => (label?.name || '').toLowerCase()));
-              return TARGET_LABELS.some((label) => names.has(label));
-            });
-
-            core.info(`DS16 cleanup: ${candidates.length} candidate PRs (limit ${limit}) dryRun=${dryRun}`);
+            const candidatePrNumbers = await fetchCandidatePrNumbers();
+            core.info(`DS16 cleanup: ${candidatePrNumbers.length} candidate PRs (limit ${limit}) dryRun=${dryRun}`);
 
             let processed = 0;
             let cleaned = 0;
             const warnings = [];
 
-            for (const pr of candidates) {
+            for (const prNumber of candidatePrNumbers) {
               if (processed >= limit) {
                 core.info(`DS16 cleanup: reached processing limit (${limit}); stopping`);
                 break;
               }
               processed += 1;
 
-              const prNumber = pr.number;
-
               try {
+                let sha;
+                try {
+                  const prData = await withRetry(() => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
+                  const isFork = prData.data?.head?.repo?.fork;
+                  if (isFork) {
+                    const msg = `PR #${prNumber}: fork PR; skip cleanup`;
+                    warnings.push(msg);
+                    core.info(msg);
+                    await sleep(THROTTLE_MS);
+                    continue;
+                  }
+                  sha = prData.data?.head?.sha;
+                } catch (error) {
+                  throw new Error(`failed to refresh PR head (${error?.message || error})`);
+                }
+
+                if (!sha) {
+                  const message = `PR #${prNumber}: missing head SHA; skipped`;
+                  warnings.push(message);
+                  core.warning(`${message}`);
+                  await sleep(THROTTLE_MS);
+                  continue;
+                }
+
                 let files;
                 try {
-                  files = await github.paginate(
+                  files = await withRetry(() => github.paginate(
                     github.rest.pulls.listFiles,
                     { owner, repo, pull_number: prNumber, per_page: 100 },
-                  );
+                  ));
                 } catch (e) {
                   const msg = `PR #${prNumber}: listFiles failed (${e.message || e}); skip cleanup`;
                   warnings.push(msg);
@@ -120,36 +135,27 @@ jobs:
                   continue;
                 }
 
-                let sha;
+                const requiredChecks = REQUIRED_DOC_CHECKS;
+                let docsChecksGreen = false;
                 try {
-                  const prData = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-                  sha = prData.data?.head?.sha;
-                } catch (error) {
-                  throw new Error(`failed to refresh PR head (${error?.message || error})`);
-                }
-
-                if (!sha) {
-                  const message = `PR #${prNumber}: missing head SHA; skipped`;
-                  warnings.push(message);
-                  core.warning(`${message}`);
-                  await sleep(THROTTLE_MS);
-                  continue;
-                }
-
-                let evaluation;
-                try {
-                  evaluation = await evaluateChecks({
+                  const evaluation = await evaluateChecks({
                     github,
                     owner,
                     repo,
                     sha,
-                    requiredChecks: ['docs-index-validate', 'nfr-xref'],
+                    requiredChecks,
                   });
+                  docsChecksGreen = Boolean(evaluation?.allSuccess);
                 } catch (error) {
-                  throw new Error(`evaluation failed (${error?.message || error})`);
+                  core.warning(`PR #${prNumber}: checks API failed (${error?.message || error}); fallback to combined status`);
+                  try {
+                    docsChecksGreen = await isDocsGreenViaStatus(sha, requiredChecks);
+                  } catch (statusError) {
+                    throw new Error(`combined status fallback failed (${statusError?.message || statusError})`);
+                  }
                 }
 
-                if (evaluation?.allSuccess) {
+                if (docsChecksGreen) {
                   if (dryRun) {
                     core.info(`PR #${prNumber}: docs checks green; dry-run so labels stay`);
                   } else {
@@ -202,8 +208,55 @@ jobs:
               }
             }
 
+            async function fetchCandidatePrNumbers() {
+              const seen = new Set();
+              const baseQuery = `repo:${owner}/${repo} is:pr is:open`;
+              for (const label of TARGET_LABELS) {
+                const query = `${baseQuery} label:"${label}"`;
+                const results = await withRetry(() => github.paginate(
+                  github.rest.search.issuesAndPullRequests,
+                  { q: query, per_page: 100 },
+                ));
+                for (const item of results || []) {
+                  if (item?.number) {
+                    seen.add(item.number);
+                  }
+                }
+              }
+              return Array.from(seen).sort((a, b) => a - b);
+            }
+
+            async function isDocsGreenViaStatus(sha, requiredChecks) {
+              const normalizedRequired = (requiredChecks || [])
+                .map((name) => (name || '').toLowerCase())
+                .filter(Boolean);
+              const result = await withRetry(() =>
+                github.rest.repos.getCombinedStatusForRef({ owner, repo, ref: sha }),
+              );
+              const statuses = result?.data?.statuses || [];
+              const contexts = new Set(statuses.map((status) => (status.context || '').toLowerCase()));
+              const allContextsPresent = normalizedRequired.every((name) => contexts.has(name));
+              return result?.data?.state === 'success' && allContextsPresent;
+            }
+
+            async function withRetry(fn, attempts = 4) {
+              let delay = 500;
+              for (let i = 0; i < attempts; i += 1) {
+                try {
+                  return await fn();
+                } catch (error) {
+                  const status = error?.status;
+                  const retriable = [403, 429, 502, 503].includes(status);
+                  if (!retriable || i === attempts - 1) {
+                    throw error;
+                  }
+                  core.warning(`Retryable API failure (status=${status || 'unknown'}) retrying in ${delay}ms`);
+                  await sleep(delay);
+                  delay *= 2;
+                }
+              }
+            }
+
             function sleep(ms) {
               return new Promise((resolve) => setTimeout(resolve, ms));
             }
-
-           

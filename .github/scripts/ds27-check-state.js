@@ -16,6 +16,9 @@ const REQUIRED_DEFAULTS = [
   'nfr-xref',
 ];
 
+const RETRIABLE_STATUSES = new Set([403, 429, 502, 503]);
+const DEFAULT_ATTEMPTS = 4;
+
 /**
  * Compare check runs by their most recent timestamp.
  * @param {object} current
@@ -53,12 +56,12 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
 
   core.info(`DS-27: evaluating ${REQUIRED.length} checks for ${owner}/${repo}@${sha.substring(0, 7)}`);
 
-  const runs = await github.paginate(github.rest.checks.listForRef, {
+  const runs = await withRetry(() => github.paginate(github.rest.checks.listForRef, {
     owner,
     repo,
     ref: sha,
     per_page: 100,
-  });
+  }), DEFAULT_ATTEMPTS);
 
   core.info(`DS-27: retrieved ${runs.length} check runs (any status)`);
 
@@ -168,3 +171,25 @@ module.exports = {
   evaluateChecks,
   REQUIRED_CHECKS: REQUIRED_DEFAULTS,
 };
+
+async function withRetry(fn, attempts = DEFAULT_ATTEMPTS) {
+  let delay = 500;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      const status = error?.status;
+      const retriable = RETRIABLE_STATUSES.has(status);
+      if (!retriable || attempt === attempts - 1) {
+        throw error;
+      }
+      core.warning(`DS-27: retryable checks API failure (status=${status || 'unknown'}); retrying in ${delay}ms`);
+      await sleep(delay);
+      delay *= 2;
+    }
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
