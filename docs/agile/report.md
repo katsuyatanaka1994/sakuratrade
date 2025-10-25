@@ -165,3 +165,4 @@
 | sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18798767041
 
 | 2025-10-25 | nfr-xref | chore/ds16-observe-rollout | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18798528930 |
+| sec-review | NG | 4 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18800347598
