@@ -38,10 +38,11 @@ jobs:
             const { owner, repo } = context.repo;
             const headSha = run.head_sha;
 
-            const logMeta = ({ sha, prNumber, bothGreen }) => {
+            const logMeta = ({ sha, prNumber, bothGreen, changedDocs }) => {
               const shaLabel = sha || 'none';
               const prLabel = prNumber || 'N/A';
-              core.info(`DS-27: guard-meta head_sha=${shaLabel} resolved_pr=${prLabel} bothGreen=${bothGreen}`);
+              const docsLabel = typeof changedDocs === 'boolean' ? changedDocs : 'N/A';
+              core.info(`DS-27: guard-meta head_sha=${shaLabel} resolved_pr=${prLabel} bothGreen=${bothGreen} changedDocs=${docsLabel}`);
             };
 
             const resolvePullRequestNumber = async () => {
@@ -87,7 +88,7 @@ jobs:
 
             const prNumber = await resolvePullRequestNumber();
             if (!prNumber) {
-              logMeta({ sha: headSha, prNumber: null, bothGreen: false });
+              logMeta({ sha: headSha, prNumber: null, bothGreen: false, changedDocs: 'N/A' });
               core.info('DS-27: workflow run not tied to a PR; skipping label update');
               return;
             }
@@ -102,6 +103,26 @@ jobs:
               }
             }
 
+            const files = await github.paginate(
+              github.rest.pulls.listFiles,
+              { owner, repo, pull_number: prNumber, per_page: 300 },
+            );
+            const changedDocs = files.some((file) => (file.filename || '').startsWith('docs/'));
+
+            const removeDocsLabels = async () => {
+              for (const name of ['docs:invalid','triage:urgent']) {
+                try {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name });
+                  core.info(`DS-27: removed ${name} label`);
+                } catch (error) {
+                  if (error.status !== 404) {
+                    throw error;
+                  }
+                  core.info(`DS-27: ${name} already absent`);
+                }
+              }
+            };
+
             const ensureLabelPresent = async () => {
               try {
                 await github.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels: ['docs:invalid'] });
@@ -115,9 +136,16 @@ jobs:
               }
             };
 
+            if (!changedDocs) {
+              logMeta({ sha, prNumber, bothGreen: false, changedDocs });
+              core.info('DS-27: no docs changes; ensure docs labels are absent and exit');
+              await removeDocsLabels();
+              return;
+            }
+
             if (!sha) {
               core.warning('DS-27: missing head SHA; defaulting to keeping docs:invalid label');
-              logMeta({ sha, prNumber, bothGreen: false });
+              logMeta({ sha, prNumber, bothGreen: false, changedDocs });
               await ensureLabelPresent();
               return;
             }
@@ -131,27 +159,16 @@ jobs:
                 requiredChecks: ['docs-index-validate','nfr-xref'],
               });
               const bothGreen = Boolean(evaluation?.allSuccess);
-              logMeta({ sha, prNumber, bothGreen });
+              logMeta({ sha, prNumber, bothGreen, changedDocs });
 
               if (bothGreen) {
                 core.info('DS-27: all required checks green; removing docs labels');
-                for (const name of ['docs:invalid','triage:urgent']) {
-                  try {
-                    await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name });
-                    core.info(`DS-27: removed ${name} label`);
-                  } catch (error) {
-                    if (error.status === 404) {
-                      core.info(`DS-27: ${name} label already absent`);
-                    } else {
-                      throw error;
-                    }
-                  }
-                }
+                await removeDocsLabels();
               } else {
                 await ensureLabelPresent();
               }
             } catch (error) {
               core.warning(`DS-27: evaluation failed (${error?.message || error}); defaulting to docs:invalid`);
-              logMeta({ sha, prNumber, bothGreen: false });
+              logMeta({ sha, prNumber, bothGreen: false, changedDocs });
               await ensureLabelPresent();
             }
