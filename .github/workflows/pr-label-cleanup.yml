@@ -12,11 +12,15 @@ on:
         description: "No label removal (log only)"
         default: "false"
 
+concurrency:
+  group: pr-label-cleanup
+  cancel-in-progress: true
+
 jobs:
   sweep:
     env:
       DS16_MODE: ${{ vars.DS16_MODE || 'observe' }}
-    if: ${{ env.DS16_MODE == 'observe' }}
+    if: ${{ (vars.DS16_MODE || 'observe') == 'observe' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -28,11 +32,17 @@ jobs:
           fetch-depth: 1
       - name: Checkout guardlib main
         uses: actions/checkout@v4
-        with:
+        with: 
           repository: ${{ github.repository }}
           ref: main
           path: guardlib
           fetch-depth: 1
+      - name: Echo dispatch meta
+        env:
+          E_LIMIT: ${{ github.event.inputs.limit || '30' }}
+          E_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          echo "cleanup dispatch: mode=${DS16_MODE} limit=${E_LIMIT} dry_run=${E_DRY_RUN}"
       - name: Run label cleanup
         uses: actions/github-script@v7
         env:
