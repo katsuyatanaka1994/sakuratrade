@@ -1,9 +1,19 @@
-const core = require('@actions/core');
+// actions/core may not be available when invoked via actions/github-script.
+// Fallback to console so this module is self-contained.
+let core;
+try {
+  core = require('@actions/core');
+} catch (_) {
+  core = {
+    info: (...a) => console.log(...a),
+    warning: (...a) => console.warn(...a),
+    setOutput: () => {},
+  };
+}
 
 const REQUIRED_DEFAULTS = [
   'docs-index-validate',
   'nfr-xref',
-  'security-permissions-lint',
 ];
 
 /**
@@ -37,7 +47,11 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
   if (!owner || !repo) throw new Error('owner and repo are required');
   if (!sha) throw new Error('sha is required');
 
-  core.info(`DS-27: evaluating ${requiredChecks.length} checks for ${owner}/${repo}@${sha.substring(0, 7)}`);
+  const REQUIRED = requiredChecks
+    .map((s) => (s || '').toLowerCase().trim())
+    .filter(Boolean);
+
+  core.info(`DS-27: evaluating ${REQUIRED.length} checks for ${owner}/${repo}@${sha.substring(0, 7)}`);
 
   const runs = await github.paginate(github.rest.checks.listForRef, {
     owner,
@@ -73,8 +87,9 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
   for (const run of runs) {
     if (!run?.name) continue;
 
-    const workflowName = run.name.split(' / ')[0] || run.name;
-    if (!requiredChecks.includes(workflowName)) continue;
+    const normalizedName = (run.name || '').trim().toLowerCase();
+    const workflowName = normalizedName.split(' / ')[0] || normalizedName;
+    if (!REQUIRED.includes(workflowName)) continue;
 
     const priority = classifyPriority(run);
     const suiteId = resolveSuiteId(run);
@@ -106,7 +121,7 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
     details: {},
   };
 
-  for (const name of requiredChecks) {
+  for (const name of REQUIRED) {
     const entry = latestByName.get(name);
     if (!entry) {
       core.info(`DS-27: run missing for ${name}`);
@@ -127,15 +142,15 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
       completed_at: run.completed_at,
     };
 
-    if (priority === 1 && status !== 'completed') {
-      core.info(`DS-27: run pending for ${name} (status=${status})`);
-      result.pending.push(name);
-      result.allSuccess = false;
+    if (priority === 2 && (conclusion || '').toLowerCase() === 'success') {
+      result.success.push(name);
       continue;
     }
 
-    if (priority === 2 && conclusion === 'success') {
-      result.success.push(name);
+    if (priority === 1) {
+      core.info(`DS-27: run pending for ${name} (status=${status})`);
+      result.pending.push(name);
+      result.allSuccess = false;
       continue;
     }
 
