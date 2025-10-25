@@ -19,24 +19,38 @@ jobs:
           repository: ${{ github.event.workflow_run.repository.full_name }}
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
+      - name: Checkout main for guard library
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.workflow_run.repository.full_name }}
+          ref: main
+          path: guardlib
+          fetch-depth: 1
       - uses: actions/github-script@v7
+        id: label
         with:
           script: |
             const path = require('path');
-            const helperPath = path.join(process.env.GITHUB_WORKSPACE, '.github/scripts/ds27-check-state.js');
-            const { evaluateChecks, REQUIRED_CHECKS } = require(helperPath);
+            const guardLibScript = path.join(process.env.GITHUB_WORKSPACE, 'guardlib', '.github', 'scripts', 'ds27-check-state.js');
+            const { evaluateChecks } = require(guardLibScript);
 
             const run = context.payload.workflow_run;
             const { owner, repo } = context.repo;
+            const headSha = run.head_sha;
 
-            const resolvePullRequest = async () => {
-              const direct = run.pull_requests?.[0];
-              if (direct) {
-                core.info(`DS-27: pull_request found in payload (#${direct.number})`);
-                return direct;
+            const logMeta = ({ sha, prNumber, bothGreen }) => {
+              const shaLabel = sha || 'none';
+              const prLabel = prNumber || 'N/A';
+              core.info(`DS-27: guard-meta head_sha=${shaLabel} resolved_pr=${prLabel} bothGreen=${bothGreen}`);
+            };
+
+            const resolvePullRequestNumber = async () => {
+              const payloadPR = run.pull_requests?.[0]?.number;
+              if (payloadPR) {
+                core.info(`DS-27: pull_request found in payload (#${payloadPR})`);
+                return payloadPR;
               }
 
-              const headSha = run.head_sha;
               if (!headSha) {
                 core.warning('DS-27: workflow_run missing head_sha; cannot resolve PR');
                 return null;
@@ -44,10 +58,10 @@ jobs:
 
               try {
                 const associated = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: headSha });
-                if (associated.data.length > 0) {
-                  const pr = associated.data[0];
-                  core.info(`DS-27: resolved PR #${pr.number} via associated commit`);
-                  return pr;
+                const match = associated.data.find(pr => pr.state === 'open' && pr.head?.sha === headSha);
+                if (match) {
+                  core.info(`DS-27: resolved PR #${match.number} via associated commit`);
+                  return match.number;
                 }
               } catch (error) {
                 core.warning(`DS-27: failed listPullRequestsAssociatedWithCommit (${error?.message || error})`);
@@ -55,53 +69,42 @@ jobs:
 
               try {
                 const searchResult = await github.rest.search.issuesAndPullRequests({
-                  q: `${headSha} type:pr repo:${owner}/${repo}`,
-                  per_page: 1,
+                  q: `repo:${owner}/${repo} is:pr sha:${headSha}`,
+                  per_page: 5,
                 });
-                const prItem = searchResult.data.items?.[0];
+                const prItem = searchResult.data.items?.find(item => item.state === 'open');
                 if (prItem) {
                   core.info(`DS-27: resolved PR #${prItem.number} via search`);
-                  const pr = await github.rest.pulls.get({ owner, repo, pull_number: prItem.number });
-                  return pr.data;
+                  return prItem.number;
                 }
               } catch (error) {
                 core.warning(`DS-27: fallback search failed (${error?.message || error})`);
               }
 
-              core.warning('DS-27: unable to resolve PR from workflow_run');
+              core.info('DS-27: unable to resolve PR from workflow_run payload/sha');
               return null;
             };
 
-            const logMeta = ({ headSha, prNumber, bothGreen }) => {
-              const prLabel = prNumber ? `#${prNumber}` : 'none';
-              const shaLabel = headSha || 'none';
-              core.info(`DS-27: guard-meta head_sha=${shaLabel} resolved_pr=${prLabel} bothGreen=${bothGreen}`);
-            };
-
-            const pr = await resolvePullRequest();
-            if (!pr) {
-              logMeta({ headSha: run.head_sha, prNumber: null, bothGreen: false });
+            const prNumber = await resolvePullRequestNumber();
+            if (!prNumber) {
+              logMeta({ sha: headSha, prNumber: null, bothGreen: false });
               core.info('DS-27: workflow run not tied to a PR; skipping label update');
               return;
             }
 
-            let sha = run.head_sha || pr.head?.sha;
+            let sha = headSha;
             if (!sha) {
-              core.info('DS-27: resolving head SHA via API');
               try {
-                const prData = await github.rest.pulls.get({ owner, repo, pull_number: pr.number });
-                sha = prData.data.head.sha;
+                const prData = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                sha = prData.data.head?.sha;
               } catch (error) {
                 core.warning(`DS-27: failed to resolve head SHA (${error?.message || error})`);
               }
             }
 
-            const issue_number = pr.number;
-
             const ensureLabelPresent = async () => {
-              core.info('DS-27: ensuring docs:invalid label is present');
               try {
-                await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['docs:invalid'] });
+                await github.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels: ['docs:invalid'] });
                 core.info('DS-27: applied docs:invalid label');
               } catch (error) {
                 if (error.status === 422) {
@@ -114,21 +117,27 @@ jobs:
 
             if (!sha) {
               core.warning('DS-27: missing head SHA; defaulting to keeping docs:invalid label');
-              logMeta({ headSha: sha, prNumber: pr.number, bothGreen: false });
+              logMeta({ sha, prNumber, bothGreen: false });
               await ensureLabelPresent();
               return;
             }
 
             try {
-              const evaluation = await evaluateChecks({ github, owner, repo, sha, requiredChecks: REQUIRED_CHECKS });
+              const evaluation = await evaluateChecks({
+                github,
+                owner,
+                repo,
+                sha,
+                requiredChecks: ['docs-index-validate','nfr-xref'],
+              });
               const bothGreen = Boolean(evaluation?.allSuccess);
-              logMeta({ headSha: sha, prNumber: pr.number, bothGreen });
+              logMeta({ sha, prNumber, bothGreen });
 
               if (bothGreen) {
                 core.info('DS-27: all required checks green; removing docs labels');
                 for (const name of ['docs:invalid','triage:urgent']) {
                   try {
-                    await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+                    await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name });
                     core.info(`DS-27: removed ${name} label`);
                   } catch (error) {
                     if (error.status === 404) {
@@ -143,6 +152,6 @@ jobs:
               }
             } catch (error) {
               core.warning(`DS-27: evaluation failed (${error?.message || error}); defaulting to docs:invalid`);
-              logMeta({ headSha: sha, prNumber: pr.number, bothGreen: false });
+              logMeta({ sha, prNumber, bothGreen: false });
               await ensureLabelPresent();
             }
