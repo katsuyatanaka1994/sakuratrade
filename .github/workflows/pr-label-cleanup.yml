@@ -93,11 +93,20 @@ jobs:
               const prNumber = pr.number;
 
               try {
-                const files = await github.paginate(
-                  github.rest.pulls.listFiles,
-                  { owner, repo, pull_number: prNumber, per_page: 100 },
-                );
-                const changedDocs = files.some((file) => (file.filename || '').startsWith('docs/'));
+                let files;
+                try {
+                  files = await github.paginate(
+                    github.rest.pulls.listFiles,
+                    { owner, repo, pull_number: prNumber, per_page: 100 },
+                  );
+                } catch (e) {
+                  const msg = `PR #${prNumber}: listFiles failed (${e.message || e}); skip cleanup`;
+                  warnings.push(msg);
+                  core.warning(msg);
+                  await sleep(THROTTLE_MS);
+                  continue; // avoid accidental removal; do not default to nodocs
+                }
+                const changedDocs = (files || []).some((file) => (file.filename || '').startsWith('docs/'));
 
                 if (!changedDocs) {
                   if (dryRun) {
@@ -196,3 +205,5 @@ jobs:
             function sleep(ms) {
               return new Promise((resolve) => setTimeout(resolve, ms));
             }
+
+           
