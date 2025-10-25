@@ -162,3 +162,4 @@
 | 2025-10-25 | nfr-xref | chore/ds16-guard-changedDocs | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18796780355 |
 
 | 2025-10-25 | nfr-xref | chore/guard-check-nodocs | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18797560671 |
+| sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18798767041
