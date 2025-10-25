@@ -154,5 +154,6 @@
 | 2025-10-24 | nfr-xref | chore/ds16-guard-final2 | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18779470502 |
 
 | 2025-10-24 | nfr-xref | chore/ds16-guard-smoke | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18779640941 |
+| sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18796216699
 
 | 2025-10-25 | nfr-xref | revert-318-chore/ds16-ds27-fallback-hotfix | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18796664992 |
