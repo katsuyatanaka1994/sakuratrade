@@ -168,3 +168,5 @@
 | sec-review | NG | 4 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18800347598
 
 | 2025-10-25 | nfr-xref | chore/ds16-cleanup-harden | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18800331483 |
+
+| 2025-10-25 | nfr-xref | chore/ds16-cleanup-harden | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18800664375 |
