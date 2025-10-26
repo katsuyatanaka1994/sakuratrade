@@ -1,0 +1,50 @@
+name: status-compat-seed
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: status-compat-seed-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Emit pending statuses for DS-26 required contexts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.payload.pull_request?.head?.sha;
+            if (!sha) {
+              core.warning('No head SHA; skip seeding statuses');
+              return;
+            }
+
+            const contexts = [
+              'docs-index-validate (pull_request)',
+              'nfr-xref (pull_request)',
+              'security-permissions-lint (pull_request)',
+            ];
+
+            for (const ctx of contexts) {
+              await github.rest.repos.createCommitStatus({
+                owner,
+                repo,
+                sha,
+                state: 'pending',
+                context: ctx,
+                description: 'seed (awaiting validator results)',
+              });
+            }
+
+            await core.summary
+              .addHeading('status-compat-seed')
+              .addList(contexts.map((ctx) => `seeded: ${ctx} = pending @ ${sha.substring(0, 7)}`))
+              .write();
