@@ -34,7 +34,7 @@ jobs:
             ];
 
             for (const ctx of contexts) {
-              await github.repos.createCommitStatus({
+              await github.rest.repos.createCommitStatus({
                 owner,
                 repo,
                 sha,
