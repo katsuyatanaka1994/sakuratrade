@@ -116,7 +116,6 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
   }
 
   const result = {
-    runCount: runs.length,
     allSuccess: true,
     missing: [],
     pending: [],
