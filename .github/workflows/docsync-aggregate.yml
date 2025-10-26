@@ -78,10 +78,20 @@ jobs:
         run: |
           cat row.txt >> docs/agile/report.md
 
+      - name: Create GitHub App token
+        if: ${{ steps.artifacts.outputs.has_plan == 'true' }}
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          installation-id: ${{ secrets.GH_INSTALLATION_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
       - name: Create PR
         if: ${{ steps.artifacts.outputs.has_plan == 'true' }}
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ steps.app-token.outputs.token }}
           base: main
           branch: docs-sync/report-${{ github.event.workflow_run.id }}
           commit-message: "docs(report): append row to report.md [skip docsync]"
