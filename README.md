@@ -110,7 +110,7 @@ make test              # pytest -q app/tests tests test_*.py
 make run-dev           # uvicorn app.main:app --reload --env-file .env
 ```
 
-- API への実アクセスが必要な統合テスト（`tests/test_api_integration.py` など）はローカルで FastAPI サーバーを起動し、`export RUN_LIVE_API_TESTS=1` を設定した場合にのみ実行されます。CI や通常の `make test` ではこの環境変数が未設定のため自動的に skip されます。
+- API への実アクセスが必要な統合テスト（`tests/test_api_integration.py` など）はローカルで FastAPI サーバーを起動し、`export RUN_LIVE_API_TESTS=1` を設定した場合にのみ実行されます。CI や通常の `make test` ではこの環境変数が未設定のため自動的に skip されます。API/DB の互換性が心配な変更やリリース前最終確認など、実サーバーでの疎通を確かめたいタイミングでのみ opt-in してください。
 
 ---
 
