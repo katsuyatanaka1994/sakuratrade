@@ -3,6 +3,7 @@ name: status-compat
 permissions:
   contents: read
   statuses: write
+  pull-requests: read
 
 on:
   workflow_run:
