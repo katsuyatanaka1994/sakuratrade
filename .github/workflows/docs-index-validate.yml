@@ -1,11 +1,11 @@
 name: docs-index-validate
 
 on:
-  workflow_dispatch:
   pull_request:
     paths:
       - 'docs/**'
       - '.github/workflows/docs-index-validate.yml'
+  workflow_dispatch: {}
 
 permissions:
   contents: read

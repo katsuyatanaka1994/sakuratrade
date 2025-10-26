@@ -1,13 +1,12 @@
 name: security-permissions-lint
 on:
-  pull_request:
-  workflow_dispatch:
+  pull_request: {}
   push:
-    branches:
-      - main  # release/** を保護したくなったらここに追加
+    branches: [main]  # release/** を保護したくなったらここに追加
     paths:
       - .github/workflows/**
       - scripts/**
+  workflow_dispatch: {}
 
 permissions:
   contents: read  # top-levelは最小権限を明示
