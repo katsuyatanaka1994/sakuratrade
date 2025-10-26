@@ -10,7 +10,14 @@ import pytest
 import requests
 from PIL import Image
 
-pytestmark = pytest.mark.integration
+LIVE_API_TESTS = os.getenv("RUN_LIVE_API_TESTS", "").lower() in {"1", "true", "yes"}
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not LIVE_API_TESTS,
+        reason="Set RUN_LIVE_API_TESTS=1 to run tests that hit the running FastAPI server",
+    ),
+]
 
 
 def create_sample_chart_image():

@@ -25,4 +25,5 @@ kill %1
 ## 注意事項
 - OPENAI への実アクセスは不要。`MOCK_AI=true` でダミー応答を利用する。
 - `BASE_URL` を変更した場合は `pytest` 実行前に `export BASE_URL=...` を設定する。
+- 実際の FastAPI サーバーへ HTTP リクエストを送るテストは `RUN_LIVE_API_TESTS=1` を設定した時のみ実行される。CI では未設定のため自動で skip される。
 - CI 実行は GitHub Actions → Backend CI → Run workflow（workflow_dispatch）から任意で起動できる。
