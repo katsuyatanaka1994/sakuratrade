@@ -29,9 +29,18 @@ jobs:
       - name: Generate implementation details table
         run: python scripts/oas_to_impl_table.py > docs/specs/implementation-details.md
 
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          installation-id: ${{ secrets.GH_INSTALLATION_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
       - name: Create pull request
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ steps.app-token.outputs.token }}
           base: main
           branch: docs-sync/impl-${{ github.run_id }}
           title: "[skip docsync] docs: implementation details (AUTO)"
