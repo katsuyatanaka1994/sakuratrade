@@ -5,7 +5,7 @@ on:
     types: [completed]
 
 env:
-  DS16_MODE: ${{ vars.DS16_MODE || 'observe' }}
+  DS16_MODE: ${{ vars.DS16_MODE || 'enforce' }}
 permissions:
   contents: read
   pull-requests: write
@@ -40,6 +40,8 @@ jobs:
             const run = context.payload.workflow_run;
             const { owner, repo } = context.repo;
             const headSha = run.head_sha;
+            const runConclusion = (run?.conclusion || '').toLowerCase();
+            const workflowRunFailed = runConclusion && runConclusion !== 'success';
             const mode = (process.env.DS16_MODE || 'observe').toLowerCase();
             const observeMode = mode === 'observe';
 
@@ -108,11 +110,16 @@ jobs:
               }
             }
 
-            const files = await github.paginate(
-              github.rest.pulls.listFiles,
-              { owner, repo, pull_number: prNumber, per_page: 300 },
-            );
-            const changedDocs = files.some((file) => (file.filename || '').startsWith('docs/'));
+            let changedDocs = null;
+            try {
+              const files = await github.paginate(
+                github.rest.pulls.listFiles,
+                { owner, repo, pull_number: prNumber, per_page: 300 },
+              );
+              changedDocs = files.some((file) => (file.filename || '').startsWith('docs/'));
+            } catch (error) {
+              core.warning(`DS-27: failed to list files for PR #${prNumber} (${error?.message || error}); treating docs change as unknown`);
+            }
 
             const removeDocsLabels = async () => {
               for (const name of ['docs:invalid','triage:urgent']) {
@@ -141,10 +148,16 @@ jobs:
               }
             };
 
-            if (!changedDocs) {
-              logMeta({ sha, prNumber, bothGreen: false, changedDocs });
+            if (changedDocs === false) {
+              logMeta({ sha, prNumber, bothGreen: true, changedDocs });
               core.info('DS-27: no docs changes; ensure docs labels are absent and exit');
               await removeDocsLabels();
+              return;
+            }
+
+            if (changedDocs === null) {
+              logMeta({ sha, prNumber, bothGreen: false, changedDocs: 'unknown' });
+              core.info('DS-27: docs change state unknown; leaving labels untouched');
               return;
             }
 
@@ -164,7 +177,12 @@ jobs:
                 requiredChecks: ['docs-index-validate','nfr-xref'],
               });
               const bothGreen = Boolean(evaluation?.allSuccess);
+              const hasFailures = Array.isArray(evaluation?.notSuccess) && evaluation.notSuccess.length > 0;
+              const hasPending = Array.isArray(evaluation?.pending) && evaluation.pending.length > 0;
+              const hasMissing = Array.isArray(evaluation?.missing) && evaluation.missing.length > 0;
+
               logMeta({ sha, prNumber, bothGreen, changedDocs });
+              core.info(`DS-27: evaluation details failures=${evaluation?.notSuccess?.length || 0} pending=${evaluation?.pending?.length || 0} missing=${evaluation?.missing?.length || 0}`);
 
               if (observeMode) {
                 core.info(`DS-27: observe mode (${mode}); retaining docs:invalid label regardless of check status`);
@@ -172,12 +190,26 @@ jobs:
                 return;
               }
 
-              if (bothGreen) {
-                core.info('DS-27: all required checks green; removing docs labels');
-                await removeDocsLabels();
-              } else {
+              if (hasFailures || workflowRunFailed) {
+                core.info('DS-27: failure detected via checks or workflow_run; ensuring docs:invalid label');
                 await ensureLabelPresent();
+                return;
               }
+
+              if (bothGreen) {
+                core.info('DS-27: all required checks passed; removing docs labels');
+                await removeDocsLabels();
+                return;
+              }
+
+              if (hasPending || hasMissing) {
+                core.info('DS-27: required checks pending/missing; keeping docs labels cleared until verdict');
+                await removeDocsLabels();
+                return;
+              }
+
+              core.info('DS-27: evaluation inconclusive; defaulting to docs:invalid');
+              await ensureLabelPresent();
             } catch (error) {
               core.warning(`DS-27: evaluation failed (${error?.message || error}); defaulting to docs:invalid`);
               logMeta({ sha, prNumber, bothGreen: false, changedDocs });

@@ -175,8 +175,10 @@
 - マージ方式は **Squash** を基本
 - PR テンプレ冒頭: **「CI確認：docs-index / nfr-xref / security-permissions-lint の3チェックが緑」**
 - **DS-27 補強**  
-  - 失敗 → `docs:invalid` 自動付与 & PR Draft化（Botコメント）  
-  - 成功 → `docs:invalid` 自動除去  
+  - docs 変更が無い場合はラベルを外した状態を維持し、自動で `docs:invalid` が付かないようにする。  
+  - docs 変更かつ **いずれかの必須チェックが failure/timed_out/cancelled** または **workflow_run 自体が非 success** のときだけ `docs:invalid` を自動付与し Draft 化。  
+  - docs 変更で全チェックが PASS（success/neutral/skipped/stale）になったら `docs:invalid` / `triage:urgent` を除去。pending/missing のみの間はラベルを外したまま待機し、「ステータスが緑なのに invalid」が起きないようにする。  
+  - 取得エラーなどで docs 変更有無が判定できない場合はラベルを動かさず、安全側に現状維持。  
   - **即時フォールバック**: `docs:invalid` のまま merged なら Issue＋Slack/Webhook 通知  
   - （任意）週次監査で取りこぼし検出
 
@@ -193,10 +195,10 @@
 - 必要に応じて `branches` / `if` を `release/**` に拡張
 
 ### DS-27（github無料ソフトガード）最終仕様
-- 合成判定（`validate` / `xref` / `noop-pr`）で `docs:invalid` と Draft を制御（非緑＝付与＆Draft維持、緑＝自動除去）。
+- 合成判定（`validate` / `xref` / `noop-pr`）で `docs:invalid` と Draft を制御。docs 変更あり＋Failure 系結論（failure/timed_out/cancelled/action_required）や workflow_run 非 success のときだけ付与し、PASS 結論（success/neutral/skipped/stale）になったら除去する。pending/missing の間はラベルを外したまま待機して「エラーが無いのに invalid」が付く状況を無くす。
 - 違反検知は **merged-only**。`docs:invalid` が付いたままマージされたPRを **soft-guard-alert** が検出し、Issue（＋Slack任意）を即時作成。
 - 同名Issueは重複発行しない（idempotent）、同一PRの同時発火は concurrency で最新1件に抑制。
-- 例外や取得失敗時は安全側（= ラベル付与・Draft維持）。
+- 例外や取得失敗時は安全側で処理。docs 変更判定ができない場合はラベルを動かさず、チェック取得が失敗した場合は `docs:invalid` を維持する。
 
 ### DS-16: 失敗→可視化 / 成功→自動回復
 - 対象: `docs-index-validate.yml`, `nfr-xref.yml`, `code-quality.yml`, `security-permissions-lint.yml`。
