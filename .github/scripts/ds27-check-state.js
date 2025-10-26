@@ -16,6 +16,9 @@ const REQUIRED_DEFAULTS = [
   'nfr-xref',
 ];
 
+const PASS_CONCLUSIONS = new Set(['success', 'neutral', 'skipped', 'stale']);
+const FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'cancelled', 'action_required']);
+
 const RETRIABLE_STATUSES = new Set([403, 429, 502, 503]);
 const DEFAULT_ATTEMPTS = 4;
 
@@ -74,15 +77,15 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
     }
 
     const conclusion = (run.conclusion || '').toLowerCase();
-    if (['failure', 'timed_out', 'cancelled', 'action_required'].includes(conclusion)) {
+    if (FAILURE_CONCLUSIONS.has(conclusion)) {
       return 0; // any failure-like conclusion is highest priority
     }
 
-    if (conclusion === 'success') {
-      return 2; // success is lowest priority (best outcome)
+    if (PASS_CONCLUSIONS.has(conclusion)) {
+      return 2; // PASS conclusion (success/neutral/skipped/stale)
     }
 
-    return 1; // neutral / skipped / other keep the label
+    return 1; // neutral / other keeps the label until clarified
   };
 
   const resolveSuiteId = (run) => run?.check_suite?.id || run?.check_suite?.url || run?.id;
@@ -146,7 +149,8 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
       completed_at: run.completed_at,
     };
 
-    if (priority === 2 && (conclusion || '').toLowerCase() === 'success') {
+    const normalizedConclusion = (conclusion || '').toLowerCase();
+    if (priority === 2 && PASS_CONCLUSIONS.has(normalizedConclusion)) {
       result.success.push(name);
       continue;
     }
@@ -171,6 +175,7 @@ async function evaluateChecks({ github, owner, repo, sha, requiredChecks = REQUI
 module.exports = {
   evaluateChecks,
   REQUIRED_CHECKS: REQUIRED_DEFAULTS,
+  PASS_CONCLUSIONS,
 };
 
 async function withRetry(fn, attempts = DEFAULT_ATTEMPTS) {
