@@ -13,24 +13,50 @@ permissions:
   contents: read  # top-levelは最小権限を明示
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
+  group: security-permissions-lint-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 jobs:
-  noop-pr:
+  pr-noop:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - name: pull_request は No-op
-        run: 'echo "security-permissions-lint: pull_request は No-Op (success)"'
+        run: 'echo "PR noop (compat will overwrite seed)"'
 
       - name: PR向けサマリ
         run: |
           echo "## security-permissions-lint" >> $GITHUB_STEP_SUMMARY
-          echo "- 本処理は push(main) または workflow_dispatch で実行されます" >> $GITHUB_STEP_SUMMARY
+          echo "- PR では compat 用ノップを実行します" >> $GITHUB_STEP_SUMMARY
+          echo "- workflows / scripts / .github に変更がある場合のみ本処理(run-on-main)が実行されます" >> $GITHUB_STEP_SUMMARY
+
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.perm || 'false' }}
+    steps:
+      - name: Checkout
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+
+      - name: Detect permissions-related changes
+        if: ${{ github.event_name == 'pull_request' }}
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            perm:
+              - '.github/workflows/**'
+              - 'scripts/**'
+              - '.github/**'
+
+      - name: Skip change detection outside pull_request
+        if: ${{ github.event_name != 'pull_request' }}
+        run: echo "change detection not needed for ${{ github.event_name }}"
 
   run-on-main:
-    # push(main) もしくは workflow_dispatch(main) のときだけ本処理を実行
-    if: ${{ (github.event_name == 'push' && github.ref_name == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'main') }}
+    needs: [detect-changes]
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || needs.detect-changes.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -54,12 +80,14 @@ jobs:
         run: python scripts/workflow_permissions_lint.py
 
       - name: Append security review report
+        if: ${{ github.event_name != 'pull_request' && github.ref_name == 'main' }}
         run: |
           test -f docs/agile/.sec-review-row || echo "$(date +%F) | security-permissions-lint | auto | generated-by-workflow" > docs/agile/.sec-review-row
           row=$(cat docs/agile/.sec-review-row)
           echo "$row | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> docs/agile/report.md
 
       - name: Create docs-sync pull request
+        if: ${{ github.event_name != 'pull_request' && github.ref_name == 'main' }}
         uses: peter-evans/create-pull-request@v6
         with:
           branch: docs-sync/sec-review

@@ -1,21 +1,50 @@
 name: docs-index-validate
 
 on:
-  workflow_dispatch:
-  pull_request:
-    paths:
-      - 'docs/**'
-      - '.github/workflows/docs-index-validate.yml'
+  pull_request: {}
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: docs-index-${{ github.ref }}
-  cancel-in-progress: true
+  group: docs-index-validate-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: false
 
 jobs:
+  pr-noop:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - run: echo "PR noop (compat will overwrite seed)"
+
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.docs || 'false' }}
+    steps:
+      - name: Checkout
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+
+      - name: Detect docs-related changes
+        if: ${{ github.event_name == 'pull_request' }}
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            docs:
+              - 'docs/**'
+              - '.github/workflows/docs-index-validate.yml'
+
+      - name: Skip change detection outside pull_request
+        if: ${{ github.event_name != 'pull_request' }}
+        run: echo "change detection not needed for ${{ github.event_name }}"
+
   validate:
+    needs: [detect-changes]
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
