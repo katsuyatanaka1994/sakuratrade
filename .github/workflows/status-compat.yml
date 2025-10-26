@@ -1,0 +1,70 @@
+name: status-compat
+
+permissions:
+  contents: read
+  statuses: write
+
+on:
+  workflow_run:
+    workflows:
+      - docs-index-validate
+      - nfr-xref
+      - security-permissions-lint
+    types:
+      - completed
+
+concurrency:
+  group: status-compat-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  compat:
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Emit fixed commit status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const wr = context.payload.workflow_run;
+            const prs = wr.pull_requests || [];
+            if (!prs.length) {
+              core.info('No PR reference; skip status emit');
+              return;
+            }
+
+            const ctxMap = {
+              'docs-index-validate': 'docs-index-validate (pull_request)',
+              'nfr-xref': 'nfr-xref (pull_request)',
+              'security-permissions-lint': 'security-permissions-lint (pull_request)',
+            };
+            const contextName = ctxMap[wr.name];
+            if (!contextName) {
+              core.info(`No context mapping for workflow ${wr.name}`);
+              return;
+            }
+
+            const conclusion = (wr.conclusion || '').toLowerCase();
+            const successStates = new Set(['success','skipped','neutral','stale']);
+            const failureStates = new Set(['failure','timed_out','cancelled','action_required']);
+            let state = 'pending';
+            if (successStates.has(conclusion)) {
+              state = 'success';
+            } else if (failureStates.has(conclusion)) {
+              state = 'failure';
+            } else {
+              core.warning(`Unexpected conclusion: ${conclusion}; defaulting to pending`);
+            }
+
+            await github.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: wr.head_sha,
+              state,
+              context: contextName,
+              description: `status-compat: ${wr.name} -> ${state}`,
+            });
+
+            const summaryLine = `status-compat: PR #${prs[0].number} ctx=${contextName} state=${state}`;
+            core.info(summaryLine);
+            await core.summary.addRaw(summaryLine + '\n').write();
