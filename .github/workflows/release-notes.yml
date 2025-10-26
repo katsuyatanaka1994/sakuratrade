@@ -64,8 +64,9 @@ jobs:
           ' "$file" > tmp && mv tmp "$file"
 
       - name: Create GitHub App token
-        if: ${{ steps.diff.outputs.has_docs == 'true' }}
+        if: ${{ steps.diff.outputs.has_docs == 'true' && secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
         id: app-token
+        continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.GH_APP_ID }}
@@ -77,7 +78,7 @@ jobs:
         if: ${{ steps.diff.outputs.has_docs == 'true' }}
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           branch: docs-sync/release-notes
           title: "[skip docsync] docs: append release notes"
           commit-message: "chore(relnotes): append line for #${{ github.event.pull_request.number }}"
