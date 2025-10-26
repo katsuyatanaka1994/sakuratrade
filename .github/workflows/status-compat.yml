@@ -3,6 +3,7 @@ name: status-compat
 permissions:
   contents: read
   statuses: write
+  pull-requests: read
 
 on:
   workflow_run:
@@ -19,7 +20,12 @@ concurrency:
 
 jobs:
   compat:
-    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    if: >-
+      ${{
+        (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'workflow_dispatch') &&
+        github.event.workflow_run.repository.id == github.repository_id &&
+        !github.event.workflow_run.head_repository.fork
+      }}
     runs-on: ubuntu-latest
     steps:
       - name: Emit fixed commit status
@@ -27,9 +33,21 @@ jobs:
         with:
           script: |
             const wr = context.payload.workflow_run;
-            const prs = wr.pull_requests || [];
+            const { owner, repo } = context.repo;
+            const sha = wr.head_sha;
+
+            let prs = wr.pull_requests || [];
             if (!prs.length) {
-              core.info('No PR reference; skip status emit');
+              const res = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner,
+                repo,
+                commit_sha: sha,
+              });
+              prs = (res.data || []).filter(p => p.state === 'open');
+            }
+
+            if (!prs.length) {
+              core.info(`no open PR for ${sha}, skip status emit`);
               return;
             }
 
@@ -56,10 +74,10 @@ jobs:
               core.warning(`Unexpected conclusion: ${conclusion}; defaulting to pending`);
             }
 
-            await github.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: wr.head_sha,
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha,
               state,
               context: contextName,
               description: `status-compat: ${wr.name} -> ${state}`,
