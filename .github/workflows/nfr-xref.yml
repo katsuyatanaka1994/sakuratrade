@@ -15,18 +15,43 @@ permissions:
   contents: read
 
 concurrency:
-  group: "${{
-    (
-      (github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) ||
-      (github.event_name != 'pull_request' && startsWith((github.ref_name || github.ref), 'docs-sync/'))
-    )
-    && 'nfr-xref-docssync'
-    || format('nfr-xref-{0}', (github.event_name == 'pull_request' && github.head_ref) || (github.ref_name || github.ref))
-  }}"
+  group: nfr-xref-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: false
 
 jobs:
+  pr-noop:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - run: echo "PR noop (compat will overwrite seed)"
+
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.xref || 'false' }}
+    steps:
+      - name: Checkout
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+
+      - name: Detect xref-related changes
+        if: ${{ github.event_name == 'pull_request' }}
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            xref:
+              - 'docs/**'
+              - '.github/workflows/nfr-xref.yml'
+
+      - name: Skip change detection outside pull_request
+        if: ${{ github.event_name != 'pull_request' }}
+        run: echo "change detection not needed for ${{ github.event_name }}"
+
   xref:
+    needs: [detect-changes]
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
