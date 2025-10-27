@@ -21,11 +21,7 @@ jobs:
       contents: read
       actions: write
     env:
-      DOCSYNC_SKIP: ${{
-        (github.event_name == 'pull_request' &&
-          (startsWith(github.head_ref || '', 'docs-sync/') || contains(github.event.pull_request.title || '', '[skip docsync]')))
-        || (github.event_name != 'pull_request' && startsWith(github.ref_name || '', 'docs-sync/'))
-      }}
+      DOCSYNC_SKIP: ${{ ((github.event_name == 'pull_request') && (startsWith(github.head_ref || '', 'docs-sync/') || contains(github.event.pull_request.title || '', '[skip docsync]'))) || (github.event_name != 'pull_request' && startsWith(github.ref_name || '', 'docs-sync/')) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
