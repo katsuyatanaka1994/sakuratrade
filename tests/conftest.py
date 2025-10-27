@@ -20,16 +20,26 @@ async def dispose_async_engine() -> None:
 
 
 @pytest.fixture(scope="function", autouse=True)
-def verify_database_ready():
+def verify_database_ready(request: pytest.FixtureRequest):
+    if request.node.get_closest_marker("no_db"):
+        yield
+        return
+
     try:
         with sync_engine.connect() as conn:
             conn.execute(text("SELECT 1"))
     except Exception as exc:  # pragma: no cover - handled in test summary
         pytest.skip(f"PostgreSQL database is not reachable: {exc}")
+    else:
+        yield
 
 
 @pytest.fixture(autouse=True)
-def prepare_test_state():
+def prepare_test_state(request: pytest.FixtureRequest):
+    if request.node.get_closest_marker("no_db"):
+        yield
+        return
+
     try:
         with sync_engine.begin() as conn:
             exists = conn.scalar(text("SELECT to_regclass('public.chat_messages')"))
