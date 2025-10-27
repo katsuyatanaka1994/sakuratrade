@@ -178,3 +178,5 @@
 | 2025-10-26 | nfr-xref | fixdocs-sync/sec-review | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18817362713 |
 | sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18817379616
 | sec-review | NG | 5 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18831824430
+
+| 2025-10-27 | nfr-xref | main | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18831846790 |
