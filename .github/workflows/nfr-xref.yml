@@ -1,6 +1,9 @@
 name: nfr-xref
 on:
   pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       strict:
@@ -19,70 +22,78 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  pr-noop:
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - run: echo "PR noop (compat will overwrite seed)"
-
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.filter.outputs.xref || 'false' }}
-    steps:
-      - name: Checkout
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/checkout@v4
-
-      - name: Detect xref-related changes
-        if: ${{ github.event_name == 'pull_request' }}
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            xref:
-              - 'docs/**'
-              - '.github/workflows/nfr-xref.yml'
-
-      - name: Skip change detection outside pull_request
-        if: ${{ github.event_name != 'pull_request' }}
-        run: echo "change detection not needed for ${{ github.event_name }}"
-
   xref:
-    needs: [detect-changes]
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+    env:
+      DOCSYNC_SKIP: ${{
+        (github.event_name == 'pull_request' &&
+          (startsWith(github.head_ref || '', 'docs-sync/') || contains(github.event.pull_request.title || '', '[skip docsync]')))
+        || (github.event_name != 'pull_request' && startsWith(github.ref_name || '', 'docs-sync/'))
+      }}
     steps:
-      - name: No-op on docs-sync or skip-title PR
-        if: ${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) || (github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
-        run: 'echo "docs-sync/skip-title PR: no-op (success)"'
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - uses: actions/checkout@v4
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+      - name: Initialize diff gate for pull_request
+        if: ${{ github.event_name == 'pull_request' }}
+        run: echo "TARGET_HAS_CHANGES=false" >> $GITHUB_ENV
+
+      - name: Initialize diff gate for main/dispatch
+        if: ${{ github.event_name != 'pull_request' }}
+        run: echo "TARGET_HAS_CHANGES=true" >> $GITHUB_ENV
+
+      - name: Detect docs-related changes
+        if: ${{ github.event_name == 'pull_request' && env.DOCSYNC_SKIP != 'true' }}
+        id: detect
+        run: |
+          python scripts/detect_changed_files.py \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --patterns docs/** \
+                       .github/workflows/nfr-xref.yml \
+                       scripts/nfr_xref_check.py \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary-title "nfr-xref diff gate"
+
+      - name: Export diff result
+        if: ${{ github.event_name == 'pull_request' && env.DOCSYNC_SKIP != 'true' }}
+        run: echo "TARGET_HAS_CHANGES=${{ steps.detect.outputs.changed || 'false' }}" >> $GITHUB_ENV
+
+      - name: DocSync automation guard
+        if: ${{ env.DOCSYNC_SKIP == 'true' }}
+        run: |
+          echo "## nfr-xref" >> $GITHUB_STEP_SUMMARY
+          echo "- docs-sync branch or [skip docsync] title detected; skipping" >> $GITHUB_STEP_SUMMARY
+
+      - name: Diff gate summary
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES != 'true' }}
+        run: |
+          echo "## nfr-xref" >> $GITHUB_STEP_SUMMARY
+          echo "- diff gate: no matching docs files for pull_request" >> $GITHUB_STEP_SUMMARY
 
       - name: Setup Python
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install deps
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
-        run: python -m pip install --upgrade pip && pip install PyYAML
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
+        run: python -m pip install --upgrade pip PyYAML
 
       - name: Run NFR cross-reference
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         env:
           NFR_XREF_FAIL_STREAK: ${{ inputs.fail_streak || '2' }}
           NFR_XREF_STRICT: ${{ (github.event_name == 'workflow_dispatch' && inputs.strict) || 'false' }}
         run: python scripts/nfr_xref_check.py
 
       - name: Prepare docs-sync content
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' }}
         run: |
           if [ -f docs/agile/.nfr-xref-row ]; then
             row=$(cat docs/agile/.nfr-xref-row)
@@ -93,7 +104,7 @@ jobs:
           fi
 
       - name: Create GitHub App token
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' && secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
         id: app-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1
@@ -103,7 +114,7 @@ jobs:
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Create docs-sync PR ([skip docsync])
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' }}
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
@@ -124,6 +135,8 @@ jobs:
     permissions: { contents: read, pull-requests: write, issues: write }
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Report NFR xref failure
         uses: ./.github/actions/on-failure
         with:
