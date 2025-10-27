@@ -206,3 +206,10 @@
 - 権限: 追加ジョブは必要最小の `pull-requests: write` / `issues: write`（Issue 起票ジョブは `issues: write` のみ）。diff gate で PR 実行を絞っても権限スコープは拡大しない。
 - Slack 通知は任意: `on-failure` の `slack-webhook` 入力を指定した WF から流用可能。
 - docs:invalid の除去は pr-label-guard が総合判定で実施。一次WFは成功時に `triage:urgent` のみ除去して競合を回避。
+
+### DS-26 実装結果メモ（2025-10-27）
+- 共通差分ヘルパー `scripts/detect_changed_files.py` を追加し、`pytest -k detect_changed_files` で検証できるよう `pytest.mark.no_db` を導入した。これにより PR で軽量 diff gate を安定運用できる。
+- `docs-index-validate` / `nfr-xref` / `security-permissions-lint` は pull_request で差分チェックのみに切り替わり、`push(main)` と `workflow_dispatch(main)` では従来どおりフル実行と DocSync 連携を行う。
+- `status-compat-seed` / `status-compat` を調整し、diff gate が `skipped/neutral` でも自動で Success に上書きされるため Pending が残らない。
+- 影響手順を `docs/agile/runbooks/docs-ci-diff-gate.md`、Smoke チェックを `docs/_smoke/pending-free.md` に整理し、アジャイル索引 (`docs/agile/README-agile.md`) に Runbook を追加した。
+- GitHub App token が未設定の環境でもワークフローが構文エラーで落ちないよう、`GH_APP_TOKEN_READY` 環境変数でシークレット参照条件を統一した。
