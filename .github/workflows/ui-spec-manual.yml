@@ -17,6 +17,8 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+    env:
+      GH_APP_TOKEN_READY: ${{ (secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '') && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -31,7 +33,7 @@ jobs:
 
       - name: Create GitHub App token
         id: app-token
-        if: ${{ secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
+        if: ${{ env.GH_APP_TOKEN_READY == 'true' }}
         continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:

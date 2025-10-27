@@ -1,7 +1,10 @@
 name: docs-index-validate
 
 on:
-  pull_request: {}
+  pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch: {}
 
 permissions:
@@ -12,69 +15,78 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  pr-noop:
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - run: echo "PR noop (compat will overwrite seed)"
-
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.filter.outputs.docs || 'false' }}
-    steps:
-      - name: Checkout
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/checkout@v4
-
-      - name: Detect docs-related changes
-        if: ${{ github.event_name == 'pull_request' }}
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            docs:
-              - 'docs/**'
-              - '.github/workflows/docs-index-validate.yml'
-
-      - name: Skip change detection outside pull_request
-        if: ${{ github.event_name != 'pull_request' }}
-        run: echo "change detection not needed for ${{ github.event_name }}"
-
   validate:
-    needs: [detect-changes]
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: write
+    env:
+      DOCSYNC_SKIP: ${{ ((github.event_name == 'pull_request') && (startsWith(github.head_ref || '', 'docs-sync/') || contains(github.event.pull_request.title || '', '[skip docsync]'))) || (github.event_name != 'pull_request' && startsWith(github.ref_name || '', 'docs-sync/')) }}
     steps:
-      - name: No-op on docs-sync or skip-title PR
-        if: ${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) || (github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) || (github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
-        run: 'echo "docs-sync/skip-title PR: no-op (success)"'
-      - uses: actions/checkout@v4
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Initialize diff gate for pull_request
+        if: ${{ github.event_name == 'pull_request' }}
+        run: echo "TARGET_HAS_CHANGES=false" >> $GITHUB_ENV
+
+      - name: Initialize diff gate for main/dispatch
+        if: ${{ github.event_name != 'pull_request' }}
+        run: echo "TARGET_HAS_CHANGES=true" >> $GITHUB_ENV
+
+      - name: Detect docs-related changes
+        if: ${{ github.event_name == 'pull_request' && env.DOCSYNC_SKIP != 'true' }}
+        id: detect
+        run: |
+          python scripts/detect_changed_files.py \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --patterns docs/** \
+                       .github/workflows/docs-index-validate.yml \
+                       scripts/docs_index_validate.py \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary-title "docs-index diff gate"
+
+      - name: Export diff result
+        if: ${{ github.event_name == 'pull_request' && env.DOCSYNC_SKIP != 'true' }}
+        run: echo "TARGET_HAS_CHANGES=${{ steps.detect.outputs.changed || 'false' }}" >> $GITHUB_ENV
+
+      - name: DocSync automation guard
+        if: ${{ env.DOCSYNC_SKIP == 'true' }}
+        run: |
+          echo "## docs-index-validate" >> $GITHUB_STEP_SUMMARY
+          echo "- docs-sync branch or [skip docsync] title detected; skipping" >> $GITHUB_STEP_SUMMARY
+
+      - name: Diff gate summary
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES != 'true' }}
+        run: |
+          echo "## docs-index-validate" >> $GITHUB_STEP_SUMMARY
+          echo "- diff gate: no matching docs files for pull_request" >> $GITHUB_STEP_SUMMARY
+
       - uses: actions/setup-python@v5
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         with:
           python-version: '3.11'
+
       - name: Validate docs index & links
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         run: |
           python scripts/docs_index_validate.py || EXIT=$?
           echo "exit_code=${EXIT:-0}" >> $GITHUB_OUTPUT
           exit ${EXIT:-0}
+
       - name: Write summary
-        if: ${{ always() && !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+        if: ${{ always() && env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         run: |
           echo "## DS-14 Report" >> $GITHUB_STEP_SUMMARY
           test -f docs_index_report.json && jq -r '
             "[件数] " + ( .issues|length|tostring ) + "\n" +
             ( .issues[0:10] | map("- " + .kind + ": " + .note) | join("\n") )
           ' docs_index_report.json >> $GITHUB_STEP_SUMMARY || echo "No report"
+
       - uses: actions/upload-artifact@v4
-        if: ${{ always() && !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) }}
+        if: ${{ always() && env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         with:
           name: ds14-report
           path: docs_index_report.json
@@ -86,6 +98,8 @@ jobs:
     permissions: { contents: read, pull-requests: write, issues: write }
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Report docs index failure
         uses: ./.github/actions/on-failure
         with:

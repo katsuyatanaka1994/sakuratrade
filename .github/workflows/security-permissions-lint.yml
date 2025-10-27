@@ -16,78 +16,82 @@ concurrency:
   group: security-permissions-lint-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 jobs:
-  pr-noop:
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - name: pull_request は No-op
-        run: 'echo "PR noop (compat will overwrite seed)"'
-
-      - name: PR向けサマリ
-        run: |
-          echo "## security-permissions-lint" >> $GITHUB_STEP_SUMMARY
-          echo "- PR では compat 用ノップを実行します" >> $GITHUB_STEP_SUMMARY
-          echo "- workflows / scripts / .github に変更がある場合のみ本処理(run-on-main)が実行されます" >> $GITHUB_STEP_SUMMARY
-
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.filter.outputs.perm || 'false' }}
-    steps:
-      - name: Checkout
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/checkout@v4
-
-      - name: Detect permissions-related changes
-        if: ${{ github.event_name == 'pull_request' }}
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            perm:
-              - '.github/workflows/**'
-              - 'scripts/**'
-              - '.github/**'
-
-      - name: Skip change detection outside pull_request
-        if: ${{ github.event_name != 'pull_request' }}
-        run: echo "change detection not needed for ${{ github.event_name }}"
-
-  run-on-main:
-    needs: [detect-changes]
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || needs.detect-changes.outputs.changed == 'true' }}
+  lint:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
+    env:
+      DOCSYNC_SKIP: ${{ ((github.event_name == 'pull_request') && (startsWith(github.head_ref || '', 'docs-sync/') || contains(github.event.pull_request.title || '', '[skip docsync]'))) || (github.event_name != 'pull_request' && startsWith(github.ref_name || '', 'docs-sync/')) }}
+      GH_APP_TOKEN_READY: ${{ (secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '') && 'true' || 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Initialize diff gate for pull_request
+        if: ${{ github.event_name == 'pull_request' }}
+        run: echo "TARGET_HAS_CHANGES=false" >> $GITHUB_ENV
+
+      - name: Initialize diff gate for push/dispatch
+        if: ${{ github.event_name != 'pull_request' }}
+        run: echo "TARGET_HAS_CHANGES=true" >> $GITHUB_ENV
+
+      - name: Detect permission-related changes
+        if: ${{ github.event_name == 'pull_request' && env.DOCSYNC_SKIP != 'true' }}
+        id: detect
+        run: |
+          python scripts/detect_changed_files.py \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --patterns .github/workflows/** \
+                       scripts/** \
+                       .github/** \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary-title "security-permissions diff gate"
+
+      - name: Export diff result
+        if: ${{ github.event_name == 'pull_request' && env.DOCSYNC_SKIP != 'true' }}
+        run: echo "TARGET_HAS_CHANGES=${{ steps.detect.outputs.changed || 'false' }}" >> $GITHUB_ENV
+
+      - name: DocSync automation guard
+        if: ${{ env.DOCSYNC_SKIP == 'true' }}
+        run: |
+          echo "## security-permissions-lint" >> $GITHUB_STEP_SUMMARY
+          echo "- docs-sync branch or [skip docsync] title detected; skipping" >> $GITHUB_STEP_SUMMARY
+
+      - name: Diff gate summary
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES != 'true' }}
+        run: |
+          echo "## security-permissions-lint" >> $GITHUB_STEP_SUMMARY
+          echo "- diff gate: no relevant workflow/script changes" >> $GITHUB_STEP_SUMMARY
 
       - name: Setup Python
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         run: python -m pip install --upgrade pip PyYAML
 
       - name: Run workflow permissions lint
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         env:
           SEC_LINT_STRICT: "false"  # Warn運用
         run: python scripts/workflow_permissions_lint.py
 
       - name: Append security review report
-        if: ${{ github.event_name != 'pull_request' && github.ref_name == 'main' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' && github.ref_name == 'main' }}
         run: |
           test -f docs/agile/.sec-review-row || echo "$(date +%F) | security-permissions-lint | auto | generated-by-workflow" > docs/agile/.sec-review-row
           row=$(cat docs/agile/.sec-review-row)
           echo "$row | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> docs/agile/report.md
 
       - name: Create GitHub App token
-        if: ${{ github.event_name != 'pull_request' && github.ref_name == 'main' && secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' && github.ref_name == 'main' && env.GH_APP_TOKEN_READY == 'true' }}
         id: app-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1
@@ -97,7 +101,7 @@ jobs:
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Create docs-sync pull request
-        if: ${{ github.event_name != 'pull_request' && github.ref_name == 'main' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' && github.ref_name == 'main' }}
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
@@ -109,9 +113,21 @@ jobs:
           labels: "docsync:needs-apply"
           delete-branch: true
 
+      - name: PR向けサマリ
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "## security-permissions-lint" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ env.DOCSYNC_SKIP }}" = "true" ]; then
+            echo "- docs-sync automation detected" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ env.TARGET_HAS_CHANGES }}" != "true" ]; then
+            echo "- diff gate skipped: no relevant files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- diff gate matched relevant files; lint executed" >> $GITHUB_STEP_SUMMARY
+          fi
+
   report-failure:
-    needs: [run-on-main]
-    if: ${{ needs.run-on-main.result == 'failure' && ((github.event_name == 'push' && github.ref_name == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'main')) }}
+    needs: [lint]
+    if: ${{ needs.lint.result == 'failure' && ((github.event_name == 'push' && github.ref_name == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'main')) }}
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -146,8 +162,8 @@ jobs:
             }
 
   report-success:
-    needs: [run-on-main]
-    if: ${{ needs.run-on-main.result == 'success' && ((github.event_name == 'push' && github.ref_name == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'main')) }}
+    needs: [lint]
+    if: ${{ needs.lint.result == 'success' && ((github.event_name == 'push' && github.ref_name == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'main')) }}
     runs-on: ubuntu-latest
     permissions:
       issues: write

@@ -154,26 +154,26 @@
 ## DS-26: 無料プランにおける CI ソフトガード方針
 
 ### 目的
-- **PR は軽く緑（No-Op）**、**本処理は push(main)**（＋必要時の **workflow_dispatch(main)**）でのみ実行。
-- Private Free で Branch protection を強制できない制約下でも、**止まらない CI と可視化**を担保する。
+- **PR は差分限定の軽量チェック**、**main(push/dispatch) で全量検証**という 2 レーンを確立し、無料プランでも Required check 状態を維持する。
+- Private Free で Branch protection を強制できない制約下でも、**Pending を残さずに結果を可視化**し続ける。
 
 ### 設計（要点）
-- Workflow: `.github/workflows/security-permissions-lint.yml`
-  - **イベント分離**: `noop-pr`（`pull_request`）＝No-Op Success、`run-on-main`＝本処理。
-  - **実行条件**: `run-on-main` は  
-    `if: (event == push && ref == main) || (event == workflow_dispatch && ref == main)`  
-    ※将来 `release/**` を守る場合は `branches` と `if` の両方を拡張。
-  - **paths**: `on.push.paths = .github/workflows/**, scripts/**`（WF/スクリプト変更で本処理を再実行）
-  - **permissions**: ルート `contents: read`、本処理ジョブのみ `contents: write`, `pull-requests: write`
-  - **concurrency**: `group = ${{ github.workflow }}-${{ github.ref_name }}`, `cancel-in-progress: true`
-  - **timeout**: `timeout-minutes: 15`
-  - **出力**: `docs/agile/report.md` に追記。`docs/agile/.sec-review-row` が無い場合はフォールバック生成  
-    **注意**: `report.md` は `on.push.paths` に含めない（**マージで再トリガーしない**）
-  - **Create PR**: `peter-evans/create-pull-request` で `docs-sync/sec-review` を作成（`base: ${{ github.ref_name }}`, `labels: docsync:needs-apply`）
+- 対象 WF: `.github/workflows/docs-index-validate.yml`, `nfr-xref.yml`, `security-permissions-lint.yml`
+  - 3 つの WF で `scripts/detect_changed_files.py` を共有し、`pull_request` イベントで `docs/**` / `.github/**` / `scripts/**` など対象パスのみを diff 判定する。
+  - `DocSync` 由来 (`docs-sync/**` / `[skip docsync]`) の PR はステップ先頭で short-circuit し、生成 PR に余計なチェックを付けない。
+  - diff が空なら Step Summary へ「diff gate skipped」を追記した上で success 扱い。対象がある場合のみ `setup-python` や linter を実行する。
+  - `push: main` と `workflow_dispatch` では diff に関係なくフル検証＋ docs-sync PR 生成を行い、これまでのレポート／Issue フローを維持する。
+  - すべての `actions/checkout@v4` は `fetch-depth: 0` でベース SHA を取得できるようにする。
+- `status-compat-seed` は Required context を pending で seed し、Summary に「PR diff gate / main full run」前提を明示する。
+- `status-compat` は `workflow_run` の `skipped` / `neutral` / `stale` を success に昇格させ、Context 説明にも diff gate 方針を記す。
+- フル検証が必要な場合は `Actions → <workflow> → Run workflow` から `workflow_dispatch` (target: main) を叩く。手順は `docs/agile/runbooks/docs-ci-diff-gate.md` に一本化する。
 
 ### 運用ルール
 - マージ方式は **Squash** を基本
-- PR テンプレ冒頭: **「CI確認：docs-index / nfr-xref / security-permissions-lint の3チェックが緑」**
+- PR テンプレ冒頭: **「CI確認：docs-index / nfr-xref / security-permissions-lint(diff gate) が緑」**
+- DocSync 生成 PR と `[skip docsync]` タイトルは diff gate ステップで終了させ、`status-compat` が pending を success 化する。
+- diff gate のヒット条件や対象パスは必ず `scripts/detect_changed_files.py` でメンテし、直接 `dorny/paths-filter` を触らない。
+- **Fallback**: diff gate が false だがフル確認したい場合、あるいは main push が失敗した場合は `workflow_dispatch(main)` で rerun → `status-compat` により 3 context が Success になるかを確認する。
 - **DS-27 補強**  
   - docs 変更が無い場合はラベルを外した状態を維持し、自動で `docs:invalid` が付かないようにする。  
   - docs 変更かつ **いずれかの必須チェックが failure/timed_out/cancelled** または **workflow_run 自体が非 success** のときだけ `docs:invalid` を自動付与し Draft 化。  
@@ -182,15 +182,14 @@
   - **即時フォールバック**: `docs:invalid` のまま merged なら Issue＋Slack/Webhook 通知  
   - （任意）週次監査で取りこぼし検出
 
-### 受け入れ基準（Acceptance）
-- PR作成: `noop-pr` が Success（サマリに「本処理は main push/dispatch」）
-- `workflow_dispatch(main)`: `run-on-main` が **lint → report追記 → docs-sync PR作成** まで完走
-- main への push でも同様に本処理が走る
-- 連続実行で古い Run が **Cancelled**／新しい Run が **Success**
-- `report.md` の運用（重複抑止はRun URLで判断 or レビューで確認）
+- PR 作成: diff gate ステップが Summary に対象／対象外を記録し、`status-compat` context が Success まで遷移する。
+- `workflow_dispatch(main)` と `push(main)` の両方で **lint → report 追記 → docs-sync PR 作成** まで完走し、`docs/agile/report.md` に Run URL が追記される。
+- DocSync PR / `[skip docsync]` PR では diff gate が即時 Success になり、Pending が残らない。
+- `scripts/detect_changed_files.py` の pytest が通り、DB 依存テストへの影響が無いこと（`pytest -k detect_changed_files`）。
+- `docs/_smoke/pending-free.md` の手順で Pending が再発しないことを確認できる。
 
 ### 将来の切替（Team/Pro へ移行時）
-- `noop-pr` を廃止し、PR側で本処理を実行  
+- diff gate を廃止し、PR 側で常にフル処理を実行（`scripts/detect_changed_files.py` は他 Workflow 向け Utility として残す）
 - Branch protection（Required checks）を有効化  
 - 必要に応じて `branches` / `if` を `release/**` に拡張
 
@@ -204,6 +203,6 @@
 - 対象: `docs-index-validate.yml`, `nfr-xref.yml`, `code-quality.yml`, `security-permissions-lint.yml`。
 - 失敗時: 共通アクション `.github/actions/on-failure` が PR へコメント＆カテゴリ別ラベルを付与。既に同ラベルが付いている再失敗は `triage:urgent` で格上げする。
 - 成功時: 上記ラベル（`docs:invalid` / `ci:fail` / `triage:urgent`）を自動除去し、`security-permissions-lint` は発行済みの `triage:urgent` Issue をクローズする。
-- 権限: 追加ジョブは必要最小の `pull-requests: write` / `issues: write`（Issue 起票ジョブは `issues: write` のみ）。既存の No-Op や concurrency ガードは変更しない。
+- 権限: 追加ジョブは必要最小の `pull-requests: write` / `issues: write`（Issue 起票ジョブは `issues: write` のみ）。diff gate で PR 実行を絞っても権限スコープは拡大しない。
 - Slack 通知は任意: `on-failure` の `slack-webhook` 入力を指定した WF から流用可能。
 - docs:invalid の除去は pr-label-guard が総合判定で実施。一次WFは成功時に `triage:urgent` のみ除去して競合を回避。

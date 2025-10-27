@@ -18,6 +18,8 @@ jobs:
     # success/failure のときだけ実行（skipped/cancelled を除外）
     if: ${{ contains(fromJson('["success","failure"]'), github.event.workflow_run.conclusion) }}
     runs-on: ubuntu-latest
+    env:
+      GH_APP_TOKEN_READY: ${{ (secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '') && 'true' || 'false' }}
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
@@ -79,7 +81,7 @@ jobs:
           cat row.txt >> docs/agile/report.md
 
       - name: Create GitHub App token
-        if: ${{ steps.artifacts.outputs.has_plan == 'true' && secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
+        if: ${{ steps.artifacts.outputs.has_plan == 'true' && env.GH_APP_TOKEN_READY == 'true' }}
         id: app-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1

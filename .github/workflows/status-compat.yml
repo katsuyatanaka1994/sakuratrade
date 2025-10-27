@@ -80,9 +80,9 @@ jobs:
               sha,
               state,
               context: contextName,
-              description: `status-compat: ${wr.name} -> ${state}`,
+              description: `status-compat: ${wr.name} (diff gate) -> ${state}`,
             });
 
-            const summaryLine = `status-compat: PR #${prs[0].number} ctx=${contextName} state=${state}`;
+            const summaryLine = `status-compat: PR #${prs[0].number} ctx=${contextName} state=${state} (diff gate on PR, full run on main)`;
             core.info(summaryLine);
             await core.summary.addRaw(summaryLine + '\n').write();
