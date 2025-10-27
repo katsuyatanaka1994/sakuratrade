@@ -1,4 +1,4 @@
-name: docsync-report-append
+name: DocSync Report Append
 
 on:
   workflow_run:

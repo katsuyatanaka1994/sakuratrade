@@ -1,4 +1,4 @@
-name: ui-spec-manual
+name: Docs: UI Spec Manual
 on:
   workflow_dispatch:
     inputs:
