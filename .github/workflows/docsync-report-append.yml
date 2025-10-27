@@ -63,10 +63,21 @@ jobs:
               rp.write_text(txt.rstrip() + "\n" + line + "\n", encoding="utf-8")
           PY
 
+      - name: Create GitHub App token
+        id: app-token
+        if: ${{ secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          installation-id: ${{ secrets.GH_INSTALLATION_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
       - name: Create PR for report line
         uses: peter-evans/create-pull-request@v6
         continue-on-error: true
         with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           branch: docs-sync/report-${{ github.run_id }}
           title: "[skip docsync] docs: append DocSync report line"
           commit-message: "docs(auto): append report line from docsync-check run"

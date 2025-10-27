@@ -28,9 +28,20 @@ jobs:
           INPUT_SUMMARY: ${{ github.event.inputs.summary }}
           INPUT_NOTES:   ${{ github.event.inputs.notes }}
         run: python scripts/ui_spec_manual.py
+
+      - name: Create GitHub App token
+        id: app-token
+        if: ${{ secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          installation-id: ${{ secrets.GH_INSTALLATION_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
       - name: Create PR
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           commit-message: "docs(ui-spec): manual update for ${{ github.event.inputs.screen }}"
           title: "docs(ui-spec): ${{ github.event.inputs.screen }}"
           body: "UI spec manual update via workflow_dispatch."

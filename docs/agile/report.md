@@ -176,3 +176,4 @@
 | 2025-10-25 | nfr-xref | chore/ds16-cleanup-merge-ref | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18802789151 |
 
 | 2025-10-26 | nfr-xref | fixdocs-sync/sec-review | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18817362713 |
+| sec-review | NG | 3 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18817379616

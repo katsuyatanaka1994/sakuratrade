@@ -92,10 +92,21 @@ jobs:
             echo "no .nfr-xref-row (skip append)"
           fi
 
+      - name: Create GitHub App token
+        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
+        id: app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          installation-id: ${{ secrets.GH_INSTALLATION_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
       - name: Create docs-sync PR ([skip docsync])
         if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'docs-sync/')) && !(github.event_name != 'pull_request' && startsWith(github.ref_name, 'docs-sync/')) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.title, '[skip docsync]')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           branch: docs-sync/nfr-xref
           base: main
           title: "[skip docsync] chore(docs): append DS-15 nfr-xref result"
