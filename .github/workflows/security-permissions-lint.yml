@@ -24,6 +24,7 @@ jobs:
       pull-requests: write
     env:
       DOCSYNC_SKIP: ${{ ((github.event_name == 'pull_request') && (startsWith(github.head_ref || '', 'docs-sync/') || contains(github.event.pull_request.title || '', '[skip docsync]'))) || (github.event_name != 'pull_request' && startsWith(github.ref_name || '', 'docs-sync/')) }}
+      GH_APP_TOKEN_READY: ${{ (secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '') && 'true' || 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,7 +91,7 @@ jobs:
           echo "$row | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> docs/agile/report.md
 
       - name: Create GitHub App token
-        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' && github.ref_name == 'main' && secrets.GH_APP_ID != '' && secrets.GH_INSTALLATION_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' && github.ref_name == 'main' && env.GH_APP_TOKEN_READY == 'true' }}
         id: app-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1
