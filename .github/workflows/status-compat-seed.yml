@@ -40,11 +40,12 @@ jobs:
                 sha,
                 state: 'pending',
                 context: ctx,
-                description: 'seed (awaiting validator results)',
+                description: 'seed (PR diff gate pending full run)',
               });
             }
 
             await core.summary
               .addHeading('status-compat-seed')
               .addList(contexts.map((ctx) => `seeded: ${ctx} = pending @ ${sha.substring(0, 7)}`))
+              .addRaw('\nPR diff gate only checks changed paths; push/workflow_dispatch(main) perform full validations.\n')
               .write();
