@@ -1,4 +1,4 @@
-name: NFR Cross-Reference
+name: nfr-xref
 on:
   pull_request:
   workflow_dispatch:
