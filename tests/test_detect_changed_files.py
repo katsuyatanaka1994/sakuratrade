@@ -4,9 +4,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from scripts import detect_changed_files
-
 
 pytestmark = pytest.mark.no_db
 
