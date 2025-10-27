@@ -58,9 +58,7 @@ def _run_git_diff(repo: Path, base: str, head: str) -> list[str]:
             text=True,
         )
     except subprocess.CalledProcessError as exc:  # pragma: no cover - defensive path
-        raise GitDiffError(
-            f"git diff failed for base={base!r} head={head!r}: {exc.stderr or exc}"
-        ) from exc
+        raise GitDiffError(f"git diff failed for base={base!r} head={head!r}: {exc.stderr or exc}") from exc
 
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
