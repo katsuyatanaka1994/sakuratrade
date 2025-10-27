@@ -15,4 +15,7 @@
 - 2025-10-24 #274 docs(test): relnotes auto-merge smoke (MANUAL note) by @katsuyatanaka1994 (1 docs)
 - 2025-10-24 #277 Chore/ds 24 release notes manual by @katsuyatanaka1994 (1 docs)
 - 2025-10-24 #281 Feat/ds 16 fail handling by @katsuyatanaka1994 (2 docs)
+- 2025-10-26 #367 ci(ds16): guard handles both add/remove with PASS & tri-state by @katsuyatanaka1994 (1 docs)
+- 2025-10-26 #371 Add asyncpg dependency by @katsuyatanaka1994 (1 docs)
+- 2025-10-26 #372 Docs/live api tests by @katsuyatanaka1994 (1 docs)
 <!-- AUTO:END -->
