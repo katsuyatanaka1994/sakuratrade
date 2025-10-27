@@ -1,4 +1,4 @@
-name: docsync-aggregate
+name: DocSync Aggregate
 on:
   workflow_run:
     workflows: ["docsync-check"]

@@ -1,4 +1,4 @@
-name: release-notes
+name: Docs: Release Notes Append
 
 concurrency:
   group: relnotes-global

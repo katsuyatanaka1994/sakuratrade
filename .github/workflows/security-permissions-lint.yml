@@ -1,4 +1,4 @@
-name: security-permissions-lint
+name: Security Permissions Lint
 on:
   pull_request:
   workflow_dispatch:

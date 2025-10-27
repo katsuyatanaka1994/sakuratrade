@@ -1,4 +1,4 @@
-name: Generate Implementation Details (AUTO)
+name: Docs: Implementation Details (AUTO)
 
 on:
   workflow_dispatch:
