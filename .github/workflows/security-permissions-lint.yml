@@ -123,6 +123,7 @@ jobs:
             echo "- diff gate skipped: no relevant files" >> $GITHUB_STEP_SUMMARY
           else
             echo "- diff gate matched relevant files; lint executed" >> $GITHUB_STEP_SUMMARY
+          fi
 
   report-failure:
     needs: [lint]
