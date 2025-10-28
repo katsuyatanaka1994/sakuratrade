@@ -291,7 +291,7 @@ jobs:
         id: create-pr
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
           branch: docs-sync/plan
           commit-message: "chore(plan): sync plan AUTO sections"
           title: "[plan-sync] docs: update plan auto sections"
