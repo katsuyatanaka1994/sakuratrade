@@ -23,3 +23,8 @@ docs_changed:
     - path: docs/agile/review.md
       sections: ['review.meta']
 
+plan_changed:
+  targets:
+    - path: docs/agile/plan.md
+      sections: ['plan.meta', 'plan.inputs', 'plan.outputs', 'plan.tasks']
+

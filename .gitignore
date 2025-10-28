@@ -35,3 +35,9 @@ doc_sync_plan.json
 
 # UI PoC artifacts
 artifacts/
+
+# Personal planning notes
+katsuya-plan/
+
+# Codex guidelines
+docs/codex-guidelines.md
