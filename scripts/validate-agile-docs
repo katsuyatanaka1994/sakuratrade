@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Validate agile documents (currently focuses on docs/agile/plan.md)."""
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+PLAN_PATH = Path("docs/agile/plan.md")
+
+
+def load_text(path: Path) -> str:
+    if not path.exists():
+        print(f"::error file={path}::ファイルが見つかりません。 ({path})")
+        sys.exit(1)
+    return path.read_text(encoding="utf-8")
+
+
+def ensure(condition: bool, message: str, path: Path, errors: list[str]) -> None:
+    if not condition:
+        errors.append(f"::error file={path}::{message}")
+
+
+def validate_plan(path: Path) -> list[str]:
+    text = load_text(path)
+    errors: list[str] = []
+
+    # 1. MANUAL / AUTO レイヤーの見出しが存在するか
+    required_headings = [
+        "## MANUALレイヤー（人の判断・意図）",
+        "## AUTOレイヤー（Codex管理セクション）",
+        "### タスク設計ルール",
+        "### acceptance.checks（最低ライン）",
+    ]
+    for heading in required_headings:
+        ensure(heading in text, f"見出し '{heading}' が存在しません。", path, errors)
+
+    # 2. AUTO ブロックの BEGIN/END が対応しているか
+    begin_count = len(re.findall(r"<!--\s*AUTO:BEGIN", text))
+    end_count = len(re.findall(r"<!--\s*AUTO:END", text))
+    ensure(
+        begin_count == end_count,
+        f"AUTO ブロックの BEGIN({begin_count}) / END({end_count}) が不一致です。",
+        path,
+        errors,
+    )
+
+    # 3. plan_snapshot_id 項目がメタデータ内に存在するか
+    ensure(
+        "- plan_snapshot_id:" in text,
+        "メタデータに 'plan_snapshot_id' の項目がありません。",
+        path,
+        errors,
+    )
+
+    # 4. 必須フィールドに acceptance が含まれているか
+    ensure(
+        "必須フィールド：`refs / outputs / acceptance / gate / deps / risk / rollback`" in text,
+        "タスクの必須フィールドに acceptance が含まれていません。",
+        path,
+        errors,
+    )
+
+    # 5. acceptance テーブルの主要列が存在するか
+    ensure(
+        "| タスク軸 / 代表outputs | 必須コマンド例 | 備考 |" in text,
+        "acceptance.checks テーブルが壊れている可能性があります。",
+        path,
+        errors,
+    )
+
+    return errors
+
+
+def main() -> None:
+    errors = validate_plan(PLAN_PATH)
+    if errors:
+        for message in errors:
+            print(message)
+        sys.exit(1)
+    print("docs/agile/plan.md: OK")
+
+
+if __name__ == "__main__":
+    main()
