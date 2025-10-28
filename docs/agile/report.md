@@ -196,3 +196,5 @@
 
 | 2025-10-28 | nfr-xref | main | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18867360014 |
 | 2025-10-28 | docsync-check | openapi.yaml | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18868572403 |
+| 2025-10-28 | docsync-check | main | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18868579671 |
+| sec-review | NG | 5 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18868848859
