@@ -44,6 +44,27 @@ jobs:
         if: ${{ github.event_name != 'pull_request' }}
         run: echo "TARGET_HAS_CHANGES=true" >> $GITHUB_ENV
 
+      - name: Guard auto-generated append loop
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          skip=false
+          if [ "${{ github.actor }}" = "github-actions[bot]" ]; then
+            skip=true
+          fi
+          case "${{ github.event.head_commit.message }}" in
+            *"[skip docsync]"*)
+              skip=true
+              ;;
+          esac
+          if [ "$skip" = true ]; then
+            {
+              echo "## nfr-xref"
+              echo "- auto-guard: skipped append for bot/[skip docsync] commit"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "AUTO_APPEND_SKIP=true" >> "$GITHUB_ENV"
+            echo "TARGET_HAS_CHANGES=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Detect docs-related changes
         if: ${{ github.event_name == 'pull_request' && env.DOCSYNC_SKIP != 'true' }}
         id: detect
@@ -73,24 +94,24 @@ jobs:
           echo "- diff gate: no matching docs files for pull_request" >> $GITHUB_STEP_SUMMARY
 
       - name: Setup Python
-        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.AUTO_APPEND_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install deps
-        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.AUTO_APPEND_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         run: python -m pip install --upgrade pip PyYAML
 
       - name: Run NFR cross-reference
-        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.AUTO_APPEND_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' }}
         env:
           NFR_XREF_FAIL_STREAK: ${{ inputs.fail_streak || '2' }}
           NFR_XREF_STRICT: ${{ (github.event_name == 'workflow_dispatch' && inputs.strict) || 'false' }}
         run: python scripts/nfr_xref_check.py
 
       - name: Prepare docs-sync content
-        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.AUTO_APPEND_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' }}
         run: |
           if [ -f docs/agile/.nfr-xref-row ]; then
             row=$(cat docs/agile/.nfr-xref-row)
@@ -101,7 +122,7 @@ jobs:
           fi
 
       - name: Create GitHub App token
-        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' && env.GH_APP_TOKEN_READY == 'true' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.AUTO_APPEND_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' && env.GH_APP_TOKEN_READY == 'true' }}
         id: app-token
         continue-on-error: true
         uses: actions/create-github-app-token@v1
@@ -111,7 +132,7 @@ jobs:
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Create docs-sync PR ([skip docsync])
-        if: ${{ env.DOCSYNC_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' }}
+        if: ${{ env.DOCSYNC_SKIP != 'true' && env.AUTO_APPEND_SKIP != 'true' && env.TARGET_HAS_CHANGES == 'true' && github.event_name != 'pull_request' }}
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
