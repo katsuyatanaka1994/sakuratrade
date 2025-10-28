@@ -1,0 +1,303 @@
+name: plan-sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'Pull request number to sync (optional)'
+        required: false
+        type: string
+      branch:
+        description: 'Branch to run on when PR is not specified (default: main)'
+        required: false
+        type: string
+  pull_request_target:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sync:
+    name: plan-sync
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' && github.event.action == 'labeled') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request)
+    concurrency:
+      group: plan-sync-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || github.event_name == 'issue_comment' && github.event.issue.number || github.event_name == 'workflow_dispatch' && (inputs.pr || inputs.branch || github.ref) || github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve run context
+        id: context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { context, core, github } = require('@actions/github');
+            const event = context.eventName;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const set = (key, value) => core.setOutput(key, value ?? '');
+
+            if (event === 'workflow_dispatch') {
+              const prInput = core.getInput('pr');
+              const branchInput = core.getInput('branch');
+              if (prInput) {
+                const prNumber = Number(prInput);
+                const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                set('should_run', 'true');
+                set('pr_number', String(prNumber));
+                set('checkout_ref', `refs/pull/${prNumber}/head`);
+                set('base_ref', pr.data.base.ref);
+                set('base_sha', pr.data.base.sha ?? '');
+                set('head_ref', pr.data.head.ref);
+                return;
+              }
+              const inferredBranch = branchInput || context.ref.replace('refs/heads/', '');
+              set('should_run', 'true');
+              set('pr_number', '');
+              set('checkout_ref', `refs/heads/${inferredBranch}`);
+              set('base_ref', 'main');
+              set('base_sha', '');
+              set('head_ref', inferredBranch);
+              return;
+            }
+
+            if (event === 'pull_request_target') {
+              const pr = context.payload.pull_request;
+              const label = context.payload.label?.name;
+              if (context.payload.action !== 'labeled' || label !== 'plan:sync') {
+                set('should_run', 'false');
+                set('reason', 'label condition not met');
+                return;
+              }
+              if (pr.head.ref === 'docs-sync/plan') {
+                set('should_run', 'false');
+                set('reason', 'plan branch self-trigger');
+                return;
+              }
+              set('should_run', 'true');
+              set('pr_number', String(pr.number));
+              set('checkout_ref', `refs/pull/${pr.number}/head`);
+              set('base_ref', pr.base.ref);
+              set('base_sha', pr.base.sha ?? '');
+              set('head_ref', pr.head.ref);
+              return;
+            }
+
+            if (event === 'issue_comment') {
+              const prLink = context.payload.issue.pull_request;
+              const body = (context.payload.comment.body || '').trim();
+              if (!prLink) {
+                set('should_run', 'false');
+                set('reason', 'not a PR comment');
+                return;
+              }
+              if (!/^\/plan\s+sync\b/i.test(body)) {
+                set('should_run', 'false');
+                set('reason', 'no slash command');
+                return;
+              }
+              const prNumber = context.payload.issue.number;
+              const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+              if (pr.data.head.ref === 'docs-sync/plan') {
+                set('should_run', 'false');
+                set('reason', 'plan branch self-trigger');
+                return;
+              }
+              set('should_run', 'true');
+              set('pr_number', String(prNumber));
+              set('checkout_ref', `refs/pull/${prNumber}/head`);
+              set('base_ref', pr.data.base.ref);
+              set('base_sha', pr.data.base.sha ?? '');
+              set('head_ref', pr.data.head.ref);
+              return;
+            }
+
+            set('should_run', 'false');
+            set('reason', `unsupported event: ${event}`);
+
+      - name: Skip (no action required)
+        if: steps.context.outputs.should_run != 'true'
+        run: |
+          echo "plan-sync skipped: ${{ steps.context.outputs.reason || 'condition not met' }}"
+
+      - name: Create GitHub App token
+        if: steps.context.outputs.should_run == 'true'
+        id: app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          installation-id: ${{ secrets.GH_INSTALLATION_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Checkout target revision
+        if: steps.context.outputs.should_run == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.context.outputs.checkout_ref }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Configure git user
+        if: steps.context.outputs.should_run == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch base ref
+        if: steps.context.outputs.should_run == 'true' && steps.context.outputs.base_ref != ''
+        run: |
+          git fetch --no-tags --prune --depth=1 origin "${{ steps.context.outputs.base_ref }}" || true
+          if [ -n "${{ steps.context.outputs.base_sha }}" ]; then
+            git fetch --no-tags --prune --depth=1 origin "${{ steps.context.outputs.base_sha }}" || true
+          fi
+
+      - name: Setup Python
+        if: steps.context.outputs.should_run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install minimal dependencies
+        if: steps.context.outputs.should_run == 'true'
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install PyYAML==6.0.2
+
+      - name: Run plan preflight & apply
+        if: steps.context.outputs.should_run == 'true'
+        run: |
+          set -euo pipefail
+          python3 scripts/plan_cli.py preflight
+          python3 scripts/plan_cli.py apply
+
+      - name: Validate plan diff
+        if: steps.context.outputs.should_run == 'true'
+        id: validate
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          args=()
+          if [ -n "${{ steps.context.outputs.base_sha }}" ]; then
+            args+=("--base-sha" "${{ steps.context.outputs.base_sha }}")
+          fi
+          python3 scripts/validate-agile-docs "${args[@]}" --manual-diff-report tmp/manual_diff.txt
+
+      - name: Upload manual diff detail
+        if: always() && steps.context.outputs.should_run == 'true' && steps.validate.outcome == 'failure' && hashFiles('tmp/manual_diff.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-manual-diff
+          path: tmp/manual_diff.txt
+
+      - name: Comment manual diff guidance
+        if: always() && steps.context.outputs.should_run == 'true' && steps.validate.outcome == 'failure' && hashFiles('tmp/manual_diff.txt') != '' && steps.context.outputs.pr_number != ''
+        uses: actions/github-script@v7
+        env:
+          TARGET_PR: ${{ steps.context.outputs.pr_number }}
+        with:
+          script: |
+            const fs = require('fs');
+            const diff = fs.readFileSync('tmp/manual_diff.txt', 'utf-8');
+            const truncated = diff.length > 6000 ? diff.slice(0, 6000) + '\n...[truncated]...' : diff;
+            const body = [
+              '⚠️ **plan.md の MANUAL 節に差分が検出されました。**',
+              '',
+              '- `manual-accept` ラベルを付与すると MANUAL 差分を許容できます。',
+              '- 意図しない差分であればローカルで差分を破棄して再実行してください。',
+              '',
+              '```diff',
+              truncated,
+              '```',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.TARGET_PR),
+              body,
+            });
+
+      - name: Fail when validation failed
+        if: steps.context.outputs.should_run == 'true' && steps.validate.outcome == 'failure'
+        run: exit 1
+
+      - name: Show doc_sync_plan
+        if: steps.context.outputs.should_run == 'true'
+        run: |
+          if [ -f doc_sync_plan.json ]; then
+            cat doc_sync_plan.json
+          fi
+
+      - name: Detect plan changes
+        if: steps.context.outputs.should_run == 'true'
+        id: changes
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- docs/agile/plan.md doc_sync_plan.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment no-op result
+        if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed != 'true' && steps.context.outputs.pr_number != ''
+        uses: actions/github-script@v7
+        env:
+          TARGET_PR: ${{ steps.context.outputs.pr_number }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.TARGET_PR),
+              body: 'ℹ️ plan-sync を実行しましたが、自動更新が必要な差分はありませんでした (No-Op)。'
+            });
+
+      - name: Create / update plan PR
+        if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed == 'true'
+        id: create-pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          branch: docs-sync/plan
+          commit-message: "chore(plan): sync plan AUTO sections"
+          title: "[plan-sync] docs: update plan auto sections"
+          body: |
+            Automated plan sync run.
+
+            - Trigger: ${{ github.event_name }}
+            - Source ref: `${{ steps.context.outputs.head_ref }}`
+            ${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}
+          draft: true
+          add-paths: |
+            docs/agile/plan.md
+            doc_sync_plan.json
+          delete-branch: false
+
+      - name: Comment PR link
+        if: steps.context.outputs.should_run == 'true' && steps.context.outputs.pr_number != '' && steps.create-pr.outputs.pull-request-url
+        uses: actions/github-script@v7
+        env:
+          PLAN_PR_URL: ${{ steps.create-pr.outputs.pull-request-url }}
+          SOURCE_PR: ${{ steps.context.outputs.pr_number }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.SOURCE_PR),
+              body: `📋 plan-sync: ${process.env.PLAN_PR_URL}`
+            });

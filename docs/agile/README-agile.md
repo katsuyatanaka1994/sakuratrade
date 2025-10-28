@@ -34,6 +34,7 @@
 
 ### 自動更新のトリガー（CodexがASSISTを編集する条件）
 - PRに `plan:sync` ラベルが付いたとき（設計同期）
+- PRコメントで `/plan sync` を実行したとき（Slashコマンド）
 - `docs/agile/mapping.yml` が更新されたとき（対応表変更）
 - 手動実行: Actions `docsync-assist-update` の `Run workflow`
 - （任意）毎日 03:00（JST）の定期実行

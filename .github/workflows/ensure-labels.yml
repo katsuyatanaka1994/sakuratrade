@@ -16,6 +16,8 @@ jobs:
               { name: 'docs:invalid',        color: 'd73a4a', description: 'Docs checks failed' },
               { name: 'docsync:needs-apply',  color: 'fbca04', description: 'DocSync apply needed' },
               { name: 'codex:apply',          color: '0e8a16', description: 'Codex applied' },
+              { name: 'plan:sync',            color: '0e8a16', description: 'Trigger plan-sync automation' },
+              { name: 'manual-accept',        color: '5319e7', description: 'Allow manual plan.md edits' },
             ];
             for (const l of wanted) {
               try {

@@ -66,7 +66,7 @@ targets:
 1. **仕様更新 & 自己レビュー（preflight）** — Codex が `docs/agile/**` / `docs/specs/openapi.yaml` / `docs/tests/**` を更新し、構文・整合性・横断変更を点検する。
 2. **Draft PR 自動作成 / 更新** — preflight 合格で Codex がブランチ作成し、Draft PR を起票・更新（概要/影響/次アクションを本文に追記）。
 3. **PRレビュー（修正ラリー）** — 人が妥当性レビューを行い、Codex が指摘を反映して仕様を再生成。
-4. **人ゲート** — 承認後に人が `plan:sync` ラベルを付与（Draft解除も人が判断）。
+4. **人ゲート** — 承認後に人が `plan:sync` ラベルを付与（Draft解除も人が判断／Slashコマンド `/plan sync` でも実行可）。
 5. **plan.md 自動同期（AUTO更新）** — Actions がガード通過後に `INPUTS / OUTPUTS / TASKS` を再生成（MANUAL保護・冪等・分割提案・横断検知）。
 6. **最終確認 → マージ** — 生成タスク・分割提案・DoD を確認し、ステータス Green で Squash & Merge。
 

@@ -2,11 +2,17 @@
 """Validate agile documents (currently focuses on docs/agile/plan.md)."""
 from __future__ import annotations
 
+import argparse
+import difflib
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 PLAN_PATH = Path("docs/agile/plan.md")
+
+AUTO_BEGIN = re.compile(r"<!--\s*AUTO:BEGIN", re.IGNORECASE)
+AUTO_END = re.compile(r"<!--\s*AUTO:END", re.IGNORECASE)
 
 
 def load_text(path: Path) -> str:
@@ -36,8 +42,8 @@ def validate_plan(path: Path) -> list[str]:
         ensure(heading in text, f"見出し '{heading}' が存在しません。", path, errors)
 
     # 2. AUTO ブロックの BEGIN/END が対応しているか
-    begin_count = len(re.findall(r"<!--\s*AUTO:BEGIN", text))
-    end_count = len(re.findall(r"<!--\s*AUTO:END", text))
+    begin_count = len(AUTO_BEGIN.findall(text))
+    end_count = len(AUTO_END.findall(text))
     ensure(
         begin_count == end_count,
         f"AUTO ブロックの BEGIN({begin_count}) / END({end_count}) が不一致です。",
@@ -72,12 +78,123 @@ def validate_plan(path: Path) -> list[str]:
     return errors
 
 
+def manual_section_lines(text: str) -> list[str]:
+    """Return only lines that belong to MANUAL sections (AUTO blocks removed)."""
+
+    lines: list[str] = []
+    inside_auto = False
+    for line in text.splitlines(keepends=True):
+        if AUTO_BEGIN.search(line):
+            inside_auto = True
+            continue
+        if AUTO_END.search(line):
+            inside_auto = False
+            continue
+        if not inside_auto:
+            lines.append(line)
+    return lines
+
+
+def load_text_from_git(path: Path, base_sha: str) -> str | None:
+    """Return file content from git for the specified base commit."""
+
+    target = f"{base_sha}:{path.as_posix()}"
+    result = subprocess.run(
+        ["git", "show", target],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def detect_manual_diff(path: Path, base_sha: str) -> tuple[str | None, str | None]:
+    """Compare MANUAL sections between HEAD and base commit.
+
+    Returns a tuple of (diff, error). If diff is None, there is no difference. If
+    error is not None, diff comparison could not be completed.
+    """
+
+    base_text = load_text_from_git(path, base_sha)
+    if base_text is None:
+        return None, f"ベースコミット {base_sha} から {path} を取得できませんでした。"
+
+    head_text = load_text(path)
+    base_manual = manual_section_lines(base_text)
+    head_manual = manual_section_lines(head_text)
+
+    if base_manual == head_manual:
+        return None, None
+
+    diff_lines = difflib.unified_diff(
+        base_manual,
+        head_manual,
+        fromfile=f"{base_sha}:{path}",
+        tofile=f"HEAD:{path}",
+        lineterm="",
+    )
+    diff_text = "\n".join(diff_lines)
+    return diff_text or None, None
+
+
+def write_report(path: Path | None, content: str | None) -> None:
+    if not path:
+        return
+    if content is None:
+        if path.exists():
+            path.unlink()
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Validate agile documents")
+    parser.add_argument("--base-sha", help="比較対象となるベースコミット (MANUAL差分検知用)")
+    parser.add_argument(
+        "--allow-manual-diff",
+        action="store_true",
+        help="MANUAL差分を検知しても警告扱いにし、エラー終了しない",
+    )
+    parser.add_argument(
+        "--manual-diff-report",
+        type=Path,
+        help="MANUAL差分があるときに出力するレポートファイルのパス",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+
     errors = validate_plan(PLAN_PATH)
+
+    manual_diff: str | None = None
+    if args.base_sha:
+        diff, diff_error = detect_manual_diff(PLAN_PATH, args.base_sha)
+        if diff_error:
+            errors.append(f"::error file={PLAN_PATH}::{diff_error}")
+        else:
+            manual_diff = diff
+            if diff:
+                message = (
+                    "plan.md の MANUAL 節に差分が検出されました。"
+                    "意図した変更であれば PR にラベル `manual-accept` を付与してください。"
+                )
+                if args.allow_manual_diff:
+                    print(f"::warning file={PLAN_PATH}::{message}")
+                else:
+                    errors.append(f"::error file={PLAN_PATH}::{message}")
+
+    write_report(args.manual_diff_report, manual_diff)
+
     if errors:
         for message in errors:
             print(message)
         sys.exit(1)
+
     print("docs/agile/plan.md: OK")
 
 
