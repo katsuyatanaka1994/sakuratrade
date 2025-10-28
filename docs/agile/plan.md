@@ -29,7 +29,7 @@
 <!-- AUTO:BEGIN name=plan.meta -->
 - plan_snapshot_id: 03cc0940ccb1070613845c613e0291533d6b5a841afa849aa2bcbef9652d691d
 - Doc ID: plan
-- Updated at: 2025-10-28T15:02:40+09:00
+- Updated at: 2025-10-28T15:22:05+09:00
 - Related PRs: []
 <!-- AUTO:END -->
 

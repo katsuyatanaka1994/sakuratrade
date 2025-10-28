@@ -191,14 +191,14 @@ def parse_openapi_operations(diff_text: str | None = None) -> list[ApiOperation]
     except Exception:
         return []
     paths = data.get("paths", {})
-    operations = []
+    fallback_ops: list[ApiOperation] = []
     for path, body in paths.items():
         if not isinstance(body, dict):
             continue
         for method, _spec in body.items():
             if method.lower() in {"get", "post", "put", "patch", "delete", "options", "head"}:
-                operations.append(ApiOperation(method=method.lower(), path=path))
-    return operations
+                fallback_ops.append(ApiOperation(method=method.lower(), path=path))
+    return fallback_ops
 
 
 def detect_test_flows(changed_files: Iterable[str]) -> list[TestFlow]:
@@ -303,7 +303,7 @@ def build_inputs(data: PreflightData) -> list[dict]:
 
 def build_outputs(data: PreflightData, snapshot: str) -> dict:
     touched = sorted(set(data.changed_files))
-    buckets = {"add": [], "modify": [], "delete": []}
+    buckets: dict[str, list[str]] = {"add": [], "modify": [], "delete": []}
     for rel in touched:
         if not rel:
             continue
@@ -389,79 +389,77 @@ def build_tasks(data: PreflightData) -> list[dict]:
 
 
 def render_yaml_block(data: object, indent: int = 0) -> str:
-    """Serialize limited data structures into YAML-like text."""
+    """Serialize data into a small subset of YAML without extra deps."""
 
-    def dump_value(value, level: int) -> list[str]:
+    def render_dict(value: dict, level: int) -> list[str]:
         space = " " * level
-        if isinstance(value, dict):
-            if not value:
-                return [f"{space}{{}}"]
-            lines: list[str] = []
-            for key, val in value.items():
-                lines.extend(dump_key_value(space, key, val, level))
-            return lines
-        if isinstance(value, list):
-            if not value:
-                return [f"{space}[]"]
-            lines: list[str] = []
-            for item in value:
-                lines.extend(dump_list_item(item, level))
-            return lines
-        return [f"{space}{value}"]
+        if not value:
+            return [f"{space}{{}}"]
+        lines: list[str] = []
+        for key, val in value.items():
+            if isinstance(val, dict):
+                if not val:
+                    lines.append(f"{space}{key}: {{}}")
+                else:
+                    lines.append(f"{space}{key}:")
+                    lines.extend(render_dict(val, level + 2))
+            elif isinstance(val, list):
+                if not val:
+                    lines.append(f"{space}{key}: []")
+                else:
+                    lines.append(f"{space}{key}:")
+                    lines.extend(render_list(val, level + 2))
+            else:
+                lines.append(f"{space}{key}: {val}")
+        return lines
 
-    def dump_key_value(space: str, key: str, value, level: int) -> list[str]:
-        if isinstance(value, dict):
-            if not value:
-                return [f"{space}{key}: {{}}"]
-            lines = [f"{space}{key}:"]
-            lines.extend(dump_value(value, level + 2))
-            return lines
-        if isinstance(value, list):
-            if not value:
-                return [f"{space}{key}: []"]
-            lines = [f"{space}{key}:"]
-            for item in value:
-                lines.extend(dump_list_item(item, level + 2))
-            return lines
-        return [f"{space}{key}: {value}"]
-
-    def dump_list_item(item, level: int) -> list[str]:
+    def render_list(value: list, level: int) -> list[str]:
         space = " " * level
-        if isinstance(item, dict):
-            items = list(item.items())
-            if not items:
-                return [f"{space}- {{}}"]
-            first_key, first_val = items[0]
-            lines: list[str] = []
-            lines.extend(format_head(space, first_key, first_val, level))
-            for key, val in items[1:]:
-                lines.extend(dump_key_value(space + "  ", key, val, level + 2))
-            return lines
-        if isinstance(item, list):
-            lines = [f"{space}-"]
-            for sub in item:
-                lines.extend(dump_list_item(sub, level + 2))
-            return lines
-        return [f"{space}- {item}"]
+        if not value:
+            return [f"{space}[]"]
+        lines: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                if not item:
+                    lines.append(f"{space}- {{}}")
+                    continue
+                simple = all(
+                    (not isinstance(v, (dict, list)))
+                    or (isinstance(v, dict) and not v)
+                    or (isinstance(v, list) and not v)
+                    for v in item.values()
+                )
+                keys = list(item.items())
+                head_space = " " * (level + 2)
+                if simple:
+                    first_key, first_val = keys[0]
+                    lines.append(f"{space}- {first_key}: {first_val}")
+                    for key, val in keys[1:]:
+                        lines.append(f"{head_space}{key}: {val}")
+                else:
+                    lines.append(f"{space}-")
+                    for key, val in keys:
+                        if isinstance(val, dict):
+                            lines.append(f"{head_space}{key}:")
+                            lines.extend(render_dict(val, level + 4))
+                        elif isinstance(val, list):
+                            lines.append(f"{head_space}{key}:")
+                            lines.extend(render_list(val, level + 4))
+                        else:
+                            lines.append(f"{head_space}{key}: {val}")
+            elif isinstance(item, list):
+                lines.append(f"{space}-")
+                lines.extend(render_list(item, level + 2))
+            else:
+                lines.append(f"{space}- {item}")
+        return lines
 
-    def format_head(space: str, key: str, value, level: int) -> list[str]:
-        prefix = f"{space}-"
-        if isinstance(value, dict):
-            if not value:
-                return [f"{prefix} {key}: {{}}"]
-            lines = [f"{prefix} {key}:"]
-            lines.extend(dump_value(value, level + 4))
-            return lines
-        if isinstance(value, list):
-            if not value:
-                return [f"{prefix} {key}: []"]
-            lines = [f"{prefix} {key}:"]
-            for item in value:
-                lines.extend(dump_list_item(item, level + 4))
-            return lines
-        return [f"{prefix} {key}: {value}"]
-
-    lines = dump_value(data, indent)
+    if isinstance(data, dict):
+        lines = render_dict(data, indent)
+    elif isinstance(data, list):
+        lines = render_list(data, indent)
+    else:
+        lines = [" " * indent + str(data)]
     return "\n".join(lines)
 
 
