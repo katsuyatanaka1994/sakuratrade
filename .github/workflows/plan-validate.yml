@@ -1,0 +1,82 @@
+name: plan-sync/Validate
+
+on:
+  pull_request:
+    paths:
+      - docs/agile/plan.md
+      - scripts/plan_cli.py
+      - scripts/validate-agile-docs
+      - doc_sync_plan.json
+      - .github/workflows/plan-validate.yml
+      - .github/workflows/plan-sync.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    name: plan-sync/Validate
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+      ALLOW_MANUAL_DIFF: ${{ (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'manual-accept')) && 'true' || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate plan.md
+        id: validate
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          args=()
+          if [ -n "${BASE_SHA}" ]; then
+            git fetch --no-tags --prune --depth=1 origin "${BASE_SHA}" || true
+            args+=("--base-sha" "${BASE_SHA}")
+          fi
+          if [ "${ALLOW_MANUAL_DIFF}" = "true" ]; then
+            args+=("--allow-manual-diff")
+          fi
+          python3 scripts/validate-agile-docs "${args[@]}" --manual-diff-report tmp/manual_diff.txt
+
+      - name: Upload manual diff detail
+        if: always() && steps.validate.outcome == 'failure' && hashFiles('tmp/manual_diff.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-manual-diff
+          path: tmp/manual_diff.txt
+
+      - name: Comment guidance for manual diff
+        if: always() && github.event_name == 'pull_request' && steps.validate.outcome == 'failure' && hashFiles('tmp/manual_diff.txt') != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const diff = fs.readFileSync('tmp/manual_diff.txt', 'utf-8');
+            const truncated = diff.length > 6000 ? diff.slice(0, 6000) + '\n...[truncated]...' : diff;
+            const body = [
+              '⚠️ **plan.md の MANUAL 節に差分が検出されました。**',
+              '',
+              '- Codex は MANUAL 節を自動更新しません。意図した変更であれば PR にラベル `manual-accept` を付けてください。',
+              '- 意図しない変更の場合は差分を巻き戻してください。',
+              '',
+              '```diff',
+              truncated,
+              '```',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail when validation did not pass
+        if: steps.validate.outcome == 'failure'
+        run: exit 1

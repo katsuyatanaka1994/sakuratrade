@@ -30,6 +30,7 @@
 ## 参照リンク（自動整備）
 <!-- ASSIST-START:links -->
 <!-- Codex が関連PR/ドキュ/テストへのリンクを挿入する領域 -->
+- `/plan sync` Slashコマンド — plan-sync workflow を手動起動
 <!-- ASSIST-END:links -->
 
 ### 自動更新のトリガー（CodexがASSISTを編集する条件）
