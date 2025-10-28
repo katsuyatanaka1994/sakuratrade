@@ -108,6 +108,27 @@ jobs:
                 set('reason', 'no slash command');
                 return;
               }
+              const actor = context.payload.comment.user?.login;
+              if (!actor) {
+                set('should_run', 'false');
+                set('reason', 'missing commenter');
+                return;
+              }
+              try {
+                const permRes = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: actor });
+                const permission = permRes.data.permission;
+                const allowed = new Set(['admin', 'write', 'maintain']);
+                if (!allowed.has(permission)) {
+                  set('should_run', 'false');
+                  set('reason', `insufficient permissions (${permission})`);
+                  return;
+                }
+              } catch (error) {
+                set('should_run', 'false');
+                set('reason', 'failed to verify commenter permissions');
+                return;
+              }
+
               const prNumber = context.payload.issue.number;
               const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
               if (pr.data.head.ref === 'docs-sync/plan') {
