@@ -42,7 +42,6 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { context, core, github } = require('@actions/github');
             const event = context.eventName;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
