@@ -168,7 +168,7 @@ jobs:
         with:
           ref: ${{ steps.context.outputs.checkout_ref }}
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Configure git user
         if: steps.context.outputs.should_run == 'true'
