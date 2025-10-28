@@ -19,10 +19,8 @@ import dataclasses
 import datetime as dt
 import hashlib
 import json
-import os
 import re
 import subprocess
-import sys
 from pathlib import Path
 from typing import Iterable
 
@@ -333,8 +331,13 @@ def build_tasks(data: PreflightData) -> list[dict]:
                 "max_changed_lines": 80,
                 "checks": [
                     {"name": "frontend-tsc", "command": "npx --prefix frontend tsc --noEmit"},
-                    {"name": "frontend-eslint", "command": "npx --prefix frontend eslint src --max-warnings=500 --quiet"},
-                    {"name": "frontend-vitest", "command": "npm --prefix frontend run test:run -- --passWithNoTests"},
+                    {"name": "frontend-eslint", "command": (
+                        "npx --prefix frontend eslint src --max-warnings=500 "
+                        "--quiet"
+                    )},
+                    {"name": "frontend-vitest", "command": (
+                        "npm --prefix frontend run test:run -- --passWithNoTests"
+                    )},
                 ],
             },
             "gate": [],
@@ -386,16 +389,81 @@ def build_tasks(data: PreflightData) -> list[dict]:
 
 
 def render_yaml_block(data: object, indent: int = 0) -> str:
-    try:
-        import yaml  # type: ignore
+    """Serialize limited data structures into YAML-like text."""
 
-        text = yaml.safe_dump(data, sort_keys=False, allow_unicode=True).strip()
-    except Exception:
-        text = json.dumps(data, indent=2, ensure_ascii=False)
-    if indent <= 0:
-        return text
-    prefix = " " * indent
-    return "\n".join(prefix + line if line else line for line in text.splitlines())
+    def dump_value(value, level: int) -> list[str]:
+        space = " " * level
+        if isinstance(value, dict):
+            if not value:
+                return [f"{space}{{}}"]
+            lines: list[str] = []
+            for key, val in value.items():
+                lines.extend(dump_key_value(space, key, val, level))
+            return lines
+        if isinstance(value, list):
+            if not value:
+                return [f"{space}[]"]
+            lines: list[str] = []
+            for item in value:
+                lines.extend(dump_list_item(item, level))
+            return lines
+        return [f"{space}{value}"]
+
+    def dump_key_value(space: str, key: str, value, level: int) -> list[str]:
+        if isinstance(value, dict):
+            if not value:
+                return [f"{space}{key}: {{}}"]
+            lines = [f"{space}{key}:"]
+            lines.extend(dump_value(value, level + 2))
+            return lines
+        if isinstance(value, list):
+            if not value:
+                return [f"{space}{key}: []"]
+            lines = [f"{space}{key}:"]
+            for item in value:
+                lines.extend(dump_list_item(item, level + 2))
+            return lines
+        return [f"{space}{key}: {value}"]
+
+    def dump_list_item(item, level: int) -> list[str]:
+        space = " " * level
+        if isinstance(item, dict):
+            items = list(item.items())
+            if not items:
+                return [f"{space}- {{}}"]
+            first_key, first_val = items[0]
+            lines: list[str] = []
+            lines.extend(format_head(space, first_key, first_val, level))
+            for key, val in items[1:]:
+                lines.extend(dump_key_value(space + "  ", key, val, level + 2))
+            return lines
+        if isinstance(item, list):
+            lines = [f"{space}-"]
+            for sub in item:
+                lines.extend(dump_list_item(sub, level + 2))
+            return lines
+        return [f"{space}- {item}"]
+
+    def format_head(space: str, key: str, value, level: int) -> list[str]:
+        prefix = f"{space}-"
+        if isinstance(value, dict):
+            if not value:
+                return [f"{prefix} {key}: {{}}"]
+            lines = [f"{prefix} {key}:"]
+            lines.extend(dump_value(value, level + 4))
+            return lines
+        if isinstance(value, list):
+            if not value:
+                return [f"{prefix} {key}: []"]
+            lines = [f"{prefix} {key}:"]
+            for item in value:
+                lines.extend(dump_list_item(item, level + 4))
+            return lines
+        return [f"{prefix} {key}: {value}"]
+
+    lines = dump_value(data, indent)
+    return "\n".join(lines)
+
 
 
 def replace_auto_block(text: str, name: str, body: str) -> str:
