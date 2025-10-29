@@ -1,4 +1,4 @@
-# plan-sync スモーク手順（PL-4）
+# DS-14 plan-sync スモーク手順（PL-4）
 
 ## 目的
 - UI仕様の軽微な更新から `docs/agile/plan.md` の AUTO 範囲を再生成し、`plan_snapshot_id` が更新されることを確認する。
