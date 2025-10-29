@@ -27,9 +27,9 @@
 
 ### メタデータ（DocSync管理）
 <!-- AUTO:BEGIN name=plan.meta -->
-- plan_snapshot_id: 03cc0940ccb1070613845c613e0291533d6b5a841afa849aa2bcbef9652d691d
+- plan_snapshot_id: e253070767bb72c9df9dc7abb2d4908f709fc7bdfbb5513c878408b7409385b7
 - Doc ID: plan
-- Updated at: 2025-10-28T15:22:05+09:00
+- Updated at: 2025-10-29T07:51:56+09:00
 - Related PRs: []
 <!-- AUTO:END -->
 
@@ -37,7 +37,7 @@
 <!-- AUTO:BEGIN name=plan.inputs -->
 - name: ui-specification
   path: docs/agile/ui-specification.md
-  checksum: a739912b83bcabf1a861606cf799b9625114b90358d13f0630371364a595ea8b
+  checksum: d2e036dde73c00c3df7b2e84fbbd215cf6687f13770a195b0d33fd060ec8a86c
 - name: openapi
   path: backend/app/openapi.yaml
   checksum: 0ede478c5df2710dbd42251288ce56a550ee7291740c39f36819a363cf09fac0
@@ -48,16 +48,35 @@
 
 ### OUTPUTS — 対象ファイルと plan_snapshot_id
 <!-- AUTO:BEGIN name=plan.outputs -->
-plan_snapshot_id: 03cc0940ccb1070613845c613e0291533d6b5a841afa849aa2bcbef9652d691d
+plan_snapshot_id: e253070767bb72c9df9dc7abb2d4908f709fc7bdfbb5513c878408b7409385b7
 targets:
   modify:
-    - docs/agile/mapping.yml
-    - docs/agile/plan.md
+    - docs/agile/ui-specification.md
 <!-- AUTO:END -->
 
 ### TASKS — 下流が参照する唯一の実行タスク集合
 <!-- AUTO:BEGIN name=plan.tasks -->
-[]
+-
+  id: U-positions-page-update
+  refs:
+    - ui-spec:positions-page
+  outputs:
+    - frontend/src
+  acceptance:
+    max_changed_lines: 80
+    checks:
+      - name: frontend-tsc
+        command: npx --prefix frontend tsc --noEmit
+      - name: frontend-eslint
+        command: npx --prefix frontend eslint src --max-warnings=500 --quiet
+      - name: frontend-vitest
+        command: npm --prefix frontend run test:run -- --passWithNoTests
+  gate:
+    []
+  deps:
+    []
+  risk: 低
+  rollback: 前バージョンのUIを再適用
 <!-- AUTO:END -->
 
 ## 運用ガイド（MANUAL）
