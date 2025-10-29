@@ -304,21 +304,21 @@ jobs:
           PR_LINE="${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}"
           export TRIGGER HEAD_REF PR_LINE
           python3 - <<'PY'
-            import os
+import os
 
-            lines = [
-                "Automated plan sync run.",
-                "",
-                f"- Trigger: {os.environ['TRIGGER']}",
-                f"- Source ref: `{os.environ['HEAD_REF']}`",
-            ]
+lines = [
+    "Automated plan sync run.",
+    "",
+    f"- Trigger: {os.environ['TRIGGER']}",
+    f"- Source ref: `{os.environ['HEAD_REF']}`",
+]
 
-            pr_line = os.environ.get('PR_LINE', '').strip()
-            if pr_line:
-                lines.append(pr_line)
+pr_line = os.environ.get('PR_LINE', '').strip()
+if pr_line:
+    lines.append(pr_line)
 
-            with open('/tmp/plan-sync-body.txt', 'w', encoding='utf-8') as fp:
-                fp.write("\n".join(lines) + "\n")
+with open('/tmp/plan-sync-body.txt', 'w', encoding='utf-8') as fp:
+    fp.write("\n".join(lines) + "\n")
 PY
           if gh pr view docs-sync/plan >/dev/null 2>&1; then
             gh pr edit docs-sync/plan \
