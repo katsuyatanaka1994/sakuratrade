@@ -303,24 +303,24 @@ jobs:
           HEAD_REF="${{ steps.context.outputs.head_ref }}"
           PR_LINE="${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}"
           python3 - "$TRIGGER" "$HEAD_REF" "$PR_LINE" <<'PY'
-            import sys
-            from pathlib import Path
+import sys
+from pathlib import Path
 
-            trigger, head_ref, pr_line = sys.argv[1:4]
+trigger, head_ref, pr_line = sys.argv[1:4]
 
-            lines = [
-                "Automated plan sync run.",
-                "",
-                f"- Trigger: {trigger}",
-                f"- Source ref: `{head_ref}`",
-            ]
+lines = [
+    "Automated plan sync run.",
+    "",
+    f"- Trigger: {trigger}",
+    f"- Source ref: `{head_ref}`",
+]
 
-            pr_line = pr_line.strip()
-            if pr_line:
-                lines.append(pr_line)
+pr_line = pr_line.strip()
+if pr_line:
+    lines.append(pr_line)
 
-            Path('/tmp/plan-sync-body.txt').write_text("\n".join(lines) + "\n", encoding='utf-8')
-          PY
+Path('/tmp/plan-sync-body.txt').write_text("\n".join(lines) + "\n", encoding='utf-8')
+PY
           if gh pr view docs-sync/plan >/dev/null 2>&1; then
             gh pr edit docs-sync/plan \
               --title "[plan-sync] docs: update plan auto sections" \
