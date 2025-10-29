@@ -21,12 +21,16 @@
 2. Workflow が `plan preflight → apply → validate → pr` の順で完走し、固定ブランチ上に Draft PR が生成されることを確認。
 3. `plan-sync/Validate` チェックが Green であることを PR の Required Check で確認。
 4. 必要に応じて `doc_sync_plan.json` や CLI 出力を PR コメントへ貼り、レビューに共有する。
+5. 元PRに `plan-sync: #<番号>` コメントが追加され、`[plan-sync] docs: update plan auto sections` Draft PR が生成されていることを確認。
+6. Draft PR 本文に Trigger / Source ref / Source PR が表示され、`doc_sync_plan.json` に `ui_spec_manual` トリガーが含まれていることを確認。
 
 ## 合格ライン
 - `docs/agile/plan.md` の `plan_snapshot_id` が更新され、`targets.modify` に今回変更したファイルが含まれている。
 - `plan.tasks` に対象 UI セクション（例: `ui-spec:positions-page`）へリンクしたタスクが出力されている。
 - `scripts/validate-agile-docs` がエラーなく終了している。
 - Draft PR に `INPUTS / OUTPUTS / TASKS` の差分が含まれており、レビュー観点をカバーしている。
+- `[plan-sync] docs: update plan auto sections` Draft PR の本文に Trigger / Source ref / Source PR が記載されている。
+- `doc_sync_plan.json` に `ui_spec_manual` / `docs_ci_changed` などのトリガーが記録されている。
 
 ## トラブルシュート
 - `preflight` が No-Op → git diff に `docs/agile/ui-specification.md` が含まれているか確認。空白のみの変更は無視される。
