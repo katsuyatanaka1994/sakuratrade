@@ -301,23 +301,22 @@ jobs:
           fi
           git commit -m "chore(plan): sync plan AUTO sections"
           git push --force-with-lease origin docs-sync/plan
-          if gh pr view docs-sync/plan >/dev/null 2>&1; then
-            gh pr edit docs-sync/plan \
-              --title "[plan-sync] docs: update plan auto sections" \
-              --body "Automated plan sync run.
+          cat <<'BODY' > /tmp/plan-sync-body.txt
+Automated plan sync run.
 
 - Trigger: ${{ github.event_name }}
 - Source ref: `${{ steps.context.outputs.head_ref }}`
-${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}"
+${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}
+BODY
+          if gh pr view docs-sync/plan >/dev/null 2>&1; then
+            gh pr edit docs-sync/plan \
+              --title "[plan-sync] docs: update plan auto sections" \
+              --body-file /tmp/plan-sync-body.txt
           else
             gh pr create \
               --draft \
               --title "[plan-sync] docs: update plan auto sections" \
-              --body "Automated plan sync run.
-
-- Trigger: ${{ github.event_name }}
-- Source ref: `${{ steps.context.outputs.head_ref }}`
-${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}" \
+              --body-file /tmp/plan-sync-body.txt \
               --base ${{ steps.context.outputs.base_ref || 'main' }} \
               --head docs-sync/plan
           fi
