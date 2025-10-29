@@ -303,7 +303,7 @@ jobs:
             'Automated plan sync run.' \\
             '' \\
             "- Trigger: ${{ github.event_name }}" \\
-            "- Source ref: `${{ steps.context.outputs.head_ref }}`" \\
+            '- Source ref: `${{ steps.context.outputs.head_ref }}`' \\
             "${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}" \\
             > /tmp/plan-sync-body.txt
           if gh pr view docs-sync/plan >/dev/null 2>&1; then
