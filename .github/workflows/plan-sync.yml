@@ -302,6 +302,7 @@ jobs:
           TRIGGER="${{ github.event_name }}"
           HEAD_REF="${{ steps.context.outputs.head_ref }}"
           PR_LINE="${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}"
+          export TRIGGER HEAD_REF PR_LINE
           python3 - <<'PY'
 import os
 
