@@ -299,13 +299,26 @@ jobs:
           fi
           git commit -m "chore(plan): sync plan AUTO sections"
           git push --force-with-lease origin docs-sync/plan
-          printf '%s\n' \\
-            'Automated plan sync run.' \\
-            '' \\
-            "- Trigger: ${{ github.event_name }}" \\
-            '- Source ref: `${{ steps.context.outputs.head_ref }}`' \\
-            "${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}" \\
-            > /tmp/plan-sync-body.txt
+          TRIGGER="${{ github.event_name }}"
+          HEAD_REF="${{ steps.context.outputs.head_ref }}"
+          PR_LINE="${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}"
+          python3 - <<'PY'
+import os
+
+lines = [
+    "Automated plan sync run.",
+    "",
+    f"- Trigger: {os.environ['TRIGGER']}",
+    f"- Source ref: `{os.environ['HEAD_REF']}`",
+]
+
+pr_line = os.environ.get('PR_LINE', '').strip()
+if pr_line:
+    lines.append(pr_line)
+
+with open('/tmp/plan-sync-body.txt', 'w', encoding='utf-8') as fp:
+    fp.write("\n".join(lines) + "\n")
+PY
           if gh pr view docs-sync/plan >/dev/null 2>&1; then
             gh pr edit docs-sync/plan \
               --title "[plan-sync] docs: update plan auto sections" \
