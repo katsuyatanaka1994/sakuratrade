@@ -299,13 +299,13 @@ jobs:
           fi
           git commit -m "chore(plan): sync plan AUTO sections"
           git push --force-with-lease origin docs-sync/plan
-          cat <<'BODY' > /tmp/plan-sync-body.txt
-Automated plan sync run.
-
-- Trigger: ${{ github.event_name }}
-- Source ref: `${{ steps.context.outputs.head_ref }}`
-${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}
-BODY
+          printf '%s\n' \\
+            'Automated plan sync run.' \\
+            '' \\
+            "- Trigger: ${{ github.event_name }}" \\
+            "- Source ref: `${{ steps.context.outputs.head_ref }}`" \\
+            "${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}" \\
+            > /tmp/plan-sync-body.txt
           if gh pr view docs-sync/plan >/dev/null 2>&1; then
             gh pr edit docs-sync/plan \
               --title "[plan-sync] docs: update plan auto sections" \
