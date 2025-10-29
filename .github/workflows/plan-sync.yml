@@ -302,23 +302,24 @@ jobs:
           TRIGGER="${{ github.event_name }}"
           HEAD_REF="${{ steps.context.outputs.head_ref }}"
           PR_LINE="${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}"
-          export TRIGGER HEAD_REF PR_LINE
-          python3 - <<'PY'
-import os
+          python3 - "$TRIGGER" "$HEAD_REF" "$PR_LINE" <<'PY'
+import sys
+from pathlib import Path
+
+trigger, head_ref, pr_line = sys.argv[1:4]
 
 lines = [
     "Automated plan sync run.",
     "",
-    f"- Trigger: {os.environ['TRIGGER']}",
-    f"- Source ref: `{os.environ['HEAD_REF']}`",
+    f"- Trigger: {trigger}",
+    f"- Source ref: `{head_ref}`",
 ]
 
-pr_line = os.environ.get('PR_LINE', '').strip()
+pr_line = pr_line.strip()
 if pr_line:
     lines.append(pr_line)
 
-with open('/tmp/plan-sync-body.txt', 'w', encoding='utf-8') as fp:
-    fp.write("\n".join(lines) + "\n")
+Path('/tmp/plan-sync-body.txt').write_text("\n".join(lines) + "\n", encoding='utf-8')
 PY
           if gh pr view docs-sync/plan >/dev/null 2>&1; then
             gh pr edit docs-sync/plan \
