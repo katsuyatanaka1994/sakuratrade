@@ -6,11 +6,9 @@ on:
       pr:
         description: 'Pull request number to sync (optional)'
         required: false
-        type: string
       branch:
         description: 'Branch to run on when PR is not specified (default: main)'
         required: false
-        type: string
   pull_request_target:
     types: [labeled]
   issue_comment:
