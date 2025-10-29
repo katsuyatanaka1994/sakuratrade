@@ -157,7 +157,7 @@ jobs:
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.GH_APP_ID }}
-          installation-id: ${{ secrets.GH_INSTALLATION_ID }}
+          owner: ${{ github.repository_owner }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Checkout target revision
