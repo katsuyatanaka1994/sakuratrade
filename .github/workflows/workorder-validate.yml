@@ -35,13 +35,33 @@ jobs:
           python3 -m pip install --upgrade pip
           pip install PyYAML==6.0.2
 
-      - name: Validate workorder.md
-        id: validate
-        continue-on-error: true
+      - name: Validate workorder.md (verbose)
+        id: wo_validate
         run: |
           set -euo pipefail
-          python3 scripts/workorder_cli.py validate
+          mkdir -p tmp
+          if python3 scripts/workorder_cli.py validate | tee tmp/wo_validate.log; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
-      - name: Fail when validation did not pass
-        if: steps.validate.outcome == 'failure'
-        run: exit 1
+      - name: Upload wo:validate log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wo-validate-log
+          path: tmp/wo_validate.log
+
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo "### wo:validate"
+            echo "- Result: ${{ steps.wo_validate.outputs.ok || 'false' }}"
+            echo
+            echo '```text'
+            tail -n 150 tmp/wo_validate.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
