@@ -1,0 +1,12 @@
+{
+  "source": "backend/app/openapi.yaml",
+  "target": "docs/specs/openapi.yaml",
+  "equal": true,
+  "source_sha256": "36895ba14b9899c8fa0095168d9175394aecb24147b6efe3116e37c93bde95ba",
+  "target_sha256": "36895ba14b9899c8fa0095168d9175394aecb24147b6efe3116e37c93bde95ba",
+  "stats": {
+    "src_paths": 9,
+    "tgt_paths": 9
+  },
+  "recommendation": "No action needed."
+}
