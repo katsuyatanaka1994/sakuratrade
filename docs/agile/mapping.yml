@@ -28,3 +28,10 @@ plan_changed:
     - path: docs/agile/plan.md
       sections: ['plan.meta', 'plan.inputs', 'plan.outputs', 'plan.tasks']
 
+workorder_ready:
+  sources:
+    - path: docs/agile/plan.md
+      sections: ['plan.meta', 'plan.tasks']
+  targets:
+    - path: docs/agile/workorder.md
+      sections: ['workorder.meta']

@@ -27,9 +27,9 @@
 
 ### メタデータ（DocSync管理）
 <!-- AUTO:BEGIN name=plan.meta -->
-- plan_snapshot_id: d5eae8d2c35c74cd0f11dc85857ff96e8cb9ac95b279c700c6592aacf0fb9fb1
+- plan_snapshot_id: a2d0544958f8cb06a172c4a2bdfb609c1d75149ef0b8f93aea16bfc0a5e5d382
 - Doc ID: plan
-- Updated at: 2025-10-29T11:55:49+00:00
+- Updated at: 2025-10-30T07:24:12+09:00
 - Related PRs: []
 <!-- AUTO:END -->
 
@@ -37,7 +37,7 @@
 <!-- AUTO:BEGIN name=plan.inputs -->
 - name: ui-specification
   path: docs/agile/ui-specification.md
-  checksum: 0d634ec421a63480bdb2da5c8173773d7e99cfa19eac40381a21cad233edc8d8
+  checksum: db651fc2f780ade7730f64f011a164e5da7ee90ee5ea2c47bff69e0ca5269f50
 - name: openapi
   path: backend/app/openapi.yaml
   checksum: 0ede478c5df2710dbd42251288ce56a550ee7291740c39f36819a363cf09fac0
@@ -48,7 +48,7 @@
 
 ### OUTPUTS — 対象ファイルと plan_snapshot_id
 <!-- AUTO:BEGIN name=plan.outputs -->
-plan_snapshot_id: d5eae8d2c35c74cd0f11dc85857ff96e8cb9ac95b279c700c6592aacf0fb9fb1
+plan_snapshot_id: a2d0544958f8cb06a172c4a2bdfb609c1d75149ef0b8f93aea16bfc0a5e5d382
 targets:
   modify:
     - docs/agile/ui-specification.md
