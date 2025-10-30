@@ -20,23 +20,51 @@ jobs:
     name: wo:ready/Validate
     runs-on: ubuntu-latest
     steps:
+      - id: gate
+        name: Gate
+        env:
+          EVENT: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft || false }}
+          HAS_READY: ${{ contains(github.event.pull_request.labels.*.name, 'wo:ready') || contains(github.event.pull_request.labels.*.name, 'hotfix') }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "manual/other event → skip label/draft gating"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "draft → noop success"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$HAS_READY" != "true" ]; then
+            echo "::warning::Missing 'wo:ready' label (non-blocking)"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
+        if: steps.gate.outputs.should_run == 'true'
         with:
           fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
+        if: steps.gate.outputs.should_run == 'true'
         with:
           python-version: '3.11'
 
       - name: Install dependencies
+        if: steps.gate.outputs.should_run == 'true'
         run: |
           python3 -m pip install --upgrade pip
           pip install PyYAML==6.0.2
 
       - name: Validate workorder.md (verbose)
         id: wo_validate
+        if: steps.gate.outputs.should_run == 'true'
         run: |
           set -euo pipefail
           mkdir -p tmp
@@ -48,14 +76,14 @@ jobs:
           fi
 
       - name: Upload wo:validate log
-        if: always()
+        if: always() && steps.gate.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: wo-validate-log
           path: tmp/wo_validate.log
 
       - name: Write summary
-        if: always()
+        if: always() && steps.gate.outputs.should_run == 'true'
         run: |
           {
             echo "### wo:validate"
