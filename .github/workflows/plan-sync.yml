@@ -1,4 +1,4 @@
-name: plan-sync
+name: plan-sync/Validate
 
 on:
   workflow_dispatch:
@@ -25,7 +25,7 @@ defaults:
 
 jobs:
   sync:
-    name: plan-sync
+    name: plan-sync/Validate
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' && github.event.action == 'labeled') ||
@@ -196,10 +196,12 @@ jobs:
 
       - name: Run plan preflight & apply
         if: steps.context.outputs.should_run == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          python3 scripts/plan_cli.py preflight
-          python3 scripts/plan_cli.py apply
+          python -m scripts.plan_cli preflight
+          python -m scripts.plan_cli apply
 
       - name: Validate plan diff
         if: steps.context.outputs.should_run == 'true'
