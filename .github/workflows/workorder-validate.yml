@@ -2,13 +2,7 @@ name: wo:ready/Validate
 
 on:
   pull_request:
-    paths:
-      - docs/agile/workorder.md
-      - scripts/workorder_cli.py
-      - scripts/docsync_utils.py
-      - workorder_sync_plan.json
-      - .github/workflows/workorder-ready.yml
-      - .github/workflows/workorder-validate.yml
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
   workflow_dispatch: {}
 
 permissions:
@@ -87,9 +81,13 @@ jobs:
         run: |
           {
             echo "### wo:validate"
-            echo "- Result: ${{ steps.wo_validate.outputs.ok || 'false' }}"
-            echo
-            echo '```text'
-            tail -n 150 tmp/wo_validate.log 2>/dev/null || true
-            echo '```'
+            if [ "$SHOULD_RUN" != "true" ]; then
+              echo "- Result: noop (draft)"
+            else
+              echo "- Result: $RESULT"
+              echo
+              echo '```text'
+              tail -n 150 tmp/wo_validate.log 2>/dev/null || true
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
