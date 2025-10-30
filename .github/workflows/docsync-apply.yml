@@ -53,6 +53,8 @@ jobs:
           title: "[skip docsync] docsync: update docs/specs/openapi.yaml"
           body: "Automated Draft PR from mapping.yml (id: openapi)"
           draft: true
-          labels: "docsync:needs-apply"
+          labels: |
+            plan:sync
+            docsync:needs-apply
           add-paths: |
             docs/specs/openapi.yaml

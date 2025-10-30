@@ -143,7 +143,9 @@ jobs:
           add-paths: |
             docs/agile/report.md
             docs/agile/nfr-xref-state.json
-          labels: "docsync:needs-apply"
+          labels: |
+            plan:sync
+            docsync:needs-apply
           delete-branch: true
 
   report-failure:

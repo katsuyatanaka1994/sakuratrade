@@ -110,7 +110,9 @@ jobs:
           title: "[skip docsync] chore(docs): append DS-21 sec-review result"
           commit-message: "docs(report): append DS-21 sec-review row"
           add-paths: docs/agile/report.md
-          labels: "docsync:needs-apply"
+          labels: |
+            plan:sync
+            docsync:needs-apply
           delete-branch: true
 
       - name: PR向けサマリ
