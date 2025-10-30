@@ -1,19 +1,24 @@
 {
-  "base": "76f27a5f15e9b689f2523da38f7d68f09d9e30e4",
-  "head": "28490d98dac4774380c4a507551f450a60f67102",
+  "base": "239862deba73bce2040dafd1ee8460ece65e5bbd",
+  "head": "1102b60a72454188c01d9247f564e091adb3cd40",
   "changed_files": [
-    "docs/agile/ui-specification.md"
+    ".github/workflows/workorder-ready.yml",
+    ".github/workflows/workorder-validate.yml",
+    "docs/agile/runbooks/plan-sync-smoke.md",
+    "docs/agile/workorder.md",
+    "pyproject.toml",
+    "scripts/__init__.py",
+    "scripts/docsync_utils.py",
+    "scripts/plan_cli.py",
+    "scripts/workorder_cli.py",
+    "tests/conftest.py",
+    "tests/test_workorder_cli.py",
+    "workorder_sync_plan.json"
   ],
   "triggers": [
-    "ui_spec_manual",
     "docs_ci_changed"
   ],
-  "ui_sections": [
-    {
-      "title": "Positions Page",
-      "anchor": "positions-page"
-    }
-  ],
+  "ui_sections": [],
   "api_operations": [],
   "test_flows": []
 }

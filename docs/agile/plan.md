@@ -27,9 +27,9 @@
 
 ### メタデータ（DocSync管理）
 <!-- AUTO:BEGIN name=plan.meta -->
-- plan_snapshot_id: a2d0544958f8cb06a172c4a2bdfb609c1d75149ef0b8f93aea16bfc0a5e5d382
+- plan_snapshot_id: d5eae8d2c35c74cd0f11dc85857ff96e8cb9ac95b279c700c6592aacf0fb9fb1
 - Doc ID: plan
-- Updated at: 2025-10-30T07:24:12+09:00
+- Updated at: 2025-10-30T11:53:09+09:00
 - Related PRs: []
 <!-- AUTO:END -->
 
@@ -37,7 +37,7 @@
 <!-- AUTO:BEGIN name=plan.inputs -->
 - name: ui-specification
   path: docs/agile/ui-specification.md
-  checksum: db651fc2f780ade7730f64f011a164e5da7ee90ee5ea2c47bff69e0ca5269f50
+  checksum: 0d634ec421a63480bdb2da5c8173773d7e99cfa19eac40381a21cad233edc8d8
 - name: openapi
   path: backend/app/openapi.yaml
   checksum: 0ede478c5df2710dbd42251288ce56a550ee7291740c39f36819a363cf09fac0
@@ -48,35 +48,18 @@
 
 ### OUTPUTS — 対象ファイルと plan_snapshot_id
 <!-- AUTO:BEGIN name=plan.outputs -->
-plan_snapshot_id: a2d0544958f8cb06a172c4a2bdfb609c1d75149ef0b8f93aea16bfc0a5e5d382
+plan_snapshot_id: d5eae8d2c35c74cd0f11dc85857ff96e8cb9ac95b279c700c6592aacf0fb9fb1
 targets:
   modify:
-    - docs/agile/ui-specification.md
+    - .github/workflows/workorder-ready.yml
+    - .github/workflows/workorder-validate.yml
+    - docs/agile/runbooks/plan-sync-smoke.md
+    - docs/agile/workorder.md
 <!-- AUTO:END -->
 
 ### TASKS — 下流が参照する唯一の実行タスク集合
 <!-- AUTO:BEGIN name=plan.tasks -->
--
-  id: U-positions-page-update
-  refs:
-    - ui-spec:positions-page
-  outputs:
-    - frontend/src
-  acceptance:
-    max_changed_lines: 80
-    checks:
-      - name: frontend-tsc
-        command: npx --prefix frontend tsc --noEmit
-      - name: frontend-eslint
-        command: npx --prefix frontend eslint src --max-warnings=500 --quiet
-      - name: frontend-vitest
-        command: npm --prefix frontend run test:run -- --passWithNoTests
-  gate:
-    []
-  deps:
-    []
-  risk: 低
-  rollback: 前バージョンのUIを再適用
+[]
 <!-- AUTO:END -->
 
 ## 運用ガイド（MANUAL）
