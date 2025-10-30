@@ -26,13 +26,13 @@ defaults:
 jobs:
   sync:
     name: plan-sync/Validate
+    concurrency:
+      group: docs-sync-plan
+      cancel-in-progress: true
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' && github.event.action == 'labeled') ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request)
-    concurrency:
-      group: plan-sync-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || github.event_name == 'issue_comment' && github.event.issue.number || github.event_name == 'workflow_dispatch' && (inputs.pr || inputs.branch || github.ref) || github.ref }}
-      cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
       - name: Resolve run context
@@ -293,14 +293,19 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
-          git checkout -B docs-sync/plan
+          git fetch origin docs-sync/plan || true
+          git switch -C docs-sync/plan
           git add docs/agile/plan.md doc_sync_plan.json
           if git diff --cached --quiet; then
             echo "No plan changes to commit"
             exit 0
           fi
           git commit -m "chore(plan): sync plan AUTO sections"
-          git push --force-with-lease origin docs-sync/plan
+          try_push() {
+            git fetch origin docs-sync/plan || true
+            git push --force-with-lease=refs/heads/docs-sync/plan origin HEAD:docs-sync/plan
+          }
+          try_push || { echo "push rejected (stale). retrying after refetch..."; sleep 2; try_push; }
           TRIGGER="${{ github.event_name }}"
           HEAD_REF="${{ steps.context.outputs.head_ref }}"
           PR_LINE="${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}"
