@@ -6,9 +6,7 @@ import re
 from pathlib import Path
 
 import pytest
-
-from scripts import docsync_utils
-from scripts import workorder_cli
+from scripts import docsync_utils, workorder_cli
 
 pytestmark = pytest.mark.no_db
 
@@ -117,7 +115,11 @@ def test_ready_updates_workorder_and_json(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert data["task_ids"] == ["U-sample-update"]
 
 
-def test_validate_passes_when_synced(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_validate_passes_when_synced(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     _create_repo(monkeypatch, tmp_path)
     workorder_cli.cmd_ready(argparse.Namespace())
 
@@ -131,7 +133,6 @@ def test_validate_detects_missing_task(monkeypatch: pytest.MonkeyPatch, tmp_path
     workorder_cli.cmd_ready(argparse.Namespace())
 
     text = workorder_path.read_text(encoding="utf-8")
-    block = docsync_utils.extract_auto_block(text, "workorder.meta")
     updated = text.replace("id: U-sample-update", "id: U-other")
     workorder_path.write_text(updated, encoding="utf-8")
 
@@ -144,7 +145,6 @@ def test_validate_detects_snapshot_mismatch(monkeypatch: pytest.MonkeyPatch, tmp
     workorder_cli.cmd_ready(argparse.Namespace())
 
     text = workorder_path.read_text(encoding="utf-8")
-    block = docsync_utils.extract_auto_block(text, "workorder.meta")
     updated = text.replace("plan_snapshot_id: SNAP123", "plan_snapshot_id: OTHER456")
     workorder_path.write_text(updated, encoding="utf-8")
 
@@ -152,7 +152,11 @@ def test_validate_detects_snapshot_mismatch(monkeypatch: pytest.MonkeyPatch, tmp
         workorder_cli.cmd_validate(argparse.Namespace())
 
 
-def test_pr_outputs_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_pr_outputs_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     _create_repo(monkeypatch, tmp_path)
     workorder_cli.cmd_ready(argparse.Namespace())
 

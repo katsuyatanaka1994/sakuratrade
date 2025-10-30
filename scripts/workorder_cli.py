@@ -13,21 +13,20 @@ import argparse
 import datetime as dt
 import json
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
+from scripts import plan_cli
 from scripts.docsync_utils import (
     ROOT as PROJECT_ROOT,
+)
+from scripts.docsync_utils import (
     extract_auto_block,
     render_yaml_block,
     replace_auto_block,
 )
-from scripts import plan_cli
+
+ROOT = Path(__file__).resolve().parent.parent
 
 PLAN_PATH = PROJECT_ROOT / "docs" / "agile" / "plan.md"
 WORKORDER_PATH = PROJECT_ROOT / "docs" / "agile" / "workorder.md"
@@ -202,7 +201,10 @@ def cmd_pr(args: argparse.Namespace) -> None:
     print("2. git add docs/agile/workorder.md workorder_sync_plan.json")
     print("3. git commit -m 'chore(workorder): sync implementation tasks'")
     print("4. git push --force-with-lease origin docs-sync/workorder")
-    print("5. gh pr create --draft --title '[workorder-ready] docs: sync workorder auto sections' --base <target> --head docs-sync/workorder")
+    print(
+        "5. gh pr create --draft --title '[workorder-ready] docs: sync workorder auto sections' "
+        "--base <target> --head docs-sync/workorder"
+    )
     print("   （既存PRがある場合は gh pr edit docs-sync/workorder で更新）")
     print("6. PR 本文に plan_snapshot_id とタスク一覧を貼り付ける")
 
