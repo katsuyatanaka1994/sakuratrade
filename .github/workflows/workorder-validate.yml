@@ -1,0 +1,47 @@
+name: wo:ready/Validate
+
+on:
+  pull_request:
+    paths:
+      - docs/agile/workorder.md
+      - scripts/workorder_cli.py
+      - scripts/docsync_utils.py
+      - workorder_sync_plan.json
+      - .github/workflows/workorder-ready.yml
+      - .github/workflows/workorder-validate.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    name: wo:ready/Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install PyYAML==6.0.2
+
+      - name: Validate workorder.md
+        id: validate
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 scripts/workorder_cli.py validate
+
+      - name: Fail when validation did not pass
+        if: steps.validate.outcome == 'failure'
+        run: exit 1
