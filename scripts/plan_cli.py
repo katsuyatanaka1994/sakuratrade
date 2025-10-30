@@ -12,6 +12,7 @@ This is a lightweight first implementation. It focuses on the data flow required
 for PL-1/PL-2: reading specification sources (UI spec, OpenAPI, tests), building
 INPUTS/OUTPUTS/TASKS, and keeping plan.md in sync.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -277,23 +278,29 @@ def plan_snapshot_id(data: PreflightData) -> str:
 def build_inputs(data: PreflightData) -> list[dict]:
     inputs: list[dict] = []
     if UI_SPEC_PATH.exists():
-        inputs.append({
-            "name": "ui-specification",
-            "path": str(UI_SPEC_PATH.relative_to(ROOT)),
-            "checksum": file_checksum(UI_SPEC_PATH),
-        })
+        inputs.append(
+            {
+                "name": "ui-specification",
+                "path": str(UI_SPEC_PATH.relative_to(ROOT)),
+                "checksum": file_checksum(UI_SPEC_PATH),
+            }
+        )
     if OPENAPI_PATH.exists():
-        inputs.append({
-            "name": "openapi",
-            "path": str(OPENAPI_PATH.relative_to(ROOT)),
-            "checksum": file_checksum(OPENAPI_PATH),
-        })
+        inputs.append(
+            {
+                "name": "openapi",
+                "path": str(OPENAPI_PATH.relative_to(ROOT)),
+                "checksum": file_checksum(OPENAPI_PATH),
+            }
+        )
     if DOCS_TESTS_DIR.exists():
-        inputs.append({
-            "name": "test-specs",
-            "path": str(DOCS_TESTS_DIR.relative_to(ROOT)),
-            "checksum": file_checksum(DOCS_TESTS_DIR),
-        })
+        inputs.append(
+            {
+                "name": "test-specs",
+                "path": str(DOCS_TESTS_DIR.relative_to(ROOT)),
+                "checksum": file_checksum(DOCS_TESTS_DIR),
+            }
+        )
     return inputs
 
 
@@ -319,67 +326,74 @@ def build_tasks(data: PreflightData) -> list[dict]:
 
     for section in data.ui_sections:
         slug = slugify(section.title)
-        tasks.append({
-            "id": f"U-{slug}-update",
-            "refs": [f"ui-spec:{section.anchor}"],
-            "outputs": ["frontend/src"],
-            "acceptance": {
-                "max_changed_lines": 80,
-                "checks": [
-                    {"name": "frontend-tsc", "command": "npx --prefix frontend tsc --noEmit"},
-                    {"name": "frontend-eslint", "command": (
-                        "npx --prefix frontend eslint src --max-warnings=500 "
-                        "--quiet"
-                    )},
-                    {"name": "frontend-vitest", "command": (
-                        "npm --prefix frontend run test:run -- --passWithNoTests"
-                    )},
-                ],
-            },
-            "gate": [],
-            "deps": [],
-            "risk": "低",
-            "rollback": "前バージョンのUIを再適用",
-        })
+        tasks.append(
+            {
+                "id": f"U-{slug}-update",
+                "refs": [f"ui-spec:{section.anchor}"],
+                "outputs": ["frontend/src"],
+                "acceptance": {
+                    "max_changed_lines": 80,
+                    "checks": [
+                        {"name": "frontend-tsc", "command": "npx --prefix frontend tsc --noEmit"},
+                        {
+                            "name": "frontend-eslint",
+                            "command": ("npx --prefix frontend eslint src --max-warnings=500 --quiet"),
+                        },
+                        {
+                            "name": "frontend-vitest",
+                            "command": ("npm --prefix frontend run test:run -- --passWithNoTests"),
+                        },
+                    ],
+                },
+                "gate": [],
+                "deps": [],
+                "risk": "低",
+                "rollback": "前バージョンのUIを再適用",
+            }
+        )
 
     for op in data.api_operations:
         slug = slugify(op.path.strip("/").replace("/", "-")) or "root"
-        tasks.append({
-            "id": f"A-{slug}.{op.method.lower()}",
-            "refs": [f"openapi:{op.method.upper()}:{op.path}"],
-            "outputs": ["backend/app"],
-            "acceptance": {
-                "max_changed_lines": 80,
-                "checks": [
-                    {"name": "ruff", "command": "ruff check backend/app"},
-                    {"name": "mypy", "command": "mypy backend/app"},
-                    {"name": "pytest", "command": "pytest -q -m 'not integration'"},
-                    {"name": "oas-lint", "command": "make oas-lint"},
-                ],
-            },
-            "gate": [],
-            "deps": [],
-            "risk": "中",
-            "rollback": "OpenAPI差分を元に戻す",
-        })
+        tasks.append(
+            {
+                "id": f"A-{slug}.{op.method.lower()}",
+                "refs": [f"openapi:{op.method.upper()}:{op.path}"],
+                "outputs": ["backend/app"],
+                "acceptance": {
+                    "max_changed_lines": 80,
+                    "checks": [
+                        {"name": "ruff", "command": "ruff check backend/app"},
+                        {"name": "mypy", "command": "mypy backend/app"},
+                        {"name": "pytest", "command": "pytest -q -m 'not integration'"},
+                        {"name": "oas-lint", "command": "make oas-lint"},
+                    ],
+                },
+                "gate": [],
+                "deps": [],
+                "risk": "中",
+                "rollback": "OpenAPI差分を元に戻す",
+            }
+        )
 
     for flow in data.test_flows:
         slug = slugify(flow.label)
-        tasks.append({
-            "id": f"T-{slug}-update",
-            "refs": [f"tests:integration:{flow.label}"],
-            "outputs": [flow.path],
-            "acceptance": {
-                "max_changed_lines": 80,
-                "checks": [
-                    {"name": "pytest", "command": f"pytest -q {flow.path}"},
-                ],
-            },
-            "gate": [],
-            "deps": [],
-            "risk": "低",
-            "rollback": "テストケースを前版に戻す",
-        })
+        tasks.append(
+            {
+                "id": f"T-{slug}-update",
+                "refs": [f"tests:integration:{flow.label}"],
+                "outputs": [flow.path],
+                "acceptance": {
+                    "max_changed_lines": 80,
+                    "checks": [
+                        {"name": "pytest", "command": f"pytest -q {flow.path}"},
+                    ],
+                },
+                "gate": [],
+                "deps": [],
+                "risk": "低",
+                "rollback": "テストケースを前版に戻す",
+            }
+        )
 
     return tasks
 
@@ -396,12 +410,14 @@ def cmd_apply(args: argparse.Namespace) -> None:
     tasks = build_tasks(data)
 
     now = dt.datetime.now(dt.timezone.utc).astimezone()
-    meta_block = render_yaml_block([
-        {"plan_snapshot_id": snapshot},
-        {"Doc ID": "plan"},
-        {"Updated at": now.isoformat(timespec="seconds")},
-        {"Related PRs": []},
-    ])
+    meta_block = render_yaml_block(
+        [
+            {"plan_snapshot_id": snapshot},
+            {"Doc ID": "plan"},
+            {"Updated at": now.isoformat(timespec="seconds")},
+            {"Related PRs": []},
+        ]
+    )
 
     inputs_block = render_yaml_block(inputs)
     outputs_block = render_yaml_block(outputs)
@@ -426,9 +442,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
-    result = subprocess.run(
-        ["scripts/validate-agile-docs"], cwd=ROOT, text=True
-    )
+    result = subprocess.run(["scripts/validate-agile-docs"], cwd=ROOT, text=True)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 

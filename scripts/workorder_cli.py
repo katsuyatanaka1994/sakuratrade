@@ -7,6 +7,7 @@ ready     Read plan.md and propagate plan_snapshot_id / TASKS into workorder.md
 validate  Verify workorder.md AUTO sections remain in sync with plan.md
 pr        (Stub) Show instructions for preparing the Implementation Draft PR
 """
+
 from __future__ import annotations
 
 import argparse
@@ -151,17 +152,13 @@ def cmd_validate(args: argparse.Namespace) -> None:
         snapshot_in_workorder = None
 
     if snapshot_in_workorder and snapshot_in_workorder != snapshot:
-        errors.append(
-            "::error file=docs/agile/workorder.md::plan_snapshot_id が plan.md と一致しません。"
-        )
+        errors.append("::error file=docs/agile/workorder.md::plan_snapshot_id が plan.md と一致しません。")
 
     workorder_ids = [match.group(1).strip() for match in re.finditer(r"^\s+id:\s*(.+)$", workorder_block, re.MULTILINE)]
     missing = sorted({task_id for task_id in plan_task_ids if task_id not in workorder_ids})
     if missing:
         details = ", ".join(missing)
-        errors.append(
-            f"::error file=docs/agile/workorder.md::Tasks に Plan のタスクが不足しています: {details}"
-        )
+        errors.append(f"::error file=docs/agile/workorder.md::Tasks に Plan のタスクが不足しています: {details}")
 
     if errors:
         for message in errors:

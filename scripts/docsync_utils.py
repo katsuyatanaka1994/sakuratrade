@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Shared helpers for DocSync CLI scripts."""
+
 from __future__ import annotations
 
 import re
@@ -32,9 +33,7 @@ def extract_auto_block(text: str, name: str) -> str:
 
 def replace_auto_block(text: str, name: str, body: str) -> str:
     pattern = re.compile(
-        rf"<!--\s*AUTO:BEGIN\s+name={re.escape(name)}\s*-->" +
-        r".*?" +
-        r"<!--\s*AUTO:END\s*-->",
+        rf"<!--\s*AUTO:BEGIN\s+name={re.escape(name)}\s*-->" + r".*?" + r"<!--\s*AUTO:END\s*-->",
         re.DOTALL,
     )
     replacement = f"<!-- AUTO:BEGIN name={name} -->\n{body}\n<!-- AUTO:END -->"
@@ -77,9 +76,7 @@ def _render_list(value: list[Any], level: int) -> list[str]:
                 lines.append(f"{space}- {{}}")
                 continue
             simple = all(
-                (not isinstance(v, (dict, list)))
-                or (isinstance(v, dict) and not v)
-                or (isinstance(v, list) and not v)
+                (not isinstance(v, (dict, list))) or (isinstance(v, dict) and not v) or (isinstance(v, list) and not v)
                 for v in item.values()
             )
             keys = list(item.items())
