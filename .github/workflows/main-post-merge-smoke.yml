@@ -1,0 +1,55 @@
+name: main/post-merge-smoke
+
+on:
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: main-post-merge-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for conflict markers
+        run: |
+          if grep -R -n -E '^[[:space:]]*[<=>]{7} ' -- . ; then
+            echo "::error::Conflict markers found"
+            exit 1
+          fi
+          echo "no conflict markers"
+
+      - name: Py syntax (changed files only)
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          PY=$(git diff --name-only "$BEFORE" "$AFTER" | grep -E '\.py$' || true)
+          if [ -n "$PY" ]; then
+            echo "$PY" | xargs -r -I {} python -m py_compile {}
+          else
+            echo "no .py changes"
+          fi
+
+      - name: Sanity check big artifacts
+        run: |
+          for f in docs/agile/plan.md docs/specs/openapi.yaml; do
+            [ -f "$f" ] || continue
+            if [ ! -s "$f" ]; then
+              echo "::error::$f is empty"
+              exit 1
+            fi
+            size=$(wc -c <"$f")
+            if [ "$size" -gt 5242880 ]; then
+              echo "::error::$f too large ($size bytes)"
+              exit 1
+            fi
+          done
+          echo "artifact size OK"
