@@ -12,6 +12,7 @@ This is a lightweight first implementation. It focuses on the data flow required
 for PL-1/PL-2: reading specification sources (UI spec, OpenAPI, tests), building
 INPUTS/OUTPUTS/TASKS, and keeping plan.md in sync.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,19 +25,15 @@ import subprocess
 from pathlib import Path
 from typing import Iterable
 
+from scripts.docsync_utils import render_yaml_block, replace_auto_block
+
 ROOT = Path(__file__).resolve().parent.parent
+
 PLAN_PATH = ROOT / "docs" / "agile" / "plan.md"
 UI_SPEC_PATH = ROOT / "docs" / "agile" / "ui-specification.md"
 OPENAPI_PATH = ROOT / "backend" / "app" / "openapi.yaml"
 DOCS_TESTS_DIR = ROOT / "docs" / "tests"
 DOC_SYNC_PLAN_PATH = ROOT / "doc_sync_plan.json"
-
-AUTO_SECTION_PATTERN = re.compile(
-    r"(<!--\s*AUTO:BEGIN\s+name=(?P<name>[^\s]+)\s*-->)"
-    r"(?P<body>.*?)"
-    r"(<!--\s*AUTO:END\s*-->)",
-    re.DOTALL,
-)
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -281,23 +278,29 @@ def plan_snapshot_id(data: PreflightData) -> str:
 def build_inputs(data: PreflightData) -> list[dict]:
     inputs: list[dict] = []
     if UI_SPEC_PATH.exists():
-        inputs.append({
-            "name": "ui-specification",
-            "path": str(UI_SPEC_PATH.relative_to(ROOT)),
-            "checksum": file_checksum(UI_SPEC_PATH),
-        })
+        inputs.append(
+            {
+                "name": "ui-specification",
+                "path": str(UI_SPEC_PATH.relative_to(ROOT)),
+                "checksum": file_checksum(UI_SPEC_PATH),
+            }
+        )
     if OPENAPI_PATH.exists():
-        inputs.append({
-            "name": "openapi",
-            "path": str(OPENAPI_PATH.relative_to(ROOT)),
-            "checksum": file_checksum(OPENAPI_PATH),
-        })
+        inputs.append(
+            {
+                "name": "openapi",
+                "path": str(OPENAPI_PATH.relative_to(ROOT)),
+                "checksum": file_checksum(OPENAPI_PATH),
+            }
+        )
     if DOCS_TESTS_DIR.exists():
-        inputs.append({
-            "name": "test-specs",
-            "path": str(DOCS_TESTS_DIR.relative_to(ROOT)),
-            "checksum": file_checksum(DOCS_TESTS_DIR),
-        })
+        inputs.append(
+            {
+                "name": "test-specs",
+                "path": str(DOCS_TESTS_DIR.relative_to(ROOT)),
+                "checksum": file_checksum(DOCS_TESTS_DIR),
+            }
+        )
     return inputs
 
 
@@ -323,158 +326,76 @@ def build_tasks(data: PreflightData) -> list[dict]:
 
     for section in data.ui_sections:
         slug = slugify(section.title)
-        tasks.append({
-            "id": f"U-{slug}-update",
-            "refs": [f"ui-spec:{section.anchor}"],
-            "outputs": ["frontend/src"],
-            "acceptance": {
-                "max_changed_lines": 80,
-                "checks": [
-                    {"name": "frontend-tsc", "command": "npx --prefix frontend tsc --noEmit"},
-                    {"name": "frontend-eslint", "command": (
-                        "npx --prefix frontend eslint src --max-warnings=500 "
-                        "--quiet"
-                    )},
-                    {"name": "frontend-vitest", "command": (
-                        "npm --prefix frontend run test:run -- --passWithNoTests"
-                    )},
-                ],
-            },
-            "gate": [],
-            "deps": [],
-            "risk": "低",
-            "rollback": "前バージョンのUIを再適用",
-        })
+        tasks.append(
+            {
+                "id": f"U-{slug}-update",
+                "refs": [f"ui-spec:{section.anchor}"],
+                "outputs": ["frontend/src"],
+                "acceptance": {
+                    "max_changed_lines": 80,
+                    "checks": [
+                        {"name": "frontend-tsc", "command": "npx --prefix frontend tsc --noEmit"},
+                        {
+                            "name": "frontend-eslint",
+                            "command": ("npx --prefix frontend eslint src --max-warnings=500 --quiet"),
+                        },
+                        {
+                            "name": "frontend-vitest",
+                            "command": ("npm --prefix frontend run test:run -- --passWithNoTests"),
+                        },
+                    ],
+                },
+                "gate": [],
+                "deps": [],
+                "risk": "低",
+                "rollback": "前バージョンのUIを再適用",
+            }
+        )
 
     for op in data.api_operations:
         slug = slugify(op.path.strip("/").replace("/", "-")) or "root"
-        tasks.append({
-            "id": f"A-{slug}.{op.method.lower()}",
-            "refs": [f"openapi:{op.method.upper()}:{op.path}"],
-            "outputs": ["backend/app"],
-            "acceptance": {
-                "max_changed_lines": 80,
-                "checks": [
-                    {"name": "ruff", "command": "ruff check backend/app"},
-                    {"name": "mypy", "command": "mypy backend/app"},
-                    {"name": "pytest", "command": "pytest -q -m 'not integration'"},
-                    {"name": "oas-lint", "command": "make oas-lint"},
-                ],
-            },
-            "gate": [],
-            "deps": [],
-            "risk": "中",
-            "rollback": "OpenAPI差分を元に戻す",
-        })
+        tasks.append(
+            {
+                "id": f"A-{slug}.{op.method.lower()}",
+                "refs": [f"openapi:{op.method.upper()}:{op.path}"],
+                "outputs": ["backend/app"],
+                "acceptance": {
+                    "max_changed_lines": 80,
+                    "checks": [
+                        {"name": "ruff", "command": "ruff check backend/app"},
+                        {"name": "mypy", "command": "mypy backend/app"},
+                        {"name": "pytest", "command": "pytest -q -m 'not integration'"},
+                        {"name": "oas-lint", "command": "make oas-lint"},
+                    ],
+                },
+                "gate": [],
+                "deps": [],
+                "risk": "中",
+                "rollback": "OpenAPI差分を元に戻す",
+            }
+        )
 
     for flow in data.test_flows:
         slug = slugify(flow.label)
-        tasks.append({
-            "id": f"T-{slug}-update",
-            "refs": [f"tests:integration:{flow.label}"],
-            "outputs": [flow.path],
-            "acceptance": {
-                "max_changed_lines": 80,
-                "checks": [
-                    {"name": "pytest", "command": f"pytest -q {flow.path}"},
-                ],
-            },
-            "gate": [],
-            "deps": [],
-            "risk": "低",
-            "rollback": "テストケースを前版に戻す",
-        })
+        tasks.append(
+            {
+                "id": f"T-{slug}-update",
+                "refs": [f"tests:integration:{flow.label}"],
+                "outputs": [flow.path],
+                "acceptance": {
+                    "max_changed_lines": 80,
+                    "checks": [
+                        {"name": "pytest", "command": f"pytest -q {flow.path}"},
+                    ],
+                },
+                "gate": [],
+                "deps": [],
+                "risk": "低",
+                "rollback": "テストケースを前版に戻す",
+            }
+        )
 
     return tasks
-
-
-def render_yaml_block(data: object, indent: int = 0) -> str:
-    """Serialize data into a small subset of YAML without extra deps."""
-
-    def render_dict(value: dict, level: int) -> list[str]:
-        space = " " * level
-        if not value:
-            return [f"{space}{{}}"]
-        lines: list[str] = []
-        for key, val in value.items():
-            if isinstance(val, dict):
-                if not val:
-                    lines.append(f"{space}{key}: {{}}")
-                else:
-                    lines.append(f"{space}{key}:")
-                    lines.extend(render_dict(val, level + 2))
-            elif isinstance(val, list):
-                if not val:
-                    lines.append(f"{space}{key}: []")
-                else:
-                    lines.append(f"{space}{key}:")
-                    lines.extend(render_list(val, level + 2))
-            else:
-                lines.append(f"{space}{key}: {val}")
-        return lines
-
-    def render_list(value: list, level: int) -> list[str]:
-        space = " " * level
-        if not value:
-            return [f"{space}[]"]
-        lines: list[str] = []
-        for item in value:
-            if isinstance(item, dict):
-                if not item:
-                    lines.append(f"{space}- {{}}")
-                    continue
-                simple = all(
-                    (not isinstance(v, (dict, list)))
-                    or (isinstance(v, dict) and not v)
-                    or (isinstance(v, list) and not v)
-                    for v in item.values()
-                )
-                keys = list(item.items())
-                head_space = " " * (level + 2)
-                if simple:
-                    first_key, first_val = keys[0]
-                    lines.append(f"{space}- {first_key}: {first_val}")
-                    for key, val in keys[1:]:
-                        lines.append(f"{head_space}{key}: {val}")
-                else:
-                    lines.append(f"{space}-")
-                    for key, val in keys:
-                        if isinstance(val, dict):
-                            lines.append(f"{head_space}{key}:")
-                            lines.extend(render_dict(val, level + 4))
-                        elif isinstance(val, list):
-                            lines.append(f"{head_space}{key}:")
-                            lines.extend(render_list(val, level + 4))
-                        else:
-                            lines.append(f"{head_space}{key}: {val}")
-            elif isinstance(item, list):
-                lines.append(f"{space}-")
-                lines.extend(render_list(item, level + 2))
-            else:
-                lines.append(f"{space}- {item}")
-        return lines
-
-    if isinstance(data, dict):
-        lines = render_dict(data, indent)
-    elif isinstance(data, list):
-        lines = render_list(data, indent)
-    else:
-        lines = [" " * indent + str(data)]
-    return "\n".join(lines)
-
-
-
-def replace_auto_block(text: str, name: str, body: str) -> str:
-    pattern = re.compile(
-        rf"<!--\s*AUTO:BEGIN\s+name={re.escape(name)}\s*-->" +
-        r".*?" +
-        r"<!--\s*AUTO:END\s*-->",
-        re.DOTALL,
-    )
-    replacement = f"<!-- AUTO:BEGIN name={name} -->\n{body}\n<!-- AUTO:END -->"
-    if not pattern.search(text):
-        raise SystemExit(f"plan.md に AUTO セクション {name} が見つかりません。")
-    return pattern.sub(replacement, text)
 
 
 def cmd_apply(args: argparse.Namespace) -> None:
@@ -489,12 +410,14 @@ def cmd_apply(args: argparse.Namespace) -> None:
     tasks = build_tasks(data)
 
     now = dt.datetime.now(dt.timezone.utc).astimezone()
-    meta_block = render_yaml_block([
-        {"plan_snapshot_id": snapshot},
-        {"Doc ID": "plan"},
-        {"Updated at": now.isoformat(timespec="seconds")},
-        {"Related PRs": []},
-    ])
+    meta_block = render_yaml_block(
+        [
+            {"plan_snapshot_id": snapshot},
+            {"Doc ID": "plan"},
+            {"Updated at": now.isoformat(timespec="seconds")},
+            {"Related PRs": []},
+        ]
+    )
 
     inputs_block = render_yaml_block(inputs)
     outputs_block = render_yaml_block(outputs)
@@ -519,9 +442,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
-    result = subprocess.run(
-        ["scripts/validate-agile-docs"], cwd=ROOT, text=True
-    )
+    result = subprocess.run(["scripts/validate-agile-docs"], cwd=ROOT, text=True)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 

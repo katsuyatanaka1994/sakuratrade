@@ -1,0 +1,67 @@
+name: wo:ready/Validate
+
+on:
+  pull_request:
+    paths:
+      - docs/agile/workorder.md
+      - scripts/workorder_cli.py
+      - scripts/docsync_utils.py
+      - workorder_sync_plan.json
+      - .github/workflows/workorder-ready.yml
+      - .github/workflows/workorder-validate.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    name: wo:ready/Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install PyYAML==6.0.2
+
+      - name: Validate workorder.md (verbose)
+        id: wo_validate
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          if python -m scripts.workorder_cli validate | tee tmp/wo_validate.log; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Upload wo:validate log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wo-validate-log
+          path: tmp/wo_validate.log
+
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo "### wo:validate"
+            echo "- Result: ${{ steps.wo_validate.outputs.ok || 'false' }}"
+            echo
+            echo '```text'
+            tail -n 150 tmp/wo_validate.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

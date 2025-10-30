@@ -17,9 +17,9 @@
 6. `git diff docs/agile/ui-specification.md docs/agile/plan.md` を確認し、問題なければ Draft PR 用にコミットする。
 
 ### Workorder 連携のサニティチェック（PL-5 以降）
-1. plan 側の差分が確定したら `python3 scripts/workorder_cli.py ready` を実行し、`docs/agile/workorder.md` と `workorder_sync_plan.json` が更新されることを確認する。
-2. `python3 scripts/workorder_cli.py validate` を実行し、`docs/agile/workorder.md: OK` が表示されれば plan と workorder の指紋が一致している。
-3. `python3 scripts/workorder_cli.py pr` で Draft PR 作成の推奨手順とタスク要約を確認し、plan_snapshot_id を控える。
+1. plan 側の差分が確定したら `python3 -m scripts.workorder_cli ready` を実行し、`docs/agile/workorder.md` と `workorder_sync_plan.json` が更新されることを確認する。
+2. `python3 -m scripts.workorder_cli validate` を実行し、`docs/agile/workorder.md: OK` が表示されれば plan と workorder の指紋が一致している。
+3. `python3 -m scripts.workorder_cli pr` で Draft PR 作成の推奨手順とタスク要約を確認し、plan_snapshot_id を控える。
 4. `git diff docs/agile/workorder.md workorder_sync_plan.json` を確認し、タスク ID と `plan_snapshot_id` が期待通りに反映されているかチェックする。
 5. No-Op だった場合は CLI の標準出力にその旨が表示される。必要に応じて `plan_cli.py preflight` の再実行やトリガ差分の確認を行う。
 
