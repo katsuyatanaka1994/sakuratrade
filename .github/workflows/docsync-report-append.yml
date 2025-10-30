@@ -83,4 +83,6 @@ jobs:
           branch: docs-sync/report-${{ github.run_id }}
           title: "[skip docsync] docs: append DocSync report line"
           commit-message: "docs(auto): append report line from docsync-check run"
-          labels: "docsync:needs-apply"
+          labels: |
+            plan:sync
+            docsync:needs-apply
