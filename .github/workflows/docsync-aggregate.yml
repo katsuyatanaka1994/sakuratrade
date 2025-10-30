@@ -102,5 +102,7 @@ jobs:
           body: "Automated append from docsync-aggregate."
           add-paths: |
             docs/agile/report.md
-          labels: "docsync:needs-apply"
+          labels: |
+            plan:sync
+            docsync:needs-apply
           delete-branch: true
