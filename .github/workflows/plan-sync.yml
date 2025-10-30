@@ -27,8 +27,8 @@ jobs:
   sync:
     name: plan-sync/Validate
     concurrency:
-      group: docs-sync-plan
-      cancel-in-progress: true
+      group: docs-sync-plan-${{ github.event.pull_request.number || github.ref_name || 'manual' }}
+      cancel-in-progress: false
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' && github.event.action == 'labeled') ||
@@ -301,11 +301,7 @@ jobs:
             exit 0
           fi
           git commit -m "chore(plan): sync plan AUTO sections"
-          try_push() {
-            git fetch origin docs-sync/plan || true
-            git push --force-with-lease=refs/heads/docs-sync/plan origin HEAD:docs-sync/plan
-          }
-          try_push || { echo "push rejected (stale). retrying after refetch..."; sleep 2; try_push; }
+          git push --force-with-lease origin HEAD:docs-sync/plan
           TRIGGER="${{ github.event_name }}"
           HEAD_REF="${{ steps.context.outputs.head_ref }}"
           PR_LINE="${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}"
