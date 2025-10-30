@@ -21,15 +21,13 @@ import hashlib
 import json
 import re
 import subprocess
-import sys
 from pathlib import Path
 from typing import Iterable
 
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from scripts.docsync_utils import render_yaml_block, replace_auto_block
+
+ROOT = Path(__file__).resolve().parent.parent
+
 PLAN_PATH = ROOT / "docs" / "agile" / "plan.md"
 UI_SPEC_PATH = ROOT / "docs" / "agile" / "ui-specification.md"
 OPENAPI_PATH = ROOT / "backend" / "app" / "openapi.yaml"

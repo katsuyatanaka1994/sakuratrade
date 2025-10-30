@@ -1,11 +1,17 @@
 import os
+import pathlib
+import sys
 from uuid import UUID
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
-from app.database import async_engine, sync_engine
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.database import async_engine, sync_engine  # noqa: E402
 
 os.environ.setdefault("ENV", "test")
 
