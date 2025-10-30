@@ -15,7 +15,7 @@ import datetime as dt
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, List
 
 from scripts import plan_cli
 from scripts.docsync_utils import (
@@ -32,6 +32,12 @@ ROOT = Path(__file__).resolve().parent.parent
 PLAN_PATH = PROJECT_ROOT / "docs" / "agile" / "plan.md"
 WORKORDER_PATH = PROJECT_ROOT / "docs" / "agile" / "workorder.md"
 WORKORDER_SYNC_PLAN_PATH = PROJECT_ROOT / "workorder_sync_plan.json"
+
+
+def _join_strings(items: Iterable[object], sep: str = ", ") -> str:
+    clean: List[str] = [value for value in items if isinstance(value, str) and value]
+    clean.sort()
+    return sep.join(clean)
 
 
 def _extract_plan_snapshot_id(plan_text: str) -> str:
@@ -115,7 +121,9 @@ def cmd_ready(args: argparse.Namespace) -> None:
 
     summary = {
         "plan_snapshot_id": snapshot,
-        "task_ids": [task.get("id") for task in ordered_tasks if task.get("id")],
+        "task_ids": [
+            task_id for task_id in (task.get("id") for task in ordered_tasks) if isinstance(task_id, str) and task_id
+        ],
         "tasks": ordered_tasks,
     }
     WORKORDER_SYNC_PLAN_PATH.write_text(
@@ -127,7 +135,9 @@ def cmd_ready(args: argparse.Namespace) -> None:
 
 def cmd_validate(args: argparse.Namespace) -> None:
     snapshot, plan_tasks = _load_plan_data()
-    plan_task_ids = [task.get("id") for task in plan_tasks if task.get("id")]
+    plan_task_ids: list[str] = [
+        task_id for task_id in (task.get("id") for task in plan_tasks) if isinstance(task_id, str) and task_id
+    ]
 
     if not WORKORDER_PATH.exists():
         raise SystemExit("docs/agile/workorder.md が見つかりません。")
@@ -157,7 +167,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
     workorder_ids = [match.group(1).strip() for match in re.finditer(r"^\s+id:\s*(.+)$", workorder_block, re.MULTILINE)]
     missing = sorted({task_id for task_id in plan_task_ids if task_id not in workorder_ids})
     if missing:
-        details = ", ".join(missing)
+        details = _join_strings(missing)
         errors.append(f"::error file=docs/agile/workorder.md::Tasks に Plan のタスクが不足しています: {details}")
 
     if errors:
@@ -184,13 +194,14 @@ def cmd_pr(args: argparse.Namespace) -> None:
 
     print("Implementation Draft PR を作成する前に次を確認してください:")
     print(f"- plan_snapshot_id: {snapshot}")
-    print(f"- タスク数: {len(task_ids)} ({', '.join(task_ids)})")
+    joined_ids = _join_strings(task_ids)
+    print(f"- タスク数: {len(task_ids)} ({joined_ids})")
     if tasks:
         print("- タスク要約:")
         for task in tasks:
             task_id = task.get("id", "(no-id)")
-            refs = ", ".join(task.get("refs", [])) or "-"
-            outputs = ", ".join(task.get("outputs", [])) or "-"
+            refs = _join_strings(task.get("refs", [])) or "-"
+            outputs = _join_strings(task.get("outputs", [])) or "-"
             print(f"    - {task_id} | refs: {refs} | outputs: {outputs}")
 
     print("\n推奨手順:")
