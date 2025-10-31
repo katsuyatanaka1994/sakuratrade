@@ -18,12 +18,15 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import fnmatch
 import hashlib
 import json
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, Sequence
 
 from scripts.docsync_utils import render_yaml_block, replace_auto_block
 
@@ -34,6 +37,30 @@ UI_SPEC_PATH = ROOT / "docs" / "agile" / "ui-specification.md"
 OPENAPI_PATH = ROOT / "backend" / "app" / "openapi.yaml"
 DOCS_TESTS_DIR = ROOT / "docs" / "tests"
 DOC_SYNC_PLAN_PATH = ROOT / "doc_sync_plan.json"
+
+DEFAULT_ALLOWED_PATTERNS = [
+    "docs/agile/**",
+    "docs/specs/**",
+    "docs/tests/**",
+    ".github/workflows/**",
+    "backend/app/openapi.yaml",
+]
+
+# Block list is intentionally short; callers can expand via env if needed.
+DEFAULT_BLOCKED_PATTERNS = ["docs/secrets/**"]
+
+
+def _resolve_report_path() -> Path:
+    raw = os.environ.get("PLAN_SYNC_RUN_REPORT")
+    if raw:
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = ROOT / candidate
+        return candidate
+    return ROOT / "tmp" / "plan_limits_report.json"
+
+
+RUN_REPORT_PATH = _resolve_report_path()
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -93,6 +120,126 @@ class PreflightData:
 
 # ---------------------------------------------------------------------------
 # Helper utilities
+
+
+def _split_patterns(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _load_allowed_patterns() -> list[str]:
+    patterns = _split_patterns(os.environ.get("PLAN_SYNC_ALLOWED_PATHS"))
+    return patterns or DEFAULT_ALLOWED_PATTERNS
+
+
+def _load_blocked_patterns() -> list[str]:
+    patterns = _split_patterns(os.environ.get("PLAN_SYNC_BLOCKED_PATHS"))
+    return patterns or DEFAULT_BLOCKED_PATTERNS
+
+
+def _matches_any(path: str, patterns: Sequence[str]) -> bool:
+    normalized = path.replace("\\", "/")
+    return any(fnmatch.fnmatch(normalized, pattern) for pattern in patterns)
+
+
+def _safe_int(value: str | None, default: int, *, env_name: str) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        print(
+            f"[plan-cli] Invalid value for {env_name}={value!r}; falling back to {default}",
+            file=sys.stderr,
+        )
+        return default
+
+
+def _load_limit_config() -> tuple[int, int]:
+    max_lines = _safe_int(
+        os.environ.get("PLAN_SYNC_MAX_CHANGED_LINES"),
+        300,
+        env_name="PLAN_SYNC_MAX_CHANGED_LINES",
+    )
+    max_files = _safe_int(
+        os.environ.get("PLAN_SYNC_MAX_CHANGED_FILES"),
+        4,
+        env_name="PLAN_SYNC_MAX_CHANGED_FILES",
+    )
+    return max_lines, max_files
+
+
+def _update_report(section: str, payload: dict[str, Any]) -> None:
+    try:
+        RUN_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except FileExistsError:
+        pass
+    report: dict[str, Any] = {}
+    if RUN_REPORT_PATH.exists():
+        try:
+            report = json.loads(RUN_REPORT_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            report = {}
+    report[section] = payload
+    RUN_REPORT_PATH.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _collect_diff_stats(paths: Sequence[str] | None = None) -> dict[str, Any]:
+    cmd = ["git", "diff", "--numstat"]
+    if paths:
+        cmd.append("--")
+        cmd.extend(paths)
+    completed = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True)
+    files: list[dict[str, Any]] = []
+    total_lines = 0
+    for line in completed.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        added_raw, deleted_raw, path = parts[:3]
+        added = 0 if added_raw == "-" else int(added_raw or 0)
+        deleted = 0 if deleted_raw == "-" else int(deleted_raw or 0)
+        total_lines += added + deleted
+        files.append({"path": path, "added": added, "deleted": deleted})
+    return {"files": files, "file_count": len(files), "total_lines": total_lines}
+
+
+def _enforce_limits(max_lines: int, max_files: int) -> None:
+    stats = _collect_diff_stats()
+    status_payload: dict[str, Any] = {
+        "status": "ok",
+        "stats": stats,
+        "max_lines": max_lines,
+        "max_files": max_files,
+    }
+
+    if stats["total_lines"] > max_lines:
+        status_payload.update(
+            {
+                "status": "limit_exceeded",
+                "limit_type": "lines",
+                "actual": stats["total_lines"],
+            }
+        )
+        _update_report("apply", status_payload)
+        raise SystemExit(f"plan diff changed {stats['total_lines']} lines which exceeds the limit of {max_lines}")
+
+    if stats["file_count"] > max_files:
+        status_payload.update(
+            {
+                "status": "limit_exceeded",
+                "limit_type": "files",
+                "actual": stats["file_count"],
+            }
+        )
+        _update_report("apply", status_payload)
+        raise SystemExit(f"plan diff touched {stats['file_count']} files which exceeds the limit of {max_files}")
+
+    if stats["file_count"] == 0:
+        status_payload["status"] = "no_changes"
+
+    _update_report("apply", status_payload)
 
 
 def run_git(args: list[str]) -> str:
@@ -214,15 +361,44 @@ def cmd_preflight(args: argparse.Namespace) -> None:
     base = detect_base_ref()
     head = run_git(["rev-parse", "HEAD"])
     changed_files = get_changed_files(base, head)
+    allowed_patterns = _load_allowed_patterns()
+    blocked_patterns = _load_blocked_patterns()
+    blocked_files = [f for f in changed_files if _matches_any(f, blocked_patterns)]
+    if blocked_files:
+        _update_report(
+            "preflight",
+            {
+                "status": "blocked_paths",
+                "base": base,
+                "head": head,
+                "total_changed": len(changed_files),
+                "blocked_files": blocked_files,
+                "original_changed_files": changed_files,
+                "allowed_patterns": allowed_patterns,
+                "blocked_patterns": blocked_patterns,
+            },
+        )
+        raise SystemExit("Detected blocked paths in diff: " + ", ".join(sorted(blocked_files)))
+
+    disallowed_files = [f for f in changed_files if not _matches_any(f, allowed_patterns)]
+    effective_changed_files = []
+    if disallowed_files:
+        print(
+            "plan preflight: diff contains files outside allowlist; treating as No-Op",
+            file=sys.stderr,
+        )
+    else:
+        effective_changed_files = [f for f in changed_files if _matches_any(f, allowed_patterns)]
+
     triggers: list[str] = []
 
-    if any(f == "docs/agile/ui-specification.md" for f in changed_files):
+    if any(f == "docs/agile/ui-specification.md" for f in effective_changed_files):
         triggers.append("ui_spec_manual")
-    if any(f in {"backend/app/openapi.yaml", "docs/specs/openapi.yaml"} for f in changed_files):
+    if any(f in {"backend/app/openapi.yaml", "docs/specs/openapi.yaml"} for f in effective_changed_files):
         triggers.append("openapi_changed")
-    if any(f.startswith("docs/tests/") for f in changed_files):
+    if any(f.startswith("docs/tests/") for f in effective_changed_files):
         triggers.append("tests_changed")
-    if any(f.startswith(".github/workflows/") or f.startswith("docs/agile/") for f in changed_files):
+    if any(f.startswith(".github/workflows/") or f.startswith("docs/agile/") for f in effective_changed_files):
         triggers.append("docs_ci_changed")
 
     ui_sections = parse_ui_spec_sections() if "ui_spec_manual" in triggers else []
@@ -240,7 +416,7 @@ def cmd_preflight(args: argparse.Namespace) -> None:
     data = PreflightData(
         base=base,
         head=head,
-        changed_files=changed_files,
+        changed_files=effective_changed_files,
         triggers=triggers,
         ui_sections=ui_sections,
         api_operations=api_operations,
@@ -249,6 +425,30 @@ def cmd_preflight(args: argparse.Namespace) -> None:
 
     DOC_SYNC_PLAN_PATH.write_text(json.dumps(data.to_json(), indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Saved {DOC_SYNC_PLAN_PATH.relative_to(ROOT)}")
+    status = "ok"
+    if disallowed_files:
+        status = "skipped_disallowed"
+    elif not triggers:
+        status = "no_triggers"
+
+    _update_report(
+        "preflight",
+        {
+            "status": status,
+            "base": base,
+            "head": head,
+            "total_changed": len(changed_files),
+            "changed_files": effective_changed_files,
+            "original_changed_files": changed_files,
+            "disallowed_files": disallowed_files,
+            "blocked_files": blocked_files,
+            "allowed_patterns": allowed_patterns,
+            "blocked_patterns": blocked_patterns,
+            "triggers": triggers,
+            "no_op": not triggers,
+        },
+    )
+
     if triggers:
         print(f"Detected triggers: {', '.join(triggers)}")
     else:
@@ -400,7 +600,19 @@ def build_tasks(data: PreflightData) -> list[dict]:
 
 def cmd_apply(args: argparse.Namespace) -> None:
     data = load_preflight()
+    max_lines, max_files = _load_limit_config()
     if not data.triggers:
+        stats = _collect_diff_stats()
+        _update_report(
+            "apply",
+            {
+                "status": "no_triggers",
+                "stats": stats,
+                "max_lines": max_lines,
+                "max_files": max_files,
+                "no_op": True,
+            },
+        )
         print("No triggers found. Nothing to apply.")
         return
 
@@ -435,6 +647,8 @@ def cmd_apply(args: argparse.Namespace) -> None:
         print(f"Updated {PLAN_PATH.relative_to(ROOT)}")
     else:
         print("plan.md に差分はありませんでした。")
+
+    _enforce_limits(max_lines, max_files)
 
 
 # ---------------------------------------------------------------------------

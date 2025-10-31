@@ -26,6 +26,13 @@ defaults:
 jobs:
   sync:
     name: plan-sync/Validate
+    env:
+      PLAN_SYNC_ALLOWED_PATHS: ${{ vars.PLAN_SYNC_ALLOWED_PATHS || 'docs/agile/**,docs/specs/**,docs/tests/**,.github/workflows/**,backend/app/openapi.yaml' }}
+      PLAN_SYNC_BLOCKED_PATHS: ${{ vars.PLAN_SYNC_BLOCKED_PATHS || 'docs/secrets/**' }}
+      PLAN_SYNC_MAX_CHANGED_LINES: ${{ vars.PLAN_SYNC_MAX_CHANGED_LINES || '300' }}
+      PLAN_SYNC_MAX_CHANGED_FILES: ${{ vars.PLAN_SYNC_MAX_CHANGED_FILES || '4' }}
+      PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS: ${{ vars.PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS || '2' }}
+      PLAN_SYNC_RUN_REPORT: tmp/plan_limits_report.json
     concurrency:
       group: docs-sync-plan-${{ github.event.pull_request.number || github.ref_name || 'manual' }}
       cancel-in-progress: false
@@ -196,12 +203,63 @@ jobs:
 
       - name: Run plan preflight & apply
         if: steps.context.outputs.should_run == 'true'
+        id: plan-run
+        continue-on-error: true
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           set -euo pipefail
           python -m scripts.plan_cli preflight
           python -m scripts.plan_cli apply
+
+      - name: Handle guard outcome
+        if: steps.context.outputs.should_run == 'true' && steps.plan-run.outcome == 'failure'
+        uses: actions/github-script@v7
+        env:
+          REPORT_PATH: ${{ env.PLAN_SYNC_RUN_REPORT }}
+          TARGET_PR: ${{ steps.context.outputs.pr_number }}
+        with:
+          script: |
+            const fs = require('fs');
+            const core = require('@actions/core');
+            let payload;
+            try {
+              payload = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, 'utf-8'));
+            } catch (error) {
+              core.setFailed(`plan-sync failed but report ${process.env.REPORT_PATH} was not found: ${error}`);
+              return;
+            }
+            const preflight = payload.preflight || {};
+            const apply = payload.apply || {};
+
+            let message;
+            if (preflight.status === 'blocked_paths') {
+              const files = (preflight.blocked_files || []).join(', ');
+              message = `🛑 plan-sync stopped: blocked path detected (${files || 'unknown'})`;
+            } else if (apply.status === 'limit_exceeded') {
+              const type = apply.limit_type === 'lines' ? 'line change limit' : 'file limit';
+              const limit = apply.limit_type === 'lines' ? apply.max_lines : apply.max_files;
+              const actual = apply.actual ?? 'unknown';
+              message = `🛑 plan-sync stopped: ${type} hit (${actual}/${limit}).`;
+            }
+
+            if (!message) {
+              core.setFailed('plan-sync failed before producing a limit report. Check workflow logs.');
+              return;
+            }
+
+            if (process.env.TARGET_PR) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: Number(process.env.TARGET_PR),
+                body: message,
+              });
+            } else {
+              core.warning('No PR context available to post guard message.');
+            }
+
+            core.setFailed(message);
 
       - name: Validate plan diff
         if: steps.context.outputs.should_run == 'true'
@@ -286,8 +344,46 @@ jobs:
               body: 'ℹ️ plan-sync を実行しましたが、自動更新が必要な差分はありませんでした (No-Op)。'
             });
 
-      - name: Create / update plan PR
+      - name: Enforce automation PR ceiling
         if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed == 'true'
+        id: pr-ceiling
+        uses: actions/github-script@v7
+        env:
+          MAX_OPEN: ${{ env.PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS }}
+          SOURCE_PR: ${{ steps.context.outputs.pr_number }}
+        with:
+          script: |
+            const core = require('@actions/core');
+            const maxOpen = Number(process.env.MAX_OPEN || '0');
+            if (!maxOpen) {
+              core.info('PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS is 0; skipping PR ceiling check.');
+              return;
+            }
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const head = `${owner}:docs-sync/plan`;
+            const res = await github.rest.pulls.list({ owner, repo, head, state: 'open', per_page: 100 });
+            const openCount = res.data.length;
+            core.setOutput('open_count', String(openCount));
+            if (openCount < maxOpen) {
+              core.info(`Current automation PR count ${openCount} is within ceiling ${maxOpen}.`);
+              return;
+            }
+            const message = `🛑 plan-sync stopped: automation PR ceiling reached (${openCount}/${maxOpen}).`;
+            if (process.env.SOURCE_PR) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: Number(process.env.SOURCE_PR),
+                body: message,
+              });
+            } else {
+              core.warning('No PR context available to report automation PR ceiling.');
+            }
+            core.setFailed(message);
+
+      - name: Create / update plan PR
+        if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed == 'true' && (steps.pr-ceiling.outcome == 'success' || steps.pr-ceiling.outcome == 'skipped')
         id: create-pr
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
