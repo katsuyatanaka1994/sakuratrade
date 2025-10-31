@@ -49,3 +49,4 @@
 - DocSync 自動PRには `plan:sync` ラベルが自動付与される。
 - `plan-sync` ワークフローは PR 単位の concurrency（queue）と `--force-with-lease` push を徹底。
 - Merge 後は `main/post-merge-smoke` が 60 秒監視で衝突痕 / `.py` 差分 / 生成物サイズをチェックする。
+- Guard デフォルト: LINES=300 / FILES=4 / AUTO_PRS=2 / ALLOW=docs/agile/**, docs/specs/**, docs/tests/**, .github/workflows/**, backend/app/openapi.yaml。
