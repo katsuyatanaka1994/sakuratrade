@@ -6,11 +6,19 @@ on:
 jobs:
   apply:
     runs-on: ubuntu-latest
+    env:
+      BRANCH_PROTECTION_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}
     steps:
+      - name: Ensure admin token is configured
+        if: env.BRANCH_PROTECTION_TOKEN == ''
+        run: |
+          echo '::error::BRANCH_PROTECTION_TOKEN secret is missing. Generate a PAT (repo administration:write) and add it to repository secrets before running this workflow.'
+          exit 1
+
       - name: Apply branch protection for main
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.BRANCH_PROTECTION_TOKEN || secrets.GITHUB_TOKEN }}
+          github-token: ${{ env.BRANCH_PROTECTION_TOKEN }}
           script: |
             const { owner, repo } = context.repo;
             const branch = 'main';
