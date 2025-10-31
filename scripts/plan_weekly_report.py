@@ -23,6 +23,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from collections import Counter
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -134,7 +135,9 @@ def _github_json(url: str, token: str) -> dict[str, t.Any]:
         with urllib.request.urlopen(req, timeout=30) as resp:
             payload = resp.read()
     except urllib.error.HTTPError as exc:
-        raise GithubApiError(f"GitHub API error {exc.code} for {url}: {exc.read().decode('utf-8', 'ignore')}") from exc
+        error = GithubApiError(f"GitHub API error {exc.code} for {url}: {exc.read().decode('utf-8', 'ignore')}")
+        error.status_code = exc.code  # type: ignore[attr-defined]
+        raise error from exc
     except urllib.error.URLError as exc:  # pragma: no cover - network issues
         raise GithubApiError(f"Network error calling {url}: {exc}") from exc
     try:
@@ -231,6 +234,22 @@ def _fetch_plan_artifact(api_url: str, token: str, workflow_run_id: int) -> dict
     return None
 
 
+def _expand_workflow_identifiers(workflow_name: str) -> list[str]:
+    path_obj = Path(workflow_name or "plan-sync.yml")
+    stem = path_obj.stem
+
+    candidates: list[str] = []
+
+    def add(candidate: str) -> None:
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    add(f"{stem}.yml")
+    add(f"{stem}.yaml")
+
+    return candidates if candidates else ["plan-sync.yml"]
+
+
 def collect_runs(
     api_root: str,
     token: str,
@@ -240,15 +259,46 @@ def collect_runs(
     window_start: dt.datetime,
 ) -> list[RunTelemetry]:
     owner, repo_name = repo.split("/", 1)
+
+    base_path = workflow_path or "plan-sync.yml"
+    path_obj = Path(base_path)
+    if path_obj.suffix.lower() == ".yaml":
+        path_obj = path_obj.with_suffix(".yml")
+    normalized_name = path_obj.name
+
     runs: list[RunTelemetry] = []
     page = 1
     stop_fetching = False
-    while not stop_fetching:
+    workflow_ids = _expand_workflow_identifiers(normalized_name)
+
+    resolved_workflow: str | None = None
+    first_payload: dict[str, t.Any] | None = None
+    for candidate in workflow_ids:
         url = (
-            f"{api_root}/repos/{owner}/{repo_name}/actions/workflows/{workflow_path}/runs"
-            f"?status=completed&per_page=100&page={page}"
+            f"{api_root}/repos/{owner}/{repo_name}/actions/workflows/{candidate}/runs"
+            f"?status=completed&per_page=100&page=1"
         )
-        payload = _github_json(url, token)
+        try:
+            candidate_payload = _github_json(url, token)
+        except GithubApiError as exc:
+            if getattr(exc, "status_code", None) == 404:
+                continue
+            raise
+        resolved_workflow = candidate
+        first_payload = candidate_payload
+        break
+
+    if resolved_workflow is None or first_payload is None:
+        raise GithubApiError(f"Unable to resolve workflow identifier for {workflow_path!r}")
+
+    payload: dict[str, t.Any] | None = first_payload
+    while not stop_fetching:
+        if payload is None:
+            url = (
+                f"{api_root}/repos/{owner}/{repo_name}/actions/workflows/{resolved_workflow}/runs"
+                f"?status=completed&per_page=100&page={page}"
+            )
+            payload = _github_json(url, token)
         for item in payload.get("workflow_runs", []):
             created = _parse_timestamp(item.get("created_at")) or ISO_ZERO
             if created < window_start:
@@ -314,6 +364,7 @@ def collect_runs(
         if stop_fetching or not payload.get("workflow_runs"):
             break
         page += 1
+        payload = None
     return runs
 
 
