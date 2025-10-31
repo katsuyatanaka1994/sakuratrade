@@ -52,3 +52,6 @@ gh workflow view main-post-merge-smoke --json name,state | jq '{name, state}'
 - `403 Resource not accessible by integration` → `BRANCH_PROTECTION_TOKEN` のスコープ不足。repo → Administration: write を付与した PAT / GitHub App トークンを再発行し、シークレットを更新する。
 - Required Check がリストに表示されない → `plan-sync/Validate` ワークフローを main で一度成功させ、チェック名を確定させる。`wo:ready/Validate` は Required ではないためリストに現れなくてよい。
 - Code owner レビューで該当ユーザーに通知されない → `CODEOWNERS` のパス表記が `/` から始まっているか、GitHub側で Code Owners 機能が有効か確認する。
+
+## 実測証跡（PL-6）
+- [PL-6 Branch Protection Evidence — 2025-10-31](evidence/PL-6-branch-protection-20251031.md)
