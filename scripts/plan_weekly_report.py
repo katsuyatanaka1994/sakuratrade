@@ -113,10 +113,7 @@ def _format_duration(seconds: float | int | None) -> str:
 def _format_date_range(start: dt.datetime, end: dt.datetime, *, tz: dt.tzinfo = JST) -> str:
     start_local = start.astimezone(tz)
     end_local = end.astimezone(tz)
-    return (
-        f"{start_local.strftime('%Y-%m-%d %H:%M %Z')} — "
-        f"{end_local.strftime('%Y-%m-%d %H:%M %Z')}"
-    )
+    return f"{start_local.strftime('%Y-%m-%d %H:%M %Z')} — {end_local.strftime('%Y-%m-%d %H:%M %Z')}"
 
 
 # ---------------------------------------------------------------------------
@@ -336,9 +333,7 @@ def summarise_runs(runs: list[RunTelemetry], *, window_start: dt.datetime, windo
     lead_times = [r.duration_seconds for r in considered if r.duration_seconds is not None]
     avg_lead = (sum(lead_times) / len(lead_times)) if lead_times else None
 
-    failure_counter: Counter[str] = Counter(
-        r.failure_reason for r in considered if r.failure_reason
-    )
+    failure_counter: Counter[str] = Counter(r.failure_reason for r in considered if r.failure_reason)
     failure_top = failure_counter.most_common(3)
 
     return Summary(
@@ -368,9 +363,7 @@ def render_markdown(summary: Summary) -> str:
     failure = summary.failure_count
     cancelled = summary.cancelled_count
     noop_rate = (
-        f"{summary.no_op_count}/{total_runs} ({(summary.no_op_count / total_runs) * 100:.1f}%)"
-        if total_runs
-        else "0/0"
+        f"{summary.no_op_count}/{total_runs} ({(summary.no_op_count / total_runs) * 100:.1f}%)" if total_runs else "0/0"
     )
     lead_time = _format_duration(summary.avg_lead_time_seconds)
     failures = _render_failure_list(summary.failure_reasons)
