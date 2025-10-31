@@ -1,12 +1,7 @@
 # PL-6 Branch Protection Evidence — 2025-10-31
 
-<<<<<<< Updated upstream
-- 収集日時: 2025-10-31 12:59:08 JST
-- コミット: `736b460`
-=======
 - 収集日時: 2025-10-31 13:12:29 JST
 - コミット: `e458086`
->>>>>>> Stashed changes
 
 ## Branch protection snapshot
 ```json
