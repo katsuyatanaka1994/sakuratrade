@@ -20,6 +20,7 @@ import os
 import sys
 import typing as t
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from collections import Counter
@@ -146,13 +147,40 @@ def _github_json(url: str, token: str) -> dict[str, t.Any]:
         raise GithubApiError(f"Invalid JSON from {url}: {exc}") from exc
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(  # pragma: no cover - very small helper
+        self,
+        request: urllib.request.Request,
+        fp,
+        code,
+        msg,
+        headers,
+        newurl,
+    ):
+        return None
+
+
 def _download_artifact(url: str, token: str) -> bytes:
-    req = _build_request(url, token, accept="application/vnd.github+json")
+    parsed = urllib.parse.urlparse(url)
+    if parsed.netloc.endswith("actions.githubusercontent.com") or parsed.netloc.endswith("blob.core.windows.net"):
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", "plan-weekly-report")
+    else:
+        req = _build_request(url, token, accept="application/vnd.github+json")
+
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with opener.open(req, timeout=30) as resp:
             return resp.read()
     except urllib.error.HTTPError as exc:
-        raise GithubApiError(f"Failed to download artifact {url}: {exc.read().decode('utf-8', 'ignore')}") from exc
+        if exc.code in {301, 302, 303, 307, 308}:
+            location = exc.headers.get("Location")
+            if location:
+                return _download_artifact(location, token)
+        raise GithubApiError(
+            f"Failed to download artifact {url}: {exc.read().decode('utf-8', 'ignore')}"
+        ) from exc
     except urllib.error.URLError as exc:  # pragma: no cover - network issues
         raise GithubApiError(f"Network error downloading artifact {url}: {exc}") from exc
 
