@@ -3,7 +3,11 @@
 ## 目的
 - `main` ブランチへの直pushを禁止し、必ず Pull Request + Required Checks 経由でマージさせる。
 - Required Check は `plan-sync/Validate` のみを強制し、`wo:ready/Validate` は警告成功（非ブロック）で維持する。
+<<<<<<< Updated upstream
 - plan / workorder 系の変更については `CODEOWNERS` でレビュー推奨者を通知しつつ、必須レビューとせずチェックのみでガードする。
+=======
+- plan / workorder 系の変更については `CODEOWNERS` でレビュー推奨者を通知しつつ、Required Check のみでガードする（必須レビューなし）。
+>>>>>>> Stashed changes
 - Merge 後は `main/post-merge-smoke` が 60 秒監視を実施する前提を明文化し、ガードの抜け漏れを防ぐ。
 
 ## 事前条件
@@ -20,7 +24,11 @@
    - **Require linear history** / **Require conversation resolution before merging**。
    - **Do not allow force pushes / Do not allow deletions**。
 3. 「Who can push to matching branches」は空のまま（＝全員PR経由）。必要に応じて GitHub App のみ許可する場合は `branch-protection/sync` ワークフローの `restrictions` を編集する。
+<<<<<<< Updated upstream
 4. 保存後、対象PRで Required Check が `plan-sync/Validate` のみとなり、レビュー未承認でもマージ可であることを確認。`wo:ready/Validate` は警告表示で成功することを想定する。
+=======
+4. 保存後、対象PRで Required Check が `plan-sync/Validate` のみとなり、レビュー未承認でもマージ可能であることを確認。`wo:ready/Validate` は警告表示で成功することを想定する。
+>>>>>>> Stashed changes
 
 ## CLI での確認（`gh`）
 ```bash
@@ -40,7 +48,11 @@ gh workflow view main-post-merge-smoke --json name,state | jq '{name, state}'
 - `.github/workflows/branch-protection-sync.yml` を手動実行（Actions → branch-protection/sync → **Run workflow**）。
 - 成功すると Actions ログに `Updated branch protection for <repo>@main` と Required Checks が出力される。
 - GitHub UI の設定と CLI の出力が一致するかをダブルチェック。
+<<<<<<< Updated upstream
 - Settings → Branches → Code owners review は OFF（通知のみ）であることを確認し、必要に応じて CODEOWNERS へ追加通知先を設定する。
+=======
+- Settings → Branches → Code owners review は OFF（通知のみ）であることを確認し、必要に応じて CODEOWNERS へ通知対象を追加する。
+>>>>>>> Stashed changes
 
 ## スクリーンショット
 - 運用ハンドブック共有用：
