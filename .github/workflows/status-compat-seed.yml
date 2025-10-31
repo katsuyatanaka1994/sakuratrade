@@ -3,13 +3,18 @@ name: status-compat-seed
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch ref to seed statuses for (default: main)'
+        required: false
 
 permissions:
   contents: read
   statuses: write
 
 concurrency:
-  group: status-compat-seed-${{ github.event.pull_request.head.sha }}
+  group: status-compat-seed-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -21,7 +26,27 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
-            const sha = context.payload.pull_request?.head?.sha;
+            let sha = context.payload.pull_request?.head?.sha;
+            let refName = context.payload.pull_request?.head?.ref
+              || context.payload.inputs?.ref
+              || context.ref;
+
+            if (!sha && refName) {
+              const normalized = refName.startsWith('refs/')
+                ? refName.replace(/^refs\//, '')
+                : `heads/${refName}`;
+              try {
+                const { data } = await github.rest.git.getRef({
+                  owner,
+                  repo,
+                  ref: normalized,
+                });
+                sha = data.object?.sha || sha;
+              } catch (error) {
+                core.warning(`Failed to resolve ref ${refName}: ${error.message}`);
+              }
+            }
+
             if (!sha) {
               core.warning('No head SHA; skip seeding statuses');
               return;

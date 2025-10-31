@@ -1,6 +1,12 @@
 import datetime as dt
 
-from scripts.plan_weekly_report import RunTelemetry, render_digest, render_markdown, summarise_runs
+from scripts.plan_weekly_report import (
+    RunTelemetry,
+    _expand_workflow_identifiers,
+    render_digest,
+    render_markdown,
+    summarise_runs,
+)
 
 
 def _run(**kwargs):
@@ -76,3 +82,13 @@ def test_render_markdown_no_runs():
     summary = summarise_runs([], window_start=window_start, window_end=window_end)
     markdown = render_markdown(summary)
     assert "No eligible plan-sync runs" in markdown
+
+
+def test_expand_workflow_identifiers_handles_yaml_and_yml():
+    candidates = _expand_workflow_identifiers(".github/workflows/plan-sync.yaml")
+    assert candidates[0] == "plan-sync.yml"
+    assert "plan-sync.yaml" in candidates
+
+    yml_candidates = _expand_workflow_identifiers("plan-sync.yml")
+    assert yml_candidates[0] == "plan-sync.yml"
+    assert "plan-sync.yaml" in yml_candidates
