@@ -223,9 +223,7 @@ def _enforce_limits(max_lines: int, max_files: int) -> None:
             }
         )
         _update_report("apply", status_payload)
-        raise SystemExit(
-            f"plan diff changed {stats['total_lines']} lines which exceeds the limit of {max_lines}"
-        )
+        raise SystemExit(f"plan diff changed {stats['total_lines']} lines which exceeds the limit of {max_lines}")
 
     if stats["file_count"] > max_files:
         status_payload.update(
@@ -236,9 +234,7 @@ def _enforce_limits(max_lines: int, max_files: int) -> None:
             }
         )
         _update_report("apply", status_payload)
-        raise SystemExit(
-            f"plan diff touched {stats['file_count']} files which exceeds the limit of {max_files}"
-        )
+        raise SystemExit(f"plan diff touched {stats['file_count']} files which exceeds the limit of {max_files}")
 
     if stats["file_count"] == 0:
         status_payload["status"] = "no_changes"
@@ -382,9 +378,7 @@ def cmd_preflight(args: argparse.Namespace) -> None:
                 "blocked_patterns": blocked_patterns,
             },
         )
-        raise SystemExit(
-            "Detected blocked paths in diff: " + ", ".join(sorted(blocked_files))
-        )
+        raise SystemExit("Detected blocked paths in diff: " + ", ".join(sorted(blocked_files)))
 
     disallowed_files = [f for f in changed_files if not _matches_any(f, allowed_patterns)]
     effective_changed_files = []
@@ -404,10 +398,7 @@ def cmd_preflight(args: argparse.Namespace) -> None:
         triggers.append("openapi_changed")
     if any(f.startswith("docs/tests/") for f in effective_changed_files):
         triggers.append("tests_changed")
-    if any(
-        f.startswith(".github/workflows/") or f.startswith("docs/agile/")
-        for f in effective_changed_files
-    ):
+    if any(f.startswith(".github/workflows/") or f.startswith("docs/agile/") for f in effective_changed_files):
         triggers.append("docs_ci_changed")
 
     ui_sections = parse_ui_spec_sections() if "ui_spec_manual" in triggers else []
