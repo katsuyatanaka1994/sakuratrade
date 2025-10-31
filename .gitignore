@@ -40,3 +40,6 @@ katsuya-plan/
 
 # Codex guidelines
 docs/codex-guidelines.md
+
+# Generated telemetry digests
+reports/plan-sync-digest.txt

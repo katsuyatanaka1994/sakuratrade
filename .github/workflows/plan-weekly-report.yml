@@ -1,0 +1,113 @@
+name: plan-sync/Weekly Report
+
+on:
+  schedule:
+    - cron: '0 0 * * MON'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    env:
+      REPORT_BRANCH: reports/plan-weekly-${{ github.run_id }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate weekly report
+        id: report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/plan_weekly_report.py \
+            --workflow plan-sync.yml \
+            --days 7 \
+            --output reports/plan-sync-report.md \
+            --digest reports/plan-sync-digest.txt
+
+      - name: Detect changes
+        id: diff
+        run: |
+          if git diff --quiet -- reports/plan-sync-report.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure ops:report label
+        if: steps.diff.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const name = 'ops:report';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name });
+            } catch (error) {
+              if (error.status === 404) {
+                await github.rest.issues.createLabel({ owner, repo, name, color: '0E8A16', description: 'Weekly automation reports' });
+              } else {
+                throw error;
+              }
+            }
+
+      - name: Create PR
+        if: steps.diff.outputs.changed == 'true'
+        id: cpr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: main
+          branch: ${{ env.REPORT_BRANCH }}
+          commit-message: 'chore(reports): update plan-sync weekly summary'
+          title: 'chore(reports): update plan-sync weekly summary'
+          body: |
+            Automated weekly report update for plan-sync telemetry.
+
+            - Generated via scripts/plan_weekly_report.py
+            - Window: last 7 days
+          add-paths: |
+            reports/plan-sync-report.md
+          labels: |
+            ops:report
+          delete-branch: true
+
+      - name: Comment digest
+        if: steps.diff.outputs.changed == 'true' && steps.cpr.outputs.pull-request-number != ''
+        uses: actions/github-script@v7
+        env:
+          DIGEST_PATH: reports/plan-sync-digest.txt
+          PULL_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        with:
+          script: |
+            const fs = require('fs');
+            const digest = fs.readFileSync(process.env.DIGEST_PATH, 'utf-8').trim();
+            if (!digest) {
+              core.info('Digest empty; skipping comment');
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.PULL_NUMBER),
+              body: digest,
+            });
+
+      - name: Report no changes
+        if: steps.diff.outputs.changed != 'true'
+        run: echo "Weekly report is up-to-date; no PR required."
