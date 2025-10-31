@@ -343,6 +343,13 @@ jobs:
               body: 'ℹ️ plan-sync を実行しましたが、自動更新が必要な差分はありませんでした (No-Op)。'
             });
 
+      - name: Upload plan guard report
+        if: steps.context.outputs.should_run == 'true' && hashFiles(env.PLAN_SYNC_RUN_REPORT) != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-limits-report
+          path: ${{ env.PLAN_SYNC_RUN_REPORT }}
+
       - name: Enforce automation PR ceiling
         if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed == 'true'
         id: pr-ceiling
