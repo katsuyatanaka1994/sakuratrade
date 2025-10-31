@@ -476,8 +476,11 @@ def main(argv: list[str] | None = None) -> int:
 
     output_path = os.path.abspath(args.output)
     digest_path = os.path.abspath(args.digest)
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    os.makedirs(os.path.dirname(digest_path), exist_ok=True)
+
+    for target in (output_path, digest_path):
+        directory = os.path.dirname(target)
+        if directory and not os.path.exists(directory):
+            os.makedirs(directory, exist_ok=True)
 
     with open(output_path, "w", encoding="utf-8") as fh:
         fh.write(markdown)

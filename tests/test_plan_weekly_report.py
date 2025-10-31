@@ -73,3 +73,11 @@ def test_render_digest_no_runs():
     window_end = dt.datetime(2025, 1, 1, tzinfo=dt.timezone.utc)
     summary = summarise_runs([], window_start=window_start, window_end=window_end)
     assert "対象期間の実行データがありません" in render_digest(summary)
+
+
+def test_render_markdown_no_runs():
+    window_start = dt.datetime(2024, 12, 25, tzinfo=dt.timezone.utc)
+    window_end = dt.datetime(2025, 1, 1, tzinfo=dt.timezone.utc)
+    summary = summarise_runs([], window_start=window_start, window_end=window_end)
+    markdown = render_markdown(summary)
+    assert "No eligible plan-sync runs" in markdown
