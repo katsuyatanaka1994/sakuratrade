@@ -2,6 +2,15 @@ name: plan-sync/Weekly Report
 
 on:
   workflow_dispatch:
+    inputs:
+      workflow_path:
+        description: 'Workflow file name for telemetry (default .github/workflows/plan-sync.yml)'
+        required: false
+        default: '.github/workflows/plan-sync.yml'
+      window_days:
+        description: 'Lookback window in days (default 7)'
+        required: false
+        default: '7'
   schedule:
     # JST 09:00 = UTC 00:00（毎週 月曜）
     - cron: '0 0 * * 1'
@@ -34,9 +43,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          WORKFLOW_PATH=$(jq -r '.inputs.workflow_path // empty' "$GITHUB_EVENT_PATH")
+          WINDOW_DAYS=$(jq -r '.inputs.window_days // empty' "$GITHUB_EVENT_PATH")
+          WORKFLOW_PATH=${WORKFLOW_PATH:-.github/workflows/plan-sync.yml}
+          WINDOW_DAYS=${WINDOW_DAYS:-7}
           python3 scripts/plan_weekly_report.py \
-            --workflow plan-sync.yml \
-            --days 7 \
+            --workflow "$WORKFLOW_PATH" \
+            --days "$WINDOW_DAYS" \
             --output reports/plan-sync-report.md \
             --digest reports/plan-sync-digest.txt
 
@@ -108,6 +121,37 @@ jobs:
               issue_number: Number(process.env.PULL_NUMBER),
               body: digest,
             });
+
+      - name: Fire status-compat-seed for report PR
+        if: steps.diff.outputs.changed == 'true' && steps.cpr.outputs.pull-request-number != ''
+        uses: actions/github-script@v7
+        env:
+          REPORT_PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = Number(process.env.REPORT_PR_NUMBER);
+            if (!prNumber) {
+              core.info('No PR number to trigger compat-seed.');
+              return;
+            }
+            const { data } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const headRef = data.head?.ref;
+            if (!headRef) {
+              core.warning('Unable to resolve head ref for report PR; skipping compat-seed dispatch.');
+              return;
+            }
+            await github.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'status-compat-seed.yml',
+              ref: headRef,
+            });
+            core.info(`Triggered status-compat-seed on ${headRef}`);
 
       - name: Report no changes
         if: steps.diff.outputs.changed != 'true'
