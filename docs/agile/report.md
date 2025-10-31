@@ -225,3 +225,4 @@
 
 | 2025-10-31 | nfr-xref | main | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18961101112 |
 | 2025-10-31 | docsync-check | openapi.yaml | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18965979284 |
+| 2025-10-31 | docsync-check | canary/plan-sync-251031-1725 | true | 9 | 9 | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18967483550 |
