@@ -12,6 +12,7 @@
 
 ### Notes（MANUAL）
 - 仕様上の判断・補足・TODO を記録する。
+- [検証] plan-sync ガードの動作確認用メモ（自動更新テスト）。
 
 ### DoD（完了条件）
 - [ ] Unit / Integration / Smoke テストが合格している。
