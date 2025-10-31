@@ -27,11 +27,11 @@ jobs:
   sync:
     name: plan-sync/Validate
     env:
-      PLAN_SYNC_ALLOWED_PATHS: ${{ vars.PLAN_SYNC_ALLOWED_PATHS || 'docs/agile/**,docs/specs/**,docs/tests/**,.github/workflows/**,backend/app/openapi.yaml' }}
-      PLAN_SYNC_BLOCKED_PATHS: ${{ vars.PLAN_SYNC_BLOCKED_PATHS || 'docs/secrets/**' }}
-      PLAN_SYNC_MAX_CHANGED_LINES: ${{ vars.PLAN_SYNC_MAX_CHANGED_LINES || '300' }}
-      PLAN_SYNC_MAX_CHANGED_FILES: ${{ vars.PLAN_SYNC_MAX_CHANGED_FILES || '4' }}
-      PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS: ${{ vars.PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS || '2' }}
+      PLAN_SYNC_ALLOWED_PATHS: ${{ vars.PLAN_SYNC_ALLOWED_PATHS || vars.PLAN_SYNC_ALLOW_GLOBS || 'docs/agile/**,docs/specs/**,docs/tests/**,.github/workflows/**,backend/app/openapi.yaml' }}
+      PLAN_SYNC_BLOCKED_PATHS: ${{ vars.PLAN_SYNC_BLOCKED_PATHS || vars.PLAN_SYNC_DENY_GLOBS || 'docs/secrets/**' }}
+      PLAN_SYNC_MAX_CHANGED_LINES: ${{ vars.PLAN_SYNC_MAX_CHANGED_LINES || vars.PLAN_SYNC_MAX_LINES || '300' }}
+      PLAN_SYNC_MAX_CHANGED_FILES: ${{ vars.PLAN_SYNC_MAX_CHANGED_FILES || vars.PLAN_SYNC_MAX_FILES || '4' }}
+      PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS: ${{ vars.PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS || vars.PLAN_SYNC_MAX_AUTO_PRS || '2' }}
       PLAN_SYNC_RUN_REPORT: tmp/plan_limits_report.json
     concurrency:
       group: docs-sync-plan-${{ github.event.pull_request.number || github.ref_name || 'manual' }}
