@@ -1,7 +1,7 @@
 # PL-6 Branch Protection Evidence — 2025-10-31
 
-- 収集日時: 2025-10-31 12:43:32 JST
-- コミット: `00c2092`
+- 収集日時: 2025-10-31 13:12:29 JST
+- コミット: `e458086`
 
 ## Branch protection snapshot
 ```json
@@ -10,12 +10,13 @@
     "plan-sync/Validate"
   ],
   "up_to_date": true,
-  "code_owner_required": true
+  "code_owner_required": false,
+  "approvals_required": 0
 }
 ```
 
 ## branch-protection/sync 実行ログ
-- Run: [branch-protection/sync #18961678613](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18961678613)
+- Run: [branch-protection/sync #18962225110](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18962225110)
 ```
 Updated branch protection for katsuyatanaka1994/sakuratrade@main
 Required checks enforced: plan-sync/Validate
