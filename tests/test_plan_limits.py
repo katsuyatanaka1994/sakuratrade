@@ -1,7 +1,6 @@
 import types
 
 import pytest
-
 from scripts import plan_cli
 
 
@@ -11,6 +10,7 @@ def test_matches_any_patterns():
     assert plan_cli._matches_any("docs/agile/plan.md", patterns)
     assert plan_cli._matches_any("docs/specs/openapi.yaml", patterns)
     assert not plan_cli._matches_any("frontend/src/App.tsx", patterns)
+
 
 @pytest.mark.no_db
 def test_collect_diff_stats(monkeypatch):
