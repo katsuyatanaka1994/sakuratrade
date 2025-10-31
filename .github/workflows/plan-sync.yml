@@ -221,7 +221,6 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const core = require('@actions/core');
             let payload;
             try {
               payload = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, 'utf-8'));
@@ -353,7 +352,6 @@ jobs:
           SOURCE_PR: ${{ steps.context.outputs.pr_number }}
         with:
           script: |
-            const core = require('@actions/core');
             const maxOpen = Number(process.env.MAX_OPEN || '0');
             if (!maxOpen) {
               core.info('PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS is 0; skipping PR ceiling check.');
