@@ -234,7 +234,14 @@ def _fetch_plan_artifact(api_url: str, token: str, workflow_run_id: int) -> dict
     return None
 
 
-def collect_runs(api_root: str, token: str, workflow_path: str, *, repo: str, window_start: dt.datetime) -> list[RunTelemetry]:
+def collect_runs(
+    api_root: str,
+    token: str,
+    workflow_path: str,
+    *,
+    repo: str,
+    window_start: dt.datetime,
+) -> list[RunTelemetry]:
     owner, repo_name = repo.split("/", 1)
     runs: list[RunTelemetry] = []
     page = 1
@@ -401,7 +408,6 @@ def render_markdown(summary: Summary) -> str:
         )
         for run in sorted(summary.runs_considered, key=lambda r: r.created_at, reverse=True)[:10]:
             lead = _format_duration(run.duration_seconds)
-            noop = "✅" if run.no_op else ("" if run.no_op is None else "")
             failure_reason = run.failure_reason or "-"
             lines.append(
                 "| {run} | {event} | {branch} | {conclusion} | {lead} | {noop} | {failure} |".format(
