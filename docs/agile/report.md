@@ -222,3 +222,5 @@
 | sec-review | NG | 7 | | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18960921678
 
 | 2025-10-31 | nfr-xref | main | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18960921729 |
+
+| 2025-10-31 | nfr-xref | main | - | - | - | https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/18961101112 |
