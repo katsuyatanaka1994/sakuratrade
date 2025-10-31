@@ -79,6 +79,10 @@
 | [DocSync 日常運転（v3）](docs/agile/runbooks/docsync-daily-v3.md) | DocSync日常運転スナップショット | Codex + Ops | DocSync運用変更時 | DS-17/18/18.1/14/20基準 |
 | [Docs CI Diff Gate Runbook](docs/agile/runbooks/docs-ci-diff-gate.md) | DS-26 diff gate運用とフォールバック | Codex + SRE | CI運用を変更したとき | workflow_dispatch での再実行手順を記載 |
 | [Runbook: UI Spec Manual](docs/agile/runbooks/ui-spec-manual.md) | UI仕様ASSIST同期のRunbook | Codex + QA | UI仕様更新後 | Actions `ui-spec-manual` 手順 |
+| [Runbook: Plan Branch Protection](docs/agile/runbooks/plan-branch-protection.md) | Plan ブランチ保護設定手順 | Codex + SRE | 設定変更時 | Branch Protection sync の手順を記載 |
+| [Runbook: Plan Sync Smoke](docs/agile/runbooks/plan-sync-smoke.md) | plan-sync スモーク検証手順 | Codex + QA | 週次スモーク / 手動検証時 | 60秒監視のエビデンス採取方法 |
+| [Plan/WO Runbook Hub](docs/agile/runbooks/README.md) | Plan/WO Runbook 集約ページ | Codex | Runbook 更新時 | 個別Runbookへのポータル |
+| [Evidence: PL-6 Branch Protection (2025-10-31)](docs/agile/runbooks/evidence/PL-6-branch-protection-20251031.md) | PL-6 ブランチ保護設定の証跡 | Codex + Ops | 証跡更新時 | GitHub Actions Run / スクショを記録 |
 <!-- ASSIST-END:index -->
 
 ## スプリント内ワークフロー
