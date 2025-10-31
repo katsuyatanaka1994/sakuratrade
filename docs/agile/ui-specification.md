@@ -38,6 +38,7 @@
 - エラーメッセージ:
 
 ## 受け入れ基準（Acceptance）
+- Guard check placeholder (will be removed after verifying plan guard).
 - クイック決済ボタンは保有ポジション行にのみ表示する
 - 決済後はリストから対象ポジションが即座に消える
 - 決済完了時は成功トーストが 2 秒以内に表示される
