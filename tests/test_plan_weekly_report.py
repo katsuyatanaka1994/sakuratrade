@@ -1,11 +1,6 @@
 import datetime as dt
 
-from scripts.plan_weekly_report import (
-    RunTelemetry,
-    summarise_runs,
-    render_markdown,
-    render_digest,
-)
+from scripts.plan_weekly_report import RunTelemetry, render_digest, render_markdown, summarise_runs
 
 
 def _run(**kwargs):

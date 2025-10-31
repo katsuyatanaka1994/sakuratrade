@@ -444,13 +444,42 @@ def render_digest(summary: Summary) -> str:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate weekly plan-sync report")
-    parser.add_argument("--workflow", default="plan-sync.yml", help="Workflow file name/path (default: plan-sync.yml)")
-    parser.add_argument("--days", type=int, default=7, help="Lookback window in days (default: 7)")
-    parser.add_argument("--output", default="reports/plan-sync-report.md", help="Markdown output path")
-    parser.add_argument("--digest", default="reports/plan-sync-digest.txt", help="Short digest output path")
-    parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY"), help="owner/repo (default: env GITHUB_REPOSITORY)")
-    parser.add_argument("--api-url", default=os.environ.get("GITHUB_API_URL", "https://api.github.com"), help="GitHub API base URL")
-    parser.add_argument("--token", default=os.environ.get("GITHUB_TOKEN"), help="GitHub token (default: env GITHUB_TOKEN)")
+    parser.add_argument(
+        "--workflow",
+        default="plan-sync.yml",
+        help="Workflow file name/path (default: plan-sync.yml)",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Lookback window in days (default: 7)",
+    )
+    parser.add_argument(
+        "--output",
+        default="reports/plan-sync-report.md",
+        help="Markdown output path",
+    )
+    parser.add_argument(
+        "--digest",
+        default="reports/plan-sync-digest.txt",
+        help="Short digest output path",
+    )
+    parser.add_argument(
+        "--repo",
+        default=os.environ.get("GITHUB_REPOSITORY"),
+        help="owner/repo (default: env GITHUB_REPOSITORY)",
+    )
+    parser.add_argument(
+        "--api-url",
+        default=os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+        help="GitHub API base URL",
+    )
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("GITHUB_TOKEN"),
+        help="GitHub token (default: env GITHUB_TOKEN)",
+    )
     return parser.parse_args(argv)
 
 
