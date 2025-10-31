@@ -9,6 +9,7 @@
 ## 事前条件
 - `.github/CODEOWNERS` が `docs/agile/plan.md` / `docs/agile/workorder.md` / `doc_sync_plan.json` / `workorder_sync_plan.json` / `docs/agile/runbooks/plan-*.md` / `docs/agile/runbooks/workorder-*.md` を `@katsuyatanaka1994` に割り当て済み。
 - GitHub Actions → General → Workflow permissions が **Read and write** に設定されている。
+- リポジトリシークレット `BRANCH_PROTECTION_TOKEN` が repo administration:write を含む PAT または GitHub App トークンで登録されている。
 - リポジトリ管理者が Branch protection と CODEOWNERS を編集できる権限を保有している。
 
 ## 設定・更新手順
@@ -37,7 +38,7 @@ gh workflow view main-post-merge-smoke --json name,state | jq '{name, state}'
 - 期待結果：`["plan-sync/Validate"]` が返り、`code_owner: true` / `approvals: 1`。`main/post-merge-smoke` は `active`。
 
 ## ワークフローでの同期
-- `.github/workflows/branch-protection-sync.yml` を手動実行（Actions → branch-protection/sync → **Run workflow**）。
+- `.github/workflows/branch-protection-sync.yml` を手動実行（Actions → branch-protection/sync → **Run workflow**）。最初のステップで `BRANCH_PROTECTION_TOKEN` 未設定が検知されると即時エラーになる。
 - 成功すると Actions ログに `Updated branch protection for <repo>@main` と Required Checks が出力される。
 - GitHub UI の設定と CLI の出力が一致するかをダブルチェック。
 - Settings → Branches → Code owners review で plan / workorder / doc_sync_plan.json / workorder_sync_plan.json が対象になっているかを確認。
@@ -48,7 +49,7 @@ gh workflow view main-post-merge-smoke --json name,state | jq '{name, state}'
 ![Branch protection checklist](../../assets/plan-branch-protection.svg)
 
 ## トラブルシュート
-- `403 Resource not accessible by integration` → リポジトリに `administration: write` 権限を持つトークンが必要。`branch-protection/sync` の permissions を確認。
+- `403 Resource not accessible by integration` → `BRANCH_PROTECTION_TOKEN` のスコープ不足。repo → Administration: write を付与した PAT / GitHub App トークンを再発行し、シークレットを更新する。
 - Required Check がリストに表示されない → `plan-sync/Validate` ワークフローを main で一度成功させ、チェック名を確定させる。`wo:ready/Validate` は Required ではないためリストに現れなくてよい。
 - Code owner レビューで該当ユーザーに通知されない → `CODEOWNERS` のパス表記が `/` から始まっているか、GitHub側で Code Owners 機能が有効か確認する。
 
