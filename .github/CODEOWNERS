@@ -1,0 +1,10 @@
+# Enforce review on plan and workorder control documents
+# Default: fall back to repository settings for other areas
+
+# Plan / Workorder living documents require explicit human review
+/docs/agile/plan.md @katsuyatanaka1994
+/docs/agile/workorder.md @katsuyatanaka1994
+/docs/agile/runbooks/plan-*.md @katsuyatanaka1994
+/docs/agile/runbooks/workorder-*.md @katsuyatanaka1994
+/doc_sync_plan.json @katsuyatanaka1994
+/workorder_sync_plan.json @katsuyatanaka1994

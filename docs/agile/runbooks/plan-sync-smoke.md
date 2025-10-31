@@ -43,3 +43,9 @@
 - `preflight` が No-Op → git diff に `docs/agile/ui-specification.md` が含まれているか確認。空白のみの変更は無視される。
 - `validate` が失敗 → `scripts/validate-agile-docs --allow-manual-diff --manual-diff-report tmp/manual.diff` で MANUAL 節の差分を確認。
 - Workflow が止まる → Actions の権限が **Read and write** になっているか、固定ブランチに push 権限があるか確認。
+
+## 運用クローズ（現行設定メモ）
+- Required Check は `plan-sync/Validate` のみ（`wo:ready/Validate` は未ラベル時に警告で成功）。
+- DocSync 自動PRには `plan:sync` ラベルが自動付与される。
+- `plan-sync` ワークフローは PR 単位の concurrency（queue）と `--force-with-lease` push を徹底。
+- Merge 後は `main/post-merge-smoke` が 60 秒監視で衝突痕 / `.py` 差分 / 生成物サイズをチェックする。
