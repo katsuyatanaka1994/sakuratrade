@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="432" viewBox="0 0 768 432" fill="none">
+  <rect width="768" height="432" rx="24" fill="#FDF2F2"/>
+  <rect x="40" y="48" width="688" height="72" rx="16" fill="#FFFFFF" stroke="#F87171" stroke-width="2"/>
+  <text x="72" y="96" font-family="'Helvetica Neue', Arial, sans-serif" font-size="24" font-weight="700" fill="#B91C1C">🛑 plan-sync stopped by guard</text>
+  <rect x="40" y="140" width="688" height="208" rx="16" fill="#FFFFFF" stroke="#FCA5A5" stroke-width="2"/>
+  <text x="64" y="180" font-family="'Helvetica Neue', Arial, sans-serif" font-size="18" fill="#4B5563">• reason: PLAN_SYNC_MAX_CHANGED_LINES hit (312 &gt; 300)</text>
+  <text x="64" y="212" font-family="'Helvetica Neue', Arial, sans-serif" font-size="18" fill="#4B5563">• action: split the diff or loosen repo variable → PLAN_SYNC_MAX_CHANGED_LINES</text>
+  <text x="64" y="244" font-family="'Helvetica Neue', Arial, sans-serif" font-size="18" fill="#4B5563">• artifact: plan-limits-report.zip ▸ tmp/plan_limits_report.json</text>
+  <text x="64" y="276" font-family="'Helvetica Neue', Arial, sans-serif" font-size="18" fill="#4B5563">• comment url: https://github.com/org/repo/pull/123#issuecomment-000</text>
+  <rect x="64" y="320" width="216" height="48" rx="12" fill="#F87171" opacity="0.2"/>
+  <text x="80" y="350" font-family="'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="600" fill="#B91C1C">Check artifact + rerun</text>
+  <path d="M520 320L640 320" stroke="#EF4444" stroke-width="3" stroke-dasharray="6 6" marker-end="url(#arrow)"/>
+  <text x="652" y="328" font-family="'Helvetica Neue', Arial, sans-serif" font-size="16" fill="#B91C1C">再実行</text>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#B91C1C"/>
+    </marker>
+  </defs>
+</svg>

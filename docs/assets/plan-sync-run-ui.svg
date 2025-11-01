@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="432" viewBox="0 0 768 432" fill="none">
+  <rect width="768" height="432" rx="24" fill="#F6F7FB"/>
+  <rect x="32" y="40" width="704" height="64" rx="12" fill="#23395B"/>
+  <text x="56" y="80" font-family="'Helvetica Neue', Arial, sans-serif" font-size="28" font-weight="700" fill="#FFFFFF">GitHub Actions ▸ plan-sync/Validate</text>
+  <rect x="32" y="128" width="704" height="240" rx="16" fill="#FFFFFF" stroke="#C9D2E3" stroke-width="2"/>
+  <text x="56" y="172" font-family="'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="600" fill="#1F2A44">Run workflow</text>
+  <rect x="56" y="192" width="248" height="40" rx="8" fill="#E3E8F5"/>
+  <text x="72" y="218" font-family="'Helvetica Neue', Arial, sans-serif" font-size="18" fill="#1F2A44">Event: workflow_dispatch</text>
+  <rect x="56" y="248" width="344" height="40" rx="8" fill="#E3E8F5"/>
+  <text x="72" y="274" font-family="'Helvetica Neue', Arial, sans-serif" font-size="18" fill="#1F2A44">Inputs: pr = 123 (optional)</text>
+  <rect x="56" y="304" width="192" height="48" rx="12" fill="#2563EB"/>
+  <text x="92" y="334" font-family="'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="600" fill="#FFFFFF">Run workflow</text>
+  <path d="M548 208L620 208" stroke="#2563EB" stroke-width="4" stroke-dasharray="8 8" marker-end="url(#arrow)"/>
+  <rect x="620" y="188" width="88" height="40" rx="8" fill="#2563EB" opacity="0.16"/>
+  <text x="632" y="214" font-family="'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="600" fill="#2563EB">queue</text>
+  <text x="56" y="384" font-family="'Helvetica Neue', Arial, sans-serif" font-size="18" fill="#4B5563">ラベル `plan:sync` / コメント `/plan sync` でも同じ直列キューに入ります。</text>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#2563EB"/>
+    </marker>
+  </defs>
+</svg>

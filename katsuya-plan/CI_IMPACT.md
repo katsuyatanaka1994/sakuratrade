@@ -1,3 +1,20 @@
+# CI Impact Scan — PL-10 runbook onboarding
+
+## Updated assets
+- `docs/runbooks/plan-sync.md` 新設。1分/3分ランブック、FAQ、運用チェックリストを収録。
+- `docs/assets/plan-sync-run-ui.svg` / `plan-sync-guard.svg` / `plan-sync-checks.svg` を追加し、手順セクションにスクショを添付。
+- `docs/agile/runbooks/README.md` にランブックへのリンクを追記。
+
+## Triggers, contexts, permissions
+- ワークフローや Required Check の設定に変更無し。ドキュメントのみの追加。
+
+## Impact & guardrails
+- オンボーディング時の参照先が一本化され、plan-sync 運用の手順漏れを防止。
+- ガード失敗ケースの対処を FAQ 化し、`plan-limits-report.json` の確認や `manual-accept` 手順が明文化される。
+- スクショ資産を `docs/assets/` に置いたため、差し替え時は README から辿れる。
+
+---
+
 # CI Impact Scan — PL-9 UI auto trigger
 
 ## Updated assets
