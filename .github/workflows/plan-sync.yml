@@ -10,7 +10,7 @@ on:
         description: 'Branch to run on when PR is not specified (default: main)'
         required: false
   pull_request_target:
-    types: [labeled]
+    types: [labeled, opened, reopened, ready_for_review, synchronize]
   issue_comment:
     types: [created]
 
@@ -33,12 +33,22 @@ jobs:
       PLAN_SYNC_MAX_CHANGED_FILES: ${{ vars.PLAN_SYNC_MAX_CHANGED_FILES || vars.PLAN_SYNC_MAX_FILES || '4' }}
       PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS: ${{ vars.PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS || vars.PLAN_SYNC_MAX_AUTO_PRS || '2' }}
       PLAN_SYNC_RUN_REPORT: tmp/plan_limits_report.json
+      PLAN_SYNC_AUTO_ENABLED: ${{ vars.PLAN_AUTO || '0' }}
+      PLAN_SYNC_AUTO_TARGET_PATHS: ${{ vars.PLAN_SYNC_AUTO_TARGET_PATHS || 'docs/agile/ui-specification.md' }}
+      PLAN_SYNC_AUTO_MAX_RUNS_PER_HOUR: ${{ vars.PLAN_SYNC_AUTO_MAX_RUNS_PER_HOUR || '1' }}
+      PLAN_SYNC_AUTO_WINDOW_MINUTES: ${{ vars.PLAN_SYNC_AUTO_WINDOW_MINUTES || vars.PLAN_SYNC_AUTO_WINDOW_MIN || '60' }}
     concurrency:
       group: docs-sync-plan-${{ github.event.pull_request.number || github.ref_name || 'manual' }}
       cancel-in-progress: false
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request_target' && github.event.action == 'labeled') ||
+      (
+        github.event_name == 'pull_request_target' &&
+        (
+          github.event.action == 'labeled' ||
+          contains(fromJson('["opened","reopened","synchronize","ready_for_review"]'), github.event.action)
+        )
+      ) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request)
     runs-on: ubuntu-latest
     steps:
@@ -60,6 +70,7 @@ jobs:
                 const prNumber = Number(prInput);
                 const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
                 set('should_run', 'true');
+                set('trigger_mode', 'dispatch');
                 set('pr_number', String(prNumber));
                 set('checkout_ref', `refs/pull/${prNumber}/head`);
                 set('base_ref', pr.data.base.ref);
@@ -69,6 +80,7 @@ jobs:
               }
               const inferredBranch = branchInput || context.ref.replace('refs/heads/', '');
               set('should_run', 'true');
+              set('trigger_mode', 'dispatch');
               set('pr_number', '');
               set('checkout_ref', `refs/heads/${inferredBranch}`);
               set('base_ref', 'main');
@@ -79,23 +91,162 @@ jobs:
 
             if (event === 'pull_request_target') {
               const pr = context.payload.pull_request;
-              const label = context.payload.label?.name;
-              if (context.payload.action !== 'labeled' || label !== 'plan:sync') {
+              const action = context.payload.action;
+              if (!pr) {
                 set('should_run', 'false');
-                set('reason', 'label condition not met');
+                set('reason', 'missing pull request context');
                 return;
               }
-              if (pr.head.ref === 'docs-sync/plan') {
+
+              const planBranch = 'docs-sync/plan';
+              const autoActions = new Set(['opened', 'reopened', 'synchronize', 'ready_for_review']);
+
+              if (action === 'labeled') {
+                const label = context.payload.label?.name;
+                if (label !== 'plan:sync') {
+                  set('should_run', 'false');
+                  set('reason', 'label condition not met');
+                  return;
+                }
+                if (pr.head.ref === planBranch) {
+                  set('should_run', 'false');
+                  set('reason', 'plan branch self-trigger');
+                  return;
+                }
+                set('should_run', 'true');
+                set('trigger_mode', 'label');
+                set('pr_number', String(pr.number));
+                set('checkout_ref', `refs/pull/${pr.number}/head`);
+                set('base_ref', pr.base.ref);
+                set('base_sha', pr.base.sha ?? '');
+                set('head_ref', pr.head.ref);
+                return;
+              }
+
+              if (!autoActions.has(action)) {
+                set('should_run', 'false');
+                set('reason', `unsupported pull_request_target action: ${action}`);
+                return;
+              }
+
+              const autoEnabled = (process.env.PLAN_SYNC_AUTO_ENABLED || '').trim() === '1';
+              if (!autoEnabled) {
+                set('should_run', 'false');
+                set('reason', 'auto trigger disabled (PLAN_AUTO!=1)');
+                return;
+              }
+
+              if (pr.head.ref === planBranch) {
                 set('should_run', 'false');
                 set('reason', 'plan branch self-trigger');
                 return;
               }
+
+              const skipPattern = /\[skip\s*plan\]/i;
+              if (skipPattern.test(pr.title || '') || skipPattern.test(pr.body || '')) {
+                set('should_run', 'false');
+                set('reason', 'auto trigger skipped by [skip plan]');
+                return;
+              }
+
+              const owner = context.repo.owner;
+              const repo = context.repo.repo;
+              const targetPaths = (process.env.PLAN_SYNC_AUTO_TARGET_PATHS || '')
+                .split(',')
+                .map((item) => item.trim())
+                .filter(Boolean);
+              if (!targetPaths.length) {
+                set('should_run', 'false');
+                set('reason', 'auto trigger target paths not configured');
+                return;
+              }
+
+              const headRepo = pr.head.repo?.full_name || '';
+              const sameRepo = headRepo.toLowerCase() === `${owner}/${repo}`.toLowerCase();
+              if (!sameRepo) {
+                set('should_run', 'false');
+                set('reason', 'auto trigger disallowed for forks');
+                return;
+              }
+
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner,
+                repo,
+                pull_number: pr.number,
+                per_page: 100,
+              });
+              const touched = files.some((file) => targetPaths.includes(file.filename));
+              if (!touched) {
+                set('should_run', 'false');
+                set('reason', 'auto trigger paths not touched');
+                return;
+              }
+
+              const windowMinutesRaw = Number(process.env.PLAN_SYNC_AUTO_WINDOW_MINUTES || '60');
+              const windowMinutes = Number.isFinite(windowMinutesRaw) && windowMinutesRaw > 0 ? windowMinutesRaw : 60;
+              const windowMs = windowMinutes * 60 * 1000;
+              const maxRunsRaw = Number(process.env.PLAN_SYNC_AUTO_MAX_RUNS_PER_HOUR || '1');
+              const maxRuns = Number.isFinite(maxRunsRaw) && maxRunsRaw >= 0 ? maxRunsRaw : 1;
+              const tag = '<!-- plan-sync:auto -->';
+              let ledgerComment;
+              let history = [];
+
+              try {
+                const comments = await github.paginate(github.rest.issues.listComments, {
+                  owner,
+                  repo,
+                  issue_number: pr.number,
+                  per_page: 100,
+                });
+                ledgerComment = comments.find((comment) => (comment.body || '').startsWith(tag));
+                if (ledgerComment) {
+                  const raw = ledgerComment.body.slice(tag.length);
+                  const payloadLine = raw.split('\n')[0].trim();
+                  try {
+                    const parsed = payloadLine ? JSON.parse(payloadLine) : {};
+                    const timestamps = Array.isArray(parsed)
+                      ? parsed
+                      : Array.isArray(parsed?.timestamps)
+                        ? parsed.timestamps
+                        : [];
+                    history = timestamps
+                      .map((value) => {
+                        const date = new Date(value);
+                        return Number.isNaN(date.getTime()) ? null : date.toISOString();
+                      })
+                      .filter(Boolean);
+                  } catch (error) {
+                    core.warning(`Failed to parse plan auto ledger payload: ${error}`);
+                    history = [];
+                  }
+                }
+              } catch (error) {
+                core.warning(`Failed to read plan auto ledger comment: ${error}`);
+              }
+
+              const now = new Date();
+              const cutoff = now.getTime() - windowMs;
+              const recentHistory = history
+                .map((iso) => new Date(iso))
+                .filter((date) => !Number.isNaN(date.getTime()) && date.getTime() >= cutoff)
+                .map((date) => date.toISOString());
+
+              if (maxRuns > 0 && recentHistory.length >= maxRuns) {
+                set('should_run', 'false');
+                set('reason', `auto trigger throttled (${recentHistory.length}/${maxRuns} in ${windowMinutes}m)`);
+                return;
+              }
+
+              recentHistory.push(now.toISOString());
               set('should_run', 'true');
+              set('trigger_mode', 'auto');
               set('pr_number', String(pr.number));
               set('checkout_ref', `refs/pull/${pr.number}/head`);
               set('base_ref', pr.base.ref);
               set('base_sha', pr.base.sha ?? '');
               set('head_ref', pr.head.ref);
+              set('auto_history', JSON.stringify({ timestamps: recentHistory }));
+              set('auto_comment_id', ledgerComment?.id ? String(ledgerComment.id) : '');
               return;
             }
 
@@ -141,6 +292,7 @@ jobs:
                 return;
               }
               set('should_run', 'true');
+              set('trigger_mode', 'slash');
               set('pr_number', String(prNumber));
               set('checkout_ref', `refs/pull/${prNumber}/head`);
               set('base_ref', pr.data.base.ref);
@@ -156,6 +308,63 @@ jobs:
         if: steps.context.outputs.should_run != 'true'
         run: |
           echo "plan-sync skipped: ${{ steps.context.outputs.reason || 'condition not met' }}"
+
+      - name: Record auto trigger window
+        if: steps.context.outputs.should_run == 'true' && steps.context.outputs.trigger_mode == 'auto'
+        uses: actions/github-script@v7
+        env:
+          TARGET_PR: ${{ steps.context.outputs.pr_number }}
+          HISTORY_PAYLOAD: ${{ steps.context.outputs.auto_history }}
+          EXISTING_COMMENT_ID: ${{ steps.context.outputs.auto_comment_id }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = Number(process.env.TARGET_PR);
+            if (!issueNumber) {
+              core.warning('Auto trigger ledger skipped: missing PR number.');
+              return;
+            }
+
+            let payload;
+            try {
+              payload = process.env.HISTORY_PAYLOAD ? JSON.parse(process.env.HISTORY_PAYLOAD) : {};
+            } catch (error) {
+              core.warning(`Failed to parse auto history payload: ${error}`);
+              payload = {};
+            }
+            const timestamps = Array.isArray(payload)
+              ? payload
+              : Array.isArray(payload?.timestamps)
+                ? payload.timestamps
+                : [];
+
+            const tag = '<!-- plan-sync:auto -->';
+            const latest = timestamps[timestamps.length - 1] || 'unknown';
+            const lines = [
+              `${tag}${JSON.stringify({ timestamps })}`,
+              'Auto plan-sync trigger ledger',
+              `- last: ${latest}`,
+              `- count (window): ${timestamps.length}`,
+            ];
+            const body = lines.join('\n');
+
+            const commentId = process.env.EXISTING_COMMENT_ID;
+            if (commentId) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: Number(commentId),
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body,
+              });
+            }
 
       - name: Create GitHub App token
         if: steps.context.outputs.should_run == 'true'

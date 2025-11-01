@@ -31,6 +31,14 @@
 5. 元PRに `plan-sync: #<番号>` コメントが追加され、`[plan-sync] docs: update plan auto sections` Draft PR が生成されていることを確認。
 6. Draft PR 本文に Trigger / Source ref / Source PR が表示され、`doc_sync_plan.json` に `ui_spec_manual` トリガーが含まれていることを確認。
 
+## 自動トリガ（PL-9）
+- リポジトリ変数 `PLAN_AUTO=1` で有効化すると、`docs/agile/ui-specification.md` を含む PR が `opened / synchronize / ready_for_review / reopened` されたタイミングで `plan-sync/Validate` が自動起動する。
+- デフォルトは `PLAN_AUTO=0`（自動発火OFF）。本番展開時に明示的に 1 へ切り替える。
+- 自動起動対象は **同一リポジトリの PR** のみ（fork からの PR は `auto trigger disallowed for forks` としてスキップされる）。
+- 直近 60 分間（`PLAN_SYNC_AUTO_WINDOW_MINUTES` で調整可）に `PLAN_SYNC_AUTO_MAX_RUNS_PER_HOUR`（既定値 1）を超えて起動した場合はスロットリングされ、Actions ログに `auto trigger throttled` と表示される。
+- 自動起動時は PR に `<!-- plan-sync:auto --> …` コメントが更新され、直近の実行タイムスタンプとウィンドウ内の回数を確認できる。
+- PR タイトル/本文に `[skip plan]` を含める、または plan 固定ブランチ（`docs-sync/plan`）の場合は自動起動を抑止する。
+
 ## 合格ライン
 - `docs/agile/plan.md` の `plan_snapshot_id` が更新され、`targets.modify` に今回変更したファイルが含まれている。
 - `plan.tasks` に対象 UI セクション（例: `ui-spec:positions-page`）へリンクしたタスクが出力されている。
