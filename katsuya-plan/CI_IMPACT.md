@@ -1,3 +1,24 @@
+# CI Impact Scan — WO-1 workorder template scaffolding
+
+## Updated assets
+- `docs/agile/workorder.md` を MANUAL / AUTO に整理し、`workorder.limits` / `workorder.allowed_paths` / `workorder.blocked_paths` / `workorder.plan_links` の新規 AUTO 区画を追加。
+- `docs/agile/README-agile.md` に workorder の AUTO 管理対象セクション一覧を追記。
+- `docs/agile/auto-manual-boundary.md` に HYBRID （MANUAL＋AUTO）対象として plan/workorder/review を明示し、AUTO セクション名を列挙。
+
+## Triggers, contexts, permissions
+- CI ワークフローや Required Check の設定変更は無し。ドキュメント構造を整備したのみ。
+
+## Impact & guardrails
+- 今後 CLI / Actions から参照できる安全枠（リミット・パス制御・plan 連携）を文書化し、doc-validate で AUTO 節が保護される前提を用意。
+- MANUAL 節と AUTO 節の境界を明示したことで、人の追記と Codex の自動同期が混ざらないように運用できる。
+- 境界ルール（auto-manual-boundary）も同期したため、doc guard の監視対象から漏れない。
+
+## Validation log
+- `python3 -m scripts.workorder_cli validate`
+- `python3 scripts/docs_index_validate.py`
+
+---
+
 # CI Impact Scan — PL-11 branch protection runbook cleanup
 
 ## Updated assets
