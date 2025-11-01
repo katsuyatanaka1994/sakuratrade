@@ -1,3 +1,23 @@
+# CI Impact Scan — WO-3 workorder actions wiring
+
+## Updated assets
+- `.github/workflows/workorder-ready.yml` に plan-sync 実行元の判定を追加し、`plan:sync` ラベルなし run や `docs-sync/workorder` 自己発火をスキップするよう調整。
+- `.github/workflows/workorder-validate.yml` に concurrency キュー、ラベル欠如時の reason 出力、ジョブサマリ整形・ログ存在チェックを追加。
+
+## Triggers, contexts, permissions
+- 既存のトリガー（pull_request / workflow_run / workflow_dispatch）と Required Check 名称は維持。追加の権限要求なし。
+
+## Impact & guardrails
+- plan-sync の自動発火（`pull_request_target`）で `plan:sync` ラベルが無い場合に ready ワークフローを実行せず、意図しない Draft PR 生成を抑止。
+- `docs-sync/workorder` ブランチ起因の自己ループを検知して停止。
+- `wo:ready/Validate` を PR 単位で直列化し、ドラフト／ラベル欠如の理由を Actions サマリに残す。
+- ログ未生成時にアーティファクト/サマリで失敗しないよう存在チェックを挟み、ガードメトリクスを欠損させない。
+
+## Validation log
+- `python3 -m scripts.workorder_cli validate`
+
+---
+
 # CI Impact Scan — WO-1 workorder template scaffolding
 
 ## Updated assets
