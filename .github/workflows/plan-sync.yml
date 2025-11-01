@@ -161,6 +161,14 @@ jobs:
                 return;
               }
 
+              const headRepo = pr.head.repo?.full_name || '';
+              const sameRepo = headRepo.toLowerCase() === `${owner}/${repo}`.toLowerCase();
+              if (!sameRepo) {
+                set('should_run', 'false');
+                set('reason', 'auto trigger disallowed for forks');
+                return;
+              }
+
               const files = await github.paginate(github.rest.pulls.listFiles, {
                 owner,
                 repo,
