@@ -192,9 +192,10 @@ jobs:
                 });
                 ledgerComment = comments.find((comment) => (comment.body || '').startsWith(tag));
                 if (ledgerComment) {
-                  const raw = ledgerComment.body.slice(tag.length).trim();
+                  const raw = ledgerComment.body.slice(tag.length);
+                  const payloadLine = raw.split('\n')[0].trim();
                   try {
-                    const parsed = raw ? JSON.parse(raw) : {};
+                    const parsed = payloadLine ? JSON.parse(payloadLine) : {};
                     const timestamps = Array.isArray(parsed)
                       ? parsed
                       : Array.isArray(parsed?.timestamps)
