@@ -13,6 +13,9 @@ jobs:
   validate:
     name: wo:ready/Validate
     runs-on: ubuntu-latest
+    concurrency:
+      group: workorder-validate-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
     steps:
       - id: gate
         name: Gate
@@ -21,22 +24,35 @@ jobs:
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
           HAS_READY: ${{ contains(github.event.pull_request.labels.*.name, 'wo:ready') || contains(github.event.pull_request.labels.*.name, 'hotfix') }}
         run: |
+          set -euo pipefail
           if [ "$EVENT" != "pull_request" ]; then
             echo "manual/other event → skip label/draft gating"
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "should_run=true"
+              echo "reason=manual"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ "$IS_DRAFT" = "true" ]; then
             echo "draft → noop success"
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "should_run=false"
+              echo "reason=draft"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ "$HAS_READY" != "true" ]; then
             echo "::warning::Missing 'wo:ready' label (non-blocking)"
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "should_run=false"
+              echo "reason=missing_label"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "should_run=true"
+            echo "reason=ok"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,24 +86,49 @@ jobs:
           fi
 
       - name: Upload wo:validate log
-        if: always() && steps.gate.outputs.should_run == 'true'
+        if: always() && steps.gate.outputs.should_run == 'true' && hashFiles('tmp/wo_validate.log') != ''
         uses: actions/upload-artifact@v4
         with:
           name: wo-validate-log
           path: tmp/wo_validate.log
 
       - name: Write summary
-        if: always() && steps.gate.outputs.should_run == 'true'
+        if: always()
+        env:
+          SHOULD_RUN: ${{ steps.gate.outputs.should_run || 'false' }}
+          REASON: ${{ steps.gate.outputs.reason || '' }}
+          RESULT: ${{ steps.wo_validate.outputs.ok || '' }}
         run: |
           {
-            echo "### wo:validate"
+            echo "### wo:ready/Validate"
             if [ "$SHOULD_RUN" != "true" ]; then
-              echo "- Result: noop (draft)"
+              case "$REASON" in
+                draft)
+                  echo "- Result: noop (draft PR)"
+                  ;;
+                missing_label)
+                  echo "- Result: noop (missing 'wo:ready' label)"
+                  ;;
+                manual)
+                  echo "- Result: manual trigger (validation skipped)"
+                  ;;
+                *)
+                  echo "- Result: noop"
+                  ;;
+              esac
             else
-              echo "- Result: $RESULT"
-              echo
-              echo '```text'
-              tail -n 150 tmp/wo_validate.log 2>/dev/null || true
-              echo '```'
+              if [ "$RESULT" = "true" ]; then
+                echo "- Result: success"
+              elif [ "$RESULT" = "false" ]; then
+                echo "- Result: failure"
+              else
+                echo "- Result: unknown"
+              fi
+              if [ -f tmp/wo_validate.log ]; then
+                echo
+                echo '```text'
+                tail -n 150 tmp/wo_validate.log || true
+                echo '```'
+              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
