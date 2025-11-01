@@ -1,19 +1,50 @@
 {
-  "base": "76f27a5f15e9b689f2523da38f7d68f09d9e30e4",
-  "head": "28490d98dac4774380c4a507551f450a60f67102",
+  "base": "1789d5bf2b0a1e08783fd31f0f0e11c8b5f2e047",
+  "head": "b26954ab6a26ef18338cbbc6432c7102d52ee9b4",
   "changed_files": [
-    "docs/agile/ui-specification.md"
+    "docs/specs/openapi.yaml"
   ],
   "triggers": [
-    "ui_spec_manual",
-    "docs_ci_changed"
+    "openapi_changed"
   ],
-  "ui_sections": [
+  "ui_sections": [],
+  "api_operations": [
     {
-      "title": "Positions Page",
-      "anchor": "positions-page"
+      "method": "post",
+      "path": "/alerts"
+    },
+    {
+      "method": "get",
+      "path": "/alerts/{trade_id}"
+    },
+    {
+      "method": "post",
+      "path": "/auth/oauth"
+    },
+    {
+      "method": "post",
+      "path": "/auth/register"
+    },
+    {
+      "method": "get",
+      "path": "/health"
+    },
+    {
+      "method": "post",
+      "path": "/images"
+    },
+    {
+      "method": "get",
+      "path": "/patterns/{trade_id}"
+    },
+    {
+      "method": "post",
+      "path": "/trades"
+    },
+    {
+      "method": "get",
+      "path": "/trades/{trade_id}"
     }
   ],
-  "api_operations": [],
   "test_flows": []
 }
