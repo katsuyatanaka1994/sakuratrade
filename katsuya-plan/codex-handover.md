@@ -148,3 +148,37 @@ PL-6 で未着手タスク（katsuya-plan/plan-PBI.md:186-198）
 1. PR #539 をマージし `main` を最新化。
 2. リポジトリ変数 `PLAN_AUTO=1` に切替 → 初回 UI 仕様PRで自動発火をモニタ。
 3. 台帳コメントと Actions ログを確認し、冷却が効いていることを ops チームへ共有。
+
+# 11/01 10:57 引き継ぎメモ（PL-10: ランブック＆オンボーディング完成）
+
+## 完了した事項
+- `docs/runbooks/plan-sync.md` を新設し、1分/3分ランブックと FAQ10件、運用チェックリストを整理。ガード失敗時の対処や `manual-accept` 手順も明記。
+- ランブックから参照する図版を `docs/assets/plan-sync-run-ui.svg` / `plan-sync-guard.svg` / `plan-sync-checks.svg` に追加し、UI誘導と復旧パターンを視覚化。
+- ランブックハブ（`docs/agile/runbooks/README.md`）へリンクを追記し、CIインパクト（`katsuya-plan/CI_IMPACT.md`）にも PL-10 追記。
+- docs-index-validate をローカル実行し、リンクパス調整後に成功（`python3 scripts/docs_index_validate.py`）。
+
+## 現状メモ
+- plan-sync 運用手順は `docs/runbooks/plan-sync.md` を一次参照に統一。週次レポートや guard コメントの読み方も FAQ で補強済み。
+- 画像は SVG（テキスト付き）で管理しているため、差し替えは diff で視認可能。実スクリーンショットが必要になった場合は `docs/assets/plan-sync-*.svg` を置き換えれば良い。
+
+## 次のアクション（任意）
+1. ランブック更新時は `docs-index-validate` を手動実行し、Broken Link を未然に防ぐ運用を継続する。
+2. 週次レビューで guard ヒット理由が変化した際は FAQ の該当項目をアップデートする。必要があれば evidence 配下にスクショ差分を追加。
+3. plan-sync ランブックと workorder 側ドキュメントの重複を棚卸しし、PL-11 以降で統合方針を検討。
+
+
+# 11/02 12:00 引き継ぎメモ（PL-11: Branch Protection ドキュメント整備）
+
+## 完了した事項
+- `docs/agile/runbooks/plan-branch-protection.md` の競合マーカーを解消し、CODEOWNERS 通知の扱いと Required Check 設定を最新運用に合わせて言い回しを統一。
+- `katsuya-plan/CI_IMPACT.md` に PL-11 の影響メモを追加し、Branch Protection まわりの更新履歴を連続で追跡できるよう整理。
+- `python3 scripts/docs_index_validate.py` を実行してリンク整合を確認（エラーなし）。
+
+## 現状メモ
+- Branch Protection の Required Check は `plan-sync/Validate` 1本、`wo:ready/Validate` は警告成功（非Required）の前提で運用。
+- CODEOWNERS は plan/workorder 系ドキュメントの通知用途として維持しており、レビュー必須ではない旨をランブックで明示。
+
+## 次のアクション（任意）
+1. PL-6 証跡（`docs/agile/runbooks/evidence/PL-6-branch-protection-20251031.md`）と今回の記述差分を見比べ、今後の設定変更時にハブとして活用する。
+2. Branch Protection や CODEOWNERS に変更が入った際はランブックと CI_IMPACT の同期更新を忘れずに行う。
+3. 週次ヘルスチェック時に `gh api` コマンドで Required Check / Review 設定が意図通りか確認する運用を継続する。

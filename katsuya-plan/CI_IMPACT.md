@@ -1,3 +1,17 @@
+# CI Impact Scan — PL-11 branch protection runbook cleanup
+
+## Updated assets
+- `docs/agile/runbooks/plan-branch-protection.md` の競合マーカーを解消し、CODEOWNERS 通知の扱いや Required Check の運用手順を現行設定に合わせて整備。
+
+## Triggers, contexts, permissions
+- ワークフローや Branch Protection 設定の変更は無し。ドキュメント更新のみ。
+
+## Impact & guardrails
+- オペレーション手順の齟齬を解消し、`plan-sync/Validate` 単独 Required / `wo:ready/Validate` 警告成功という前提を明文化。
+- CODEOWNERS の通知運用とレビュー必須解除の意図を一本化し、運用者が UI 側設定とドキュメントを突き合わせやすくなる。
+
+---
+
 # CI Impact Scan — PL-10 runbook onboarding
 
 ## Updated assets
