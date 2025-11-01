@@ -65,7 +65,7 @@
 - その他:
 
 ## 備考（開発への注意点）
-- 
+- 自動トリガ検証用のダミー追記（PL-9）
 
 <!-- ASSIST-START:ui-spec -->
 ### Positions Page
