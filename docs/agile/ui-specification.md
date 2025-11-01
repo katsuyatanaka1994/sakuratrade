@@ -66,6 +66,7 @@
 
 ## 備考（開発への注意点）
 - 自動トリガ検証用のダミー追記（PL-9）
+- 再実行用: 追加テキストで `PLAN_AUTO` トグルを確認
 
 <!-- ASSIST-START:ui-spec -->
 ### Positions Page
