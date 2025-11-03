@@ -35,7 +35,7 @@ max_changed_lines:
   per_file: 80
 max_changed_lines_per_iter: 60
 max_total_changed_lines: 180
-max_changed_files: 6
+max_changed_files: 1
 max_open_automation_prs: 2
 retry_guard:
   max_iterations: 3
