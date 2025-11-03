@@ -179,7 +179,6 @@ def _render_pr_body(
     return "\n".join(lines)
 
 
-
 def _join_strings(items: Iterable[object], sep: str = ", ") -> str:
     clean: List[str] = [value for value in items if isinstance(value, str) and value]
     clean.sort()
@@ -516,8 +515,7 @@ def cmd_pr(args: argparse.Namespace) -> None:
     fetch_result = _run(["git", "fetch", "origin", base], check=False)
     if fetch_result.returncode != 0:
         print(
-            f"警告: origin/{base} の取得に失敗しました "
-            f"(code={fetch_result.returncode})。ローカル {base} を使用します。"
+            f"警告: origin/{base} の取得に失敗しました (code={fetch_result.returncode})。ローカル {base} を使用します。"
         )
 
     try:
@@ -570,16 +568,12 @@ def cmd_pr(args: argparse.Namespace) -> None:
 
     if no_pr or no_push:
         print("PR の作成/更新は以下のコマンドで実行できます:")
-        print(
-            f"  gh pr create --draft --title '{PR_TITLE}' --body-file {body_path} --base {base} --head {head}"
-        )
+        print(f"  gh pr create --draft --title '{PR_TITLE}' --body-file {body_path} --base {base} --head {head}")
         return
 
     if not shutil.which("gh"):
         print("gh コマンドが見つかりません。以下のコマンドを実行して PR を作成してください:")
-        print(
-            f"  gh pr create --draft --title '{PR_TITLE}' --body-file {body_path} --base {base} --head {head}"
-        )
+        print(f"  gh pr create --draft --title '{PR_TITLE}' --body-file {body_path} --base {base} --head {head}")
         return
 
     view_result = _run(["gh", "pr", "view", head], check=False)
