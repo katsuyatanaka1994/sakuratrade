@@ -217,7 +217,7 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          python3 -m scripts.workorder_guard
+          python3 scripts/workorder_guard.py
 
       - name: Handle guard outcome
         if: steps.context.outputs.should_run == 'true' && steps.guard.outcome == 'failure'
