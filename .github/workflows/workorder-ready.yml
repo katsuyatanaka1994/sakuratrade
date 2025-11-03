@@ -190,7 +190,7 @@ jobs:
         id: sync
         run: |
           set -euo pipefail
-          python3 scripts/workorder_cli.py ready
+          python3 -m scripts.workorder_cli ready
 
       - name: Show workorder_sync_plan
         if: steps.context.outputs.should_run == 'true'
