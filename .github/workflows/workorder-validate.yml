@@ -23,9 +23,23 @@ jobs:
           EVENT: ${{ github.event_name }}
           IS_DRAFT: ${{ github.event.pull_request.draft || false }}
           HAS_READY: ${{ contains(github.event.pull_request.labels.*.name, 'wo:ready') || contains(github.event.pull_request.labels.*.name, 'hotfix') }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          AUTO_READY_BRANCHES: ${{ vars.WORKORDER_READY_AUTO_BRANCHES || 'docs-sync/workorder' }}
           WORKORDER_ENFORCE_READY_LABEL: ${{ vars.WORKORDER_ENFORCE_READY_LABEL || '0' }}
         run: |
           set -euo pipefail
+          auto_branch=false
+          if [ -n "${HEAD_REF:-}" ] && [ "${HEAD_REPO:-}" = "${GITHUB_REPOSITORY:-}" ]; then
+            IFS=',' read -r -a _auto_list <<< "${AUTO_READY_BRANCHES:-}"
+            for candidate in "${_auto_list[@]}"; do
+              trimmed=$(echo "$candidate" | xargs)
+              if [ -n "$trimmed" ] && [ "$HEAD_REF" = "$trimmed" ]; then
+                auto_branch=true
+                break
+              fi
+            done
+          fi
           if [ "$EVENT" != "pull_request" ]; then
             echo "manual/other event → skip label/draft gating"
             {
@@ -45,7 +59,7 @@ jobs:
             exit 0
           fi
           if [ "$HAS_READY" != "true" ]; then
-            if [ "${WORKORDER_ENFORCE_READY_LABEL:-0}" = "1" ]; then
+            if [ "${WORKORDER_ENFORCE_READY_LABEL:-0}" = "1" ] && [ "$auto_branch" != "true" ]; then
               echo "::warning::Missing 'wo:ready' label (blocking: enforcement enabled)"
               {
                 echo "should_run=false"
@@ -53,12 +67,21 @@ jobs:
                 echo "require_fail=true"
               } >> "$GITHUB_OUTPUT"
             else
-              echo "::notice::Missing 'wo:ready' label (non-blocking: enforcement disabled)"
-              {
-                echo "should_run=false"
-                echo "reason=missing_label_optional"
-                echo "require_fail=false"
-              } >> "$GITHUB_OUTPUT"
+              if [ "$auto_branch" = "true" ]; then
+                echo "::notice::Automation branch skipping wo:ready enforcement"
+                {
+                  echo "should_run=true"
+                  echo "reason=auto_branch"
+                  echo "require_fail=false"
+                } >> "$GITHUB_OUTPUT"
+              else
+                echo "::notice::Missing 'wo:ready' label (non-blocking: enforcement disabled)"
+                {
+                  echo "should_run=false"
+                  echo "reason=missing_label_optional"
+                  echo "require_fail=false"
+                } >> "$GITHUB_OUTPUT"
+              fi
             fi
             exit 0
           fi
@@ -126,6 +149,9 @@ jobs:
                   ;;
                 missing_label_optional)
                   echo "- Result: noop (missing 'wo:ready' label; enforcement disabled)"
+                  ;;
+                auto_branch)
+                  echo "- Result: running (automation branch; label enforcement bypassed)"
                   ;;
                 manual)
                   echo "- Result: manual trigger (validation skipped)"

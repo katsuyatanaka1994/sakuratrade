@@ -58,4 +58,5 @@
 - `plan-sync` ワークフローは PR 単位の concurrency（queue）と `--force-with-lease` push を徹底。
 - Merge 後は `main/post-merge-smoke` が 60 秒監視で衝突痕 / `.py` 差分 / 生成物サイズをチェックする。
 - `WORKORDER_ENFORCE_READY_LABEL` が `0` の場合は `wo:ready/Validate` が警告で緑に落ちる。ブロックを有効化する際はリポジトリ変数を `1` に切り替え、`wo:ready` ラベルを付けて再実行する。
+- 自動生成 Draft PR（`docs-sync/workorder` など）は `WORKORDER_READY_AUTO_BRANCHES` で許可された同一リポジトリ内のブランチならラベル無しでも緑になる。
 - Guard デフォルト: LINES=300 / FILES=4 / AUTO_PRS=2 / ALLOW=docs/agile/**, docs/specs/**, docs/tests/**, .github/workflows/**, backend/app/openapi.yaml。
