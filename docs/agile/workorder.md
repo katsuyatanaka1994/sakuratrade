@@ -23,7 +23,7 @@
 <!-- AUTO:BEGIN name=workorder.meta -->
 - plan_snapshot_id: 8146ee3583d50e554e97ad0ae3a83c41b9449a77c1acdca5cd11e4e249be38f5
 - Doc ID: workorder
-- Updated at: 2025-11-03T15:27:05+09:00
+- Updated at: 2025-11-03T06:52:51+00:00
 - Tasks: []
 <!-- AUTO:END -->
 
@@ -35,7 +35,7 @@ max_changed_lines:
   per_file: 80
 max_changed_lines_per_iter: 60
 max_total_changed_lines: 180
-max_changed_files: 1
+max_changed_files: 6
 max_open_automation_prs: 2
 retry_guard:
   max_iterations: 3
