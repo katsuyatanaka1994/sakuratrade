@@ -1,0 +1,158 @@
+name: workorder/Weekly Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_path:
+        description: 'Workflow file name for telemetry (default .github/workflows/workorder-ready.yml)'
+        required: false
+        default: '.github/workflows/workorder-ready.yml'
+      window_days:
+        description: 'Lookback window in days (default 7)'
+        required: false
+        default: '7'
+  schedule:
+    # JST 09:15 = UTC 00:15（毎週 月曜）
+    - cron: '15 0 * * 1'
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    env:
+      REPORT_BRANCH: reports/workorder-weekly-${{ github.run_id }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate weekly report
+        id: report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          WORKFLOW_PATH=$(jq -r '.inputs.workflow_path // empty' "$GITHUB_EVENT_PATH")
+          WINDOW_DAYS=$(jq -r '.inputs.window_days // empty' "$GITHUB_EVENT_PATH")
+          WORKFLOW_PATH=${WORKFLOW_PATH:-.github/workflows/workorder-ready.yml}
+          WINDOW_DAYS=${WINDOW_DAYS:-7}
+          python3 scripts/workorder_weekly_report.py \
+            --workflow "$WORKFLOW_PATH" \
+            --days "$WINDOW_DAYS" \
+            --output reports/workorder-weekly.md \
+            --digest reports/workorder-weekly-digest.txt
+
+      - name: Detect changes
+        id: diff
+        run: |
+          if git diff --quiet -- reports/workorder-weekly.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure ops:report label
+        if: steps.diff.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const name = 'ops:report';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name });
+            } catch (error) {
+              if (error.status === 404) {
+                await github.rest.issues.createLabel({ owner, repo, name, color: '0E8A16', description: 'Weekly automation reports' });
+              } else {
+                throw error;
+              }
+            }
+
+      - name: Create PR
+        if: steps.diff.outputs.changed == 'true'
+        id: cpr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: main
+          branch: ${{ env.REPORT_BRANCH }}
+          commit-message: 'chore(reports): update workorder weekly summary'
+          title: 'chore(reports): update workorder weekly summary'
+          body: |
+            Automated weekly report update for workorder telemetry.
+
+            - Generated via scripts/workorder_weekly_report.py
+            - Window: last 7 days
+          add-paths: |
+            reports/workorder-weekly.md
+          labels: |
+            ops:report
+          delete-branch: true
+
+      - name: Comment digest
+        if: steps.diff.outputs.changed == 'true' && steps.cpr.outputs.pull-request-number != ''
+        uses: actions/github-script@v7
+        env:
+          DIGEST_PATH: reports/workorder-weekly-digest.txt
+          PULL_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        with:
+          script: |
+            const fs = require('fs');
+            const digest = fs.readFileSync(process.env.DIGEST_PATH, 'utf-8').trim();
+            if (!digest) {
+              core.info('Digest empty; skipping comment');
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(process.env.PULL_NUMBER),
+              body: digest,
+            });
+
+      - name: Fire status-compat-seed for report PR
+        if: steps.diff.outputs.changed == 'true' && steps.cpr.outputs.pull-request-number != ''
+        uses: actions/github-script@v7
+        env:
+          REPORT_PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = Number(process.env.REPORT_PR_NUMBER);
+            if (!prNumber) {
+              core.info('No PR number to trigger compat-seed.');
+              return;
+            }
+            const { data } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const headRef = data.head?.ref;
+            if (!headRef) {
+              core.warning('Unable to resolve head ref for report PR; skipping compat-seed dispatch.');
+              return;
+            }
+            await github.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'status-compat-seed.yml',
+              ref: headRef,
+            });
+            core.info(`Triggered status-compat-seed on ${headRef}`);
+
+      - name: Report no changes
+        if: steps.diff.outputs.changed != 'true'
+        run: echo "Weekly report is up-to-date; no PR required."
