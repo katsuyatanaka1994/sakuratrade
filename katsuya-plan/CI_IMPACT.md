@@ -1,3 +1,27 @@
+# CI Impact Scan — WO-8 workorder 週次メトリクス
+
+## 更新資産
+- `.github/workflows/workorder-weekly-report.yml` を新設し、`workorder-ready` 実行ログから週次レポート PR を自動生成。
+- `scripts/workorder_weekly_report.py` を追加し、API 経由でラン情報と `workorder-limits-report` アーティファクトを収集、No-Op 率・上限ヒット・リードタイムを算出。
+- `reports/workorder-weekly.md` をレポート出力先として追加（自動更新専用）。
+- `tests/test_workorder_weekly_report.py` を追加し、サマリ計算とレンダリングの単体テストを整備。
+
+## トリガー・コンテキスト・権限
+- `on.schedule` は毎週月曜 00:15 UTC（JST 09:15）で定期実行。`workflow_dispatch` による手動再実行にも対応。
+- 権限は `contents: write`（レポート更新）、`pull-requests: write`（PR 作成）、`issues: write`（ダイジェストコメント）、`actions: write`（status-compat-seed 呼び出し）。
+- デフォルトで `.github/workflows/workorder-ready.yml` の completed runs を対象とし、`workflow_path` / `window_days` を入力で上書き可能。
+
+## 影響・ガード
+- アーティファクト欠損・API 取得失敗のランは `data_status` で除外し、Markdown に "Excluded runs" として内訳を記載。
+- ガードステータスを `limit_exceeded` / `blocked_paths` などに分類し、上限ヒット件数を集計。先頭 10 件のランテーブルでは Guard 状態と失敗要因を可視化。
+- PR 作成時は `ops:report` ラベルを強制付与し、既存 PR が無い場合のみ新規作成（差分なしならログのみで終了）。
+- digest テキスト（日本語）を PR コメントへ投稿し、主要 KPI を即把握できるようにした。
+
+## 検証ログ
+- `./venv/bin/python -m pytest tests/test_workorder_weekly_report.py`
+
+---
+
 # CI Impact Scan — WO-7 workorder failure escalation
 
 ## Updated assets
