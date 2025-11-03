@@ -1,23 +1,3 @@
-# CI Impact Scan — WO-7 workorder failure escalation
-
-## Updated assets
-- `.github/workflows/workorder-ready.yml` に連続失敗カウンタと自動停止ロジックを追加。専用コメントで失敗履歴を保持し、閾値到達時に `workorder:suspended` ラベル付与・エスカレーションコメント・再実行停止を実施。
-- `docs/agile/workorder.md` の MANUAL 節へ新ラベル運用の補足ログを追記。
-
-## Triggers, contexts, permissions
-- ワークフローのトリガー（`workflow_run` / `workflow_dispatch` / `push`）と権限設定は従来どおり。
-- 新たに `WORKORDER_FAIL_THRESHOLD`（既定値2）、`WORKORDER_ESCALATION_LABEL`、`WORKORDER_ESCALATION_MENTION` のリポジトリ変数で連続失敗閾値と通知先を調整可能。
-
-## Impact & guardrails
-- 失敗時に PR 上へ専用コメント（`<!-- workorder-ready:failure-counter -->`）を更新し履歴を可視化。
-- 閾値到達で `workorder:suspended` ラベルが自動付与され、`Resolve run context` で以降の自動実行を停止。復旧後はラベル解除で再開。
-- エスカレーションコメントには連絡先（変数指定時）と直近失敗理由を記載し、人による介入を促す。
-
-## Validation log
-- `python3 -m scripts.workorder_cli validate`
-
----
-
 # CI Impact Scan — WO-4 workorder guard & limits
 
 ## Updated assets
