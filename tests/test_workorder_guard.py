@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from scripts import workorder_guard
 
 pytestmark = pytest.mark.no_db

@@ -71,7 +71,8 @@ def _collect_diff_stats(paths: Sequence[str] | None = None) -> dict[str, Any]:
 def _load_config() -> dict[str, Any]:
     if not WORKORDER_SYNC_PLAN_PATH.exists():
         raise SystemExit(
-            "workorder_sync_plan.json が見つかりません。`python3 -m scripts.workorder_cli ready` を先に実行してください。"
+            "workorder_sync_plan.json が見つかりません。"
+            " `python3 -m scripts.workorder_cli ready` を先に実行してください。"
         )
     try:
         return json.loads(WORKORDER_SYNC_PLAN_PATH.read_text(encoding="utf-8"))
@@ -192,9 +193,11 @@ def main(argv: list[str] | None = None) -> int:
                 f"File limit exceeded: {item['path']} (total={item['total']} > limit={item['limit']})"
             )
     if evaluation["total_over_limit"]:
-        print(
-            f"Total line limit exceeded: {stats.get('total_lines', 0)} > {limits.get('max_total_changed_lines') or (limits.get('max_changed_lines') or {}).get('per_pr')}"
-        )
+        line_limit = limits.get("max_total_changed_lines") or (
+            limits.get("max_changed_lines") or {}
+        ).get("per_pr")
+        total_lines = stats.get("total_lines", 0)
+        print(f"Total line limit exceeded: {total_lines} > {line_limit}")
     if evaluation["file_count_over_limit"]:
         print(
             f"File count limit exceeded: {stats.get('file_count', 0)} > {limits.get('max_changed_files')}"
