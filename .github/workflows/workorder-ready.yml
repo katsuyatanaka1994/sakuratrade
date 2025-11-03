@@ -38,6 +38,10 @@ jobs:
       WORKORDER_MAX_CHANGED_FILES: ${{ vars.WORKORDER_MAX_CHANGED_FILES || '6' }}
       WORKORDER_MAX_AUTO_PRS: ${{ vars.WORKORDER_MAX_AUTO_PRS || vars.WORKORDER_MAX_OPEN_AUTOMATION_PRS || '2' }}
       WORKORDER_RUN_REPORT: tmp/workorder_limits_report.json
+      WORKORDER_FAILURE_REASON: 'unknown'
+      WORKORDER_FAIL_THRESHOLD: ${{ vars.WORKORDER_FAIL_THRESHOLD || '2' }}
+      WORKORDER_ESCALATION_LABEL: ${{ vars.WORKORDER_ESCALATION_LABEL || 'workorder:suspended' }}
+      WORKORDER_ESCALATION_MENTION: ${{ vars.WORKORDER_ESCALATION_MENTION || '' }}
     concurrency:
       group: docs-sync:workorder
       cancel-in-progress: true
@@ -53,6 +57,7 @@ jobs:
             const set = (key, value) => core.setOutput(key, value ?? '');
             const event = context.eventName;
             const currentSha = context.sha || '';
+            set('escalated', 'false');
 
             if (event === 'workflow_dispatch') {
               const baseInput = core.getInput('base') || 'docs-sync/plan';
@@ -108,6 +113,16 @@ jobs:
                   set('reason', 'source PR head is docs-sync/workorder');
                   return;
                 }
+                const escalationLabel = process.env.WORKORDER_ESCALATION_LABEL || 'workorder:suspended';
+                const hasEscalationLabel = (pr.data.labels || []).some((label) => label?.name === escalationLabel);
+                if (hasEscalationLabel) {
+                  core.info(`Skipping workorder-ready: PR #${prNumber} marked with ${escalationLabel}.`);
+                  set('should_run', 'false');
+                  set('reason', 'workorder automation suspended');
+                  set('source_pr', String(prNumber));
+                  set('escalated', 'true');
+                  return;
+                }
 
                 set('should_run', 'true');
                 set('checkout_ref', `refs/heads/${planBranch}`);
@@ -121,6 +136,24 @@ jobs:
               }
 
               if (trigger === 'workflow_dispatch' || trigger === 'issue_comment') {
+                const escalationLabel = process.env.WORKORDER_ESCALATION_LABEL || 'workorder:suspended';
+                if (prInfo && prInfo.number) {
+                  try {
+                    const prNumber = Number(prInfo.number);
+                    const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+                    const hasEscalationLabel = (pr.data.labels || []).some((label) => label?.name === escalationLabel);
+                    if (hasEscalationLabel) {
+                      core.info(`Skipping workorder-ready: PR #${prNumber} marked with ${escalationLabel}.`);
+                      set('should_run', 'false');
+                      set('reason', 'workorder automation suspended');
+                      set('source_pr', String(prNumber));
+                      set('escalated', 'true');
+                      return;
+                    }
+                  } catch (error) {
+                    core.warning(`Failed to inspect source PR escalation state: ${error}`);
+                  }
+                }
                 set('should_run', 'true');
                 set('checkout_ref', `refs/heads/${planBranch}`);
                 set('plan_branch', planBranch);
@@ -307,6 +340,7 @@ jobs:
               core.warning('No source PR available to attach guard failure comment.');
             }
 
+            core.exportVariable('WORKORDER_FAILURE_REASON', message);
             core.setFailed(message);
 
       - name: Upload guard report
@@ -356,6 +390,7 @@ jobs:
                   body: message,
                 });
               }
+              core.exportVariable('WORKORDER_FAILURE_REASON', message);
               core.setFailed(message);
               return;
             }
@@ -438,3 +473,216 @@ jobs:
       - name: Note no-op in logs
         if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed != 'true'
         run: echo "workorder-ready completed without changes"
+
+      - name: Reset failure ledger
+        if: steps.context.outputs.should_run == 'true' && success() && steps.context.outputs.source_pr != ''
+        uses: actions/github-script@v7
+        env:
+          SOURCE_PR: ${{ steps.context.outputs.source_pr }}
+          ESCALATION_LABEL: ${{ env.WORKORDER_ESCALATION_LABEL }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = Number(process.env.SOURCE_PR);
+            if (!issueNumber) {
+              core.info('Reset skipped: missing source PR number.');
+              return;
+            }
+
+            const marker = '<!-- workorder-ready:failure-counter -->';
+            const botLogin = 'github-actions[bot]';
+            let ledger = null;
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: issueNumber,
+                per_page: 100,
+              });
+              for (let i = comments.length - 1; i >= 0; i -= 1) {
+                const comment = comments[i];
+                if ((comment.body || '').includes(marker) && comment.user?.login === botLogin) {
+                  ledger = comment;
+                  break;
+                }
+              }
+            } catch (error) {
+              core.warning(`Failed to inspect failure ledger: ${error}`);
+            }
+
+            if (ledger) {
+              try {
+                await github.rest.issues.deleteComment({ owner, repo, comment_id: ledger.id });
+                core.info(`Deleted failure ledger comment (${ledger.id}).`);
+              } catch (error) {
+                core.warning(`Failed to delete ledger comment: ${error}`);
+              }
+            }
+
+            const labelName = (process.env.ESCALATION_LABEL || '').trim();
+            if (labelName) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: issueNumber, name: labelName });
+                core.info(`Removed escalation label '${labelName}'.`);
+              } catch (error) {
+                if (error.status === 404) {
+                  core.info(`Escalation label '${labelName}' not present on PR #${issueNumber}.`);
+                } else {
+                  core.warning(`Failed to remove escalation label '${labelName}': ${error}`);
+                }
+              }
+            }
+
+            core.exportVariable('WORKORDER_FAILURE_REASON', '');
+            await core.summary
+              .addHeading('workorder-ready failure ledger', 3)
+              .addRaw(`連続失敗カウンタをリセットしました (PR #${issueNumber}).`, true)
+              .write();
+
+      - name: Record failure ledger
+        if: failure() && steps.context.outputs.source_pr != ''
+        uses: actions/github-script@v7
+        env:
+          SOURCE_PR: ${{ steps.context.outputs.source_pr }}
+          FAILURE_REASON: ${{ env.WORKORDER_FAILURE_REASON }}
+          FAIL_THRESHOLD: ${{ env.WORKORDER_FAIL_THRESHOLD }}
+          ESCALATION_LABEL: ${{ env.WORKORDER_ESCALATION_LABEL }}
+          ESCALATION_MENTION: ${{ env.WORKORDER_ESCALATION_MENTION }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = Number(process.env.SOURCE_PR);
+            if (!issueNumber) {
+              core.warning('Failure ledger skipped: missing source PR number.');
+              return;
+            }
+
+            const threshold = Number.parseInt(process.env.FAIL_THRESHOLD || '0', 10);
+            const labelName = (process.env.ESCALATION_LABEL || 'workorder:suspended').trim();
+            const mention = (process.env.ESCALATION_MENTION || '').trim();
+            const rawReason = process.env.FAILURE_REASON || '';
+            const compactReason = rawReason ? rawReason.replace(/\s+/g, ' ').trim() : '詳細未設定';
+            const marker = '<!-- workorder-ready:failure-counter -->';
+            const botLogin = 'github-actions[bot]';
+
+            let ledger = null;
+            let count = 0;
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: issueNumber,
+                per_page: 100,
+              });
+              for (let i = comments.length - 1; i >= 0; i -= 1) {
+                const comment = comments[i];
+                if ((comment.body || '').includes(marker) && comment.user?.login === botLogin) {
+                  ledger = comment;
+                  const match = (comment.body || '').match(/count:\s*(\d+)/i);
+                  if (match) {
+                    const parsed = Number.parseInt(match[1], 10);
+                    if (Number.isFinite(parsed)) {
+                      count = parsed;
+                    }
+                  }
+                  break;
+                }
+              }
+            } catch (error) {
+              core.warning(`Failed to read failure ledger comment: ${error}`);
+            }
+
+            count += 1;
+            const nowIso = new Date().toISOString();
+            const bodyLines = [
+              marker,
+              `count: ${count}`,
+              `last_failure: ${nowIso}`,
+              `reason: ${compactReason}`,
+            ];
+            const ledgerBody = bodyLines.join('\n');
+
+            try {
+              if (ledger) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: ledger.id, body: ledgerBody });
+                core.info(`Updated failure ledger comment (${ledger.id}) to ${count}.`);
+              } else {
+                ledger = await github.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body: ledgerBody });
+                core.info(`Created failure ledger comment (${ledger.id}) with count ${count}.`);
+              }
+            } catch (error) {
+              core.warning(`Failed to update failure ledger comment: ${error}`);
+            }
+
+            if (compactReason) {
+              core.info(`Recorded failure reason: ${compactReason}`);
+            }
+
+            let escalated = false;
+            if (threshold > 0 && count >= threshold) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: labelName });
+              } catch (error) {
+                if (error.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner,
+                    repo,
+                    name: labelName,
+                    color: 'B60205',
+                    description: 'Workorder automation suspended after repeated failures',
+                  });
+                  core.info(`Created escalation label '${labelName}'.`);
+                } else {
+                  core.warning(`Failed to verify escalation label '${labelName}': ${error}`);
+                }
+              }
+
+              let hasLabel = false;
+              try {
+                const pr = await github.rest.pulls.get({ owner, repo, pull_number: issueNumber });
+                hasLabel = (pr.data.labels || []).some((label) => label?.name === labelName);
+              } catch (error) {
+                core.warning(`Failed to fetch PR #${issueNumber} for label check: ${error}`);
+              }
+
+              if (!hasLabel) {
+                try {
+                  await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: [labelName] });
+                  hasLabel = true;
+                  core.info(`Applied escalation label '${labelName}' to PR #${issueNumber}.`);
+                } catch (error) {
+                  core.warning(`Failed to add escalation label '${labelName}': ${error}`);
+                }
+              }
+
+              if (hasLabel) {
+                if (count === threshold) {
+                  let message = `⚠️ workorder-ready を停止しました。連続失敗回数が閾値 (${threshold}) に達しました。\n`;
+                  message += `- 連続失敗回数: ${count}\n`;
+                  if (rawReason) {
+                    message += `- 最後の失敗理由: ${rawReason.trim()}\n`;
+                  }
+                  message += `- 対応: 原因を解消し、ラベル '${labelName}' を外してから再実行してください。`;
+                  if (mention) {
+                    message = `${mention}\n\n${message}`;
+                  }
+                  try {
+                    await github.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body: message });
+                  } catch (error) {
+                    core.warning(`Failed to create escalation comment: ${error}`);
+                  }
+                }
+                escalated = true;
+              }
+            }
+
+            await core.summary
+              .addHeading('workorder-ready failure ledger', 3)
+              .addRaw(`PR #${issueNumber} failure count: ${count}${threshold > 0 ? ` / threshold ${threshold}` : ''}.`, true)
+              .write();
+
+            if (!escalated) {
+              core.info(`Recorded failure ${count} (threshold ${threshold || 'disabled'}).`);
+            }
