@@ -9,6 +9,12 @@ on:
       plan_branch:
         description: 'Plan branch to read tasks from (default: docs-sync/plan)'
         required: false
+      source_pr:
+        description: 'Source PR number (optional, workflow_dispatch only)'
+        required: false
+      source_head:
+        description: 'Source PR head ref (optional, workflow_dispatch only)'
+        required: false
   workflow_run:
     workflows: ['plan-sync/Validate']
     types: [completed]
