@@ -23,8 +23,29 @@
 <!-- AUTO:BEGIN name=workorder.meta -->
 - plan_snapshot_id: aae60b595a15600d7573d9beda34dae8b5529479f695648a450fc94994b6d2fb
 - Doc ID: workorder
-- Updated at: 2025-11-03T14:38:37+09:00
-- Tasks: []
+- Updated at: 2025-11-03T05:54:20+00:00
+- Tasks:
+    -
+      id: U-positions-page-update
+      refs:
+        - ui-spec:positions-page
+      outputs:
+        - frontend/src
+      acceptance:
+        max_changed_lines: 80
+        checks:
+          - name: frontend-tsc
+            command: npx --prefix frontend tsc --noEmit
+          - name: frontend-eslint
+            command: npx --prefix frontend eslint src --max-warnings=500 --quiet
+          - name: frontend-vitest
+            command: npm --prefix frontend run test:run -- --passWithNoTests
+      gate:
+        []
+      deps:
+        []
+      risk: 低
+      rollback: 前バージョンのUIを再適用
 <!-- AUTO:END -->
 
 ### LIMITS — 自動実装のガード設定
@@ -35,7 +56,7 @@ max_changed_lines:
   per_file: 80
 max_changed_lines_per_iter: 60
 max_total_changed_lines: 180
-max_changed_files: 6
+max_changed_files: 1
 max_open_automation_prs: 2
 retry_guard:
   max_iterations: 3
@@ -48,6 +69,7 @@ retry_guard:
 ### ALLOWED PATHS — 自動実装が触れてよい領域
 <!-- AUTO:BEGIN name=workorder.allowed_paths -->
 - docs/agile/workorder.md
+- frontend/src/**
 - workorder_sync_plan.json
 <!-- AUTO:END -->
 
@@ -67,5 +89,11 @@ sources:
     sections:
       - plan.meta
       - plan.tasks
-tasks: []
+tasks:
+  -
+    id: U-positions-page-update
+    refs:
+      - ui-spec:positions-page
+    outputs:
+      - frontend/src
 <!-- AUTO:END -->

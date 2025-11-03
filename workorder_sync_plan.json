@@ -1,7 +1,40 @@
 {
   "plan_snapshot_id": "aae60b595a15600d7573d9beda34dae8b5529479f695648a450fc94994b6d2fb",
-  "task_ids": [],
-  "tasks": [],
+  "task_ids": [
+    "U-positions-page-update"
+  ],
+  "tasks": [
+    {
+      "id": "U-positions-page-update",
+      "refs": [
+        "ui-spec:positions-page"
+      ],
+      "outputs": [
+        "frontend/src"
+      ],
+      "acceptance": {
+        "max_changed_lines": 80,
+        "checks": [
+          {
+            "name": "frontend-tsc",
+            "command": "npx --prefix frontend tsc --noEmit"
+          },
+          {
+            "name": "frontend-eslint",
+            "command": "npx --prefix frontend eslint src --max-warnings=500 --quiet"
+          },
+          {
+            "name": "frontend-vitest",
+            "command": "npm --prefix frontend run test:run -- --passWithNoTests"
+          }
+        ]
+      },
+      "gate": [],
+      "deps": [],
+      "risk": "低",
+      "rollback": "前バージョンのUIを再適用"
+    }
+  ],
   "limits": {
     "max_changed_lines": {
       "per_task": 80,
@@ -10,7 +43,7 @@
     },
     "max_changed_lines_per_iter": 60,
     "max_total_changed_lines": 180,
-    "max_changed_files": 6,
+    "max_changed_files": 1,
     "max_open_automation_prs": 2,
     "retry_guard": {
       "max_iterations": 3,
@@ -23,6 +56,7 @@
   },
   "allowed_paths": [
     "docs/agile/workorder.md",
+    "frontend/src/**",
     "workorder_sync_plan.json"
   ],
   "blocked_paths": [
@@ -41,6 +75,16 @@
         ]
       }
     ],
-    "tasks": []
+    "tasks": [
+      {
+        "id": "U-positions-page-update",
+        "refs": [
+          "ui-spec:positions-page"
+        ],
+        "outputs": [
+          "frontend/src"
+        ]
+      }
+    ]
   }
 }
