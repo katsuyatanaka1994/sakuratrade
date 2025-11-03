@@ -5,7 +5,7 @@ Subcommands
 -----------
 ready     Read plan.md and propagate plan_snapshot_id / TASKS into workorder.md
 validate  Verify workorder.md AUTO sections remain in sync with plan.md
-pr        (Stub) Show instructions for preparing the Implementation Draft PR
+pr        Create or update the Implementation Draft PR on docs-sync/workorder
 """
 
 from __future__ import annotations
@@ -15,10 +15,12 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
-from typing import Any, Iterable, List
+from typing import Any, Iterable, List, Sequence
 
-from scripts import plan_cli
+from scripts import plan_cli, workorder_guard
 from scripts.docsync_utils import (
     ROOT as PROJECT_ROOT,
 )
@@ -53,6 +55,125 @@ DEFAULT_DOC_ALLOWED_PATTERNS = [
     "docs/agile/workorder.md",
     "workorder_sync_plan.json",
 ]
+
+DEFAULT_BASE_BRANCH = "docs-sync/plan"
+DEFAULT_HEAD_BRANCH = "docs-sync/workorder"
+COMMIT_MESSAGE = "chore(workorder): sync workorder AUTO sections"
+PR_TITLE = "[workorder-ready] docs: sync workorder auto sections"
+
+
+def _relative_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _target_files() -> list[str]:
+    return [_relative_path(WORKORDER_PATH), _relative_path(WORKORDER_SYNC_PLAN_PATH)]
+
+
+def _pr_body_path() -> Path:
+    return ROOT / "tmp" / "workorder_pr_body.md"
+
+
+def _run(cmd: Sequence[str], *, check: bool = True, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        list(cmd),
+        cwd=ROOT,
+        check=check,
+        text=True,
+        capture_output=capture_output,
+    )
+
+
+def _git_status(paths: Sequence[str] | None = None) -> list[tuple[str, str]]:
+    cmd: list[str] = ["git", "status", "--porcelain=1"]
+    if paths:
+        cmd.append("--")
+        cmd.extend(paths)
+    completed = _run(cmd, capture_output=True)
+    entries: list[tuple[str, str]] = []
+    for line in completed.stdout.splitlines():
+        if not line.strip():
+            continue
+        status = line[:2]
+        path = line[3:].strip()
+        entries.append((status, path))
+    return entries
+
+
+def _ensure_clean_tree(allowed_relative_paths: Sequence[str], *, allow_dirty: bool) -> None:
+    if allow_dirty:
+        return
+    allowed = set(allowed_relative_paths)
+    for status, path in _git_status():
+        if path not in allowed:
+            raise SystemExit(
+                "作業ツリーに workorder 以外の変更があります。"
+                " `git status` で確認し、別途コミットするか --allow-dirty オプションを使用してください。"
+            )
+
+
+def _evaluate_guard(allowed: Sequence[str], blocked: Sequence[str], limits: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    stats = workorder_guard.collect_diff_stats()
+    evaluation = workorder_guard.evaluate_guard(stats, allowed, blocked, limits)
+    return evaluation, stats
+
+
+def _format_guard_failure(evaluation: dict[str, Any], stats: dict[str, Any], limits: dict[str, Any]) -> str:
+    status = evaluation.get("status", "unknown")
+    if status == "disallowed":
+        files = ", ".join(evaluation.get("disallowed_files") or []) or "該当ファイルなし"
+        return f"ガード失敗: 許可されていないパスを検出しました ({files})。"
+    if status == "blocked_paths":
+        files = ", ".join(evaluation.get("blocked_files") or []) or "該当ファイルなし"
+        return f"ガード失敗: 禁止パスに触れています ({files})。"
+    if status == "limit_exceeded":
+        reasons: list[str] = []
+        for item in evaluation.get("file_over_limit") or []:
+            reasons.append(f"{item.get('path')} {item.get('total')}/{item.get('limit')}")
+        if evaluation.get("total_over_limit"):
+            total_lines = stats.get("total_lines", 0)
+            total_limit = limits.get("max_total_changed_lines") or (
+                (limits.get("max_changed_lines") or {}).get("per_pr") if isinstance(limits, dict) else None
+            )
+            reasons.append(f"総変更行数 {total_lines}/{total_limit}")
+        if evaluation.get("file_count_over_limit"):
+            file_count = stats.get("file_count", 0)
+            limit_files = limits.get("max_changed_files")
+            reasons.append(f"変更ファイル数 {file_count}/{limit_files}")
+        details = "; ".join(reasons) or "閾値超過"
+        return f"ガード失敗: 上限を超過しました ({details})。"
+    return f"ガード失敗: status={status}"
+
+
+def _render_pr_body(
+    *,
+    trigger: str,
+    snapshot: str,
+    task_ids: Sequence[str],
+    tasks: Sequence[dict[str, Any]],
+    source_ref: str | None = None,
+) -> str:
+    lines = ["Automated workorder sync run.", "", f"- Trigger: {trigger}"]
+    if source_ref:
+        lines.append(f"- Source ref: `{source_ref}`")
+    if snapshot:
+        lines.append(f"- plan_snapshot_id: {snapshot}")
+    if task_ids:
+        joined = ", ".join(task_ids)
+        lines.append(f"- Tasks: {joined}")
+    if tasks:
+        lines.append("")
+        lines.append("## Task details")
+        for task in tasks:
+            task_id = task.get("id", "(no-id)")
+            refs = ", ".join(task.get("refs") or []) or "-"
+            outputs = ", ".join(task.get("outputs") or []) or "-"
+            lines.append(f"- {task_id}: refs=[{refs}] outputs=[{outputs}]")
+    return "\n".join(lines)
+
 
 
 def _join_strings(items: Iterable[object], sep: str = ", ") -> str:
@@ -347,41 +468,154 @@ def cmd_validate(args: argparse.Namespace) -> None:
 
 def cmd_pr(args: argparse.Namespace) -> None:
     if not WORKORDER_SYNC_PLAN_PATH.exists():
-        print("workorder_sync_plan.json が見つかりません。先に ready を実行してください。")
-        return
+        raise SystemExit("workorder_sync_plan.json が見つかりません。先に ready を実行してください。")
 
     data = json.loads(WORKORDER_SYNC_PLAN_PATH.read_text(encoding="utf-8"))
-    task_ids = data.get("task_ids") or []
+    task_ids = [task_id for task_id in data.get("task_ids") or [] if isinstance(task_id, str) and task_id]
     if not task_ids:
         print("Plan 由来のタスクがありません。Implementation Draft PR は不要です。")
         return
 
     snapshot = data.get("plan_snapshot_id", "")
     tasks = data.get("tasks") or []
+    allowed_patterns = list(data.get("allowed_paths") or [])
+    blocked_patterns = list(data.get("blocked_paths") or [])
+    limits = data.get("limits") or {}
 
-    print("Implementation Draft PR を作成する前に次を確認してください:")
-    print(f"- plan_snapshot_id: {snapshot}")
-    joined_ids = _join_strings(task_ids)
-    print(f"- タスク数: {len(task_ids)} ({joined_ids})")
-    if tasks:
-        print("- タスク要約:")
-        for task in tasks:
-            task_id = task.get("id", "(no-id)")
-            refs = _join_strings(task.get("refs", [])) or "-"
-            outputs = _join_strings(task.get("outputs", [])) or "-"
-            print(f"    - {task_id} | refs: {refs} | outputs: {outputs}")
+    target_files = _target_files()
+    if not allowed_patterns:
+        allowed_patterns = target_files
 
-    print("\n推奨手順:")
-    print("1. git checkout -B docs-sync/workorder")
-    print("2. git add docs/agile/workorder.md workorder_sync_plan.json")
-    print("3. git commit -m 'chore(workorder): sync implementation tasks'")
-    print("4. git push --force-with-lease origin docs-sync/workorder")
-    print(
-        "5. gh pr create --draft --title '[workorder-ready] docs: sync workorder auto sections' "
-        "--base <target> --head docs-sync/workorder"
+    _ensure_clean_tree(target_files, allow_dirty=getattr(args, "allow_dirty", False))
+
+    evaluation, stats = _evaluate_guard(allowed_patterns, blocked_patterns, limits)
+    status = evaluation.get("status")
+    if status == "no_changes":
+        print("Implementation Draft PR に含める差分はありませんでした。")
+        return
+    if status != "ok":
+        message = _format_guard_failure(evaluation, stats, limits)
+        raise SystemExit(message)
+
+    if not _git_status(paths=target_files):
+        print("Implementation Draft PR に含める差分がありませんでした。")
+        return
+
+    base = getattr(args, "base", DEFAULT_BASE_BRANCH) or DEFAULT_BASE_BRANCH
+    head = getattr(args, "head", DEFAULT_HEAD_BRANCH) or DEFAULT_HEAD_BRANCH
+
+    try:
+        _run(["git", "rev-parse", "--verify", "HEAD"])
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit("git リポジトリが初期化されていないか、コミットが存在しません。") from exc
+
+    fetch_result = _run(["git", "fetch", "origin", base], check=False)
+    if fetch_result.returncode != 0:
+        print(f"警告: origin/{base} の取得に失敗しました (code={fetch_result.returncode})。ローカル {base} を使用します。")
+
+    try:
+        _run(["git", "switch", "-C", head, base])
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"git switch -C {head} {base} に失敗しました。") from exc
+
+    try:
+        _run(["git", "add", *target_files])
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit("git add に失敗しました。") from exc
+
+    if _run(["git", "diff", "--cached", "--quiet"], check=False).returncode == 0:
+        print("コミット対象の差分がありません。")
+        return
+
+    try:
+        _run(["git", "commit", "-m", COMMIT_MESSAGE])
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit("git commit に失敗しました。") from exc
+
+    body = _render_pr_body(
+        trigger="cli",
+        snapshot=snapshot,
+        task_ids=task_ids,
+        tasks=tasks,
     )
-    print("   （既存PRがある場合は gh pr edit docs-sync/workorder で更新）")
-    print("6. PR 本文に plan_snapshot_id とタスク一覧を貼り付ける")
+    body_path = _pr_body_path()
+    body_path.parent.mkdir(parents=True, exist_ok=True)
+    body_path.write_text(body + "\n", encoding="utf-8")
+
+    print("Implementation Draft PR を準備しました。")
+    print(f"- branch: {head}")
+    if snapshot:
+        print(f"- plan_snapshot_id: {snapshot}")
+    if task_ids:
+        print(f"- tasks ({len(task_ids)}): {', '.join(task_ids)}")
+    print(f"- body: {body_path.relative_to(ROOT)}")
+
+    no_push = getattr(args, "no_push", False)
+    no_pr = getattr(args, "no_pr", False)
+
+    if no_push:
+        print(f"git push --force-with-lease origin {head} を実行してリモートを更新してください。")
+    else:
+        push_result = _run(["git", "push", "--force-with-lease", "origin", head], check=False)
+        if push_result.returncode != 0:
+            raise SystemExit(f"git push が失敗しました (code={push_result.returncode})。")
+        print(f"Pushed {head} to origin.")
+
+    if no_pr or no_push:
+        print("PR の作成/更新は以下のコマンドで実行できます:")
+        print(
+            f"  gh pr create --draft --title '{PR_TITLE}' --body-file {body_path} --base {base} --head {head}"
+        )
+        return
+
+    if not shutil.which("gh"):
+        print("gh コマンドが見つかりません。以下のコマンドを実行して PR を作成してください:")
+        print(
+            f"  gh pr create --draft --title '{PR_TITLE}' --body-file {body_path} --base {base} --head {head}"
+        )
+        return
+
+    view_result = _run(["gh", "pr", "view", head], check=False)
+    if view_result.returncode == 0:
+        try:
+            _run(
+                [
+                    "gh",
+                    "pr",
+                    "edit",
+                    head,
+                    "--title",
+                    PR_TITLE,
+                    "--body-file",
+                    str(body_path),
+                    "--base",
+                    base,
+                ]
+            )
+        except subprocess.CalledProcessError as exc:
+            raise SystemExit("gh pr edit に失敗しました。") from exc
+        print("既存の Implementation Draft PR を更新しました。")
+    else:
+        try:
+            _run(
+                [
+                    "gh",
+                    "pr",
+                    "create",
+                    "--draft",
+                    "--title",
+                    PR_TITLE,
+                    "--body-file",
+                    str(body_path),
+                    "--base",
+                    base,
+                    "--head",
+                    head,
+                ]
+            )
+        except subprocess.CalledProcessError as exc:
+            raise SystemExit("gh pr create に失敗しました。") from exc
+        print("Implementation Draft PR を新規作成しました。")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -390,7 +624,35 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("ready", help="Update workorder.md AUTO sections based on plan.md")
     sub.add_parser("validate", help="Validate workorder.md consistency with plan.md")
-    sub.add_parser("pr", help="(Stub) print instructions for PR creation")
+    pr_parser = sub.add_parser(
+        "pr",
+        help="Create or update the Implementation Draft PR on docs-sync/workorder",
+    )
+    pr_parser.add_argument(
+        "--base",
+        default=DEFAULT_BASE_BRANCH,
+        help=f"Base branch for the PR (default: {DEFAULT_BASE_BRANCH})",
+    )
+    pr_parser.add_argument(
+        "--head",
+        default=DEFAULT_HEAD_BRANCH,
+        help=f"Implementation branch name (default: {DEFAULT_HEAD_BRANCH})",
+    )
+    pr_parser.add_argument(
+        "--no-push",
+        action="store_true",
+        help="Skip git push (useful for local dry runs)",
+    )
+    pr_parser.add_argument(
+        "--no-pr",
+        action="store_true",
+        help="Skip GitHub PR creation/update",
+    )
+    pr_parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="Allow other working tree changes (advanced)",
+    )
 
     args = parser.parse_args(argv)
 

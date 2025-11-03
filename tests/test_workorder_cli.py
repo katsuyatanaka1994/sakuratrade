@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -131,6 +132,15 @@ def _create_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path,
     return root, plan_path, workorder_path
 
 
+def _init_git_repo(root: Path) -> None:
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", "-b", "docs-sync/plan"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Codex Tester"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "codex@example.com"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=root, check=True, capture_output=True)
+
+
 def test_ready_updates_workorder_and_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     root, _, workorder_path = _create_repo(monkeypatch, tmp_path)
 
@@ -202,16 +212,129 @@ def test_validate_detects_snapshot_mismatch(monkeypatch: pytest.MonkeyPatch, tmp
         workorder_cli.cmd_validate(argparse.Namespace())
 
 
-def test_pr_outputs_summary(
+def test_pr_creates_commit_and_body_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _create_repo(monkeypatch, tmp_path)
-    workorder_cli.cmd_ready(argparse.Namespace())
+    root, _, _ = _create_repo(monkeypatch, tmp_path)
+    _init_git_repo(root)
 
-    workorder_cli.cmd_pr(argparse.Namespace())
+    monkeypatch.setattr(workorder_cli.workorder_guard, "ROOT", root)
+    monkeypatch.setattr(
+        workorder_cli.workorder_guard,
+        "WORKORDER_SYNC_PLAN_PATH",
+        root / "workorder_sync_plan.json",
+    )
+
+    workorder_cli.cmd_ready(argparse.Namespace())
+    capsys.readouterr()  # clear ready output
+
+    args = argparse.Namespace(
+        base="docs-sync/plan",
+        head="docs-sync/workorder",
+        no_push=True,
+        no_pr=True,
+        allow_dirty=False,
+    )
+    workorder_cli.cmd_pr(args)
     out = capsys.readouterr().out
-    assert "plan_snapshot_id" in out
-    assert "U-sample-update" in out
-    assert "git checkout -B docs-sync/workorder" in out
+    assert "Implementation Draft PR を準備しました。" in out
+    assert "plan_snapshot_id: SNAP123" in out
+
+    current_branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert current_branch == "docs-sync/workorder"
+
+    commit_message = subprocess.run(
+        ["git", "log", "-1", "--pretty=%s"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert commit_message == workorder_cli.COMMIT_MESSAGE
+
+    body_path = root / "tmp" / "workorder_pr_body.md"
+    assert body_path.exists()
+    body_text = body_path.read_text(encoding="utf-8")
+    assert "plan_snapshot_id: SNAP123" in body_text
+    assert "U-sample-update" in body_text
+
+
+def test_pr_skips_when_no_changes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root, _, _ = _create_repo(monkeypatch, tmp_path)
+    _init_git_repo(root)
+
+    monkeypatch.setattr(workorder_cli.workorder_guard, "ROOT", root)
+    monkeypatch.setattr(
+        workorder_cli.workorder_guard,
+        "WORKORDER_SYNC_PLAN_PATH",
+        root / "workorder_sync_plan.json",
+    )
+
+    workorder_cli.cmd_ready(argparse.Namespace())
+    subprocess.run(
+        ["git", "add", "docs/agile/workorder.md", "workorder_sync_plan.json"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "sync workorder"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    capsys.readouterr()
+
+    args = argparse.Namespace(
+        base="docs-sync/plan",
+        head="docs-sync/workorder",
+        no_push=True,
+        no_pr=True,
+        allow_dirty=False,
+    )
+    workorder_cli.cmd_pr(args)
+    out = capsys.readouterr().out
+    assert "差分" in out
+    assert "ありません" in out
+
+
+def test_pr_requires_clean_tree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root, _, _ = _create_repo(monkeypatch, tmp_path)
+    _init_git_repo(root)
+
+    monkeypatch.setattr(workorder_cli.workorder_guard, "ROOT", root)
+    monkeypatch.setattr(
+        workorder_cli.workorder_guard,
+        "WORKORDER_SYNC_PLAN_PATH",
+        root / "workorder_sync_plan.json",
+    )
+
+    workorder_cli.cmd_ready(argparse.Namespace())
+    (root / "README-dirty.md").write_text("dirty", encoding="utf-8")
+
+    args = argparse.Namespace(
+        base="docs-sync/plan",
+        head="docs-sync/workorder",
+        no_push=True,
+        no_pr=True,
+        allow_dirty=False,
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        workorder_cli.cmd_pr(args)
+
+    assert "作業ツリー" in str(excinfo.value)

@@ -68,6 +68,12 @@ def _collect_diff_stats(paths: Sequence[str] | None = None) -> dict[str, Any]:
     return {"files": files, "file_count": len(files), "total_lines": total_lines}
 
 
+def collect_diff_stats(paths: Sequence[str] | None = None) -> dict[str, Any]:
+    """Public wrapper so other modules can reuse the diff parser."""
+
+    return _collect_diff_stats(paths)
+
+
 def _load_config() -> dict[str, Any]:
     if not WORKORDER_SYNC_PLAN_PATH.exists():
         raise SystemExit(
@@ -156,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     blocked_patterns = list(config.get("blocked_paths") or [])
     limits = config.get("limits") or {}
 
-    stats = _collect_diff_stats()
+    stats = collect_diff_stats()
     evaluation = evaluate_guard(stats, allowed_patterns, blocked_patterns, limits)
 
     report = {
