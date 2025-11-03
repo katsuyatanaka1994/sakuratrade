@@ -1,14 +1,23 @@
 {
-  "base": "c40c9e118b7eedd751d5cb6d5c1ee0185120b756",
-  "head": "c8a3dab585388475c4f7070ea62f489a8fc69eb9",
+  "base": "c8a3dab585388475c4f7070ea62f489a8fc69eb9",
+  "head": "af16b3d89a4fbf454450661068185f9f8d917850",
   "changed_files": [
-    ".github/workflows/workorder-ready.yml",
-    "docs/agile/workorder.md"
+    "doc_sync_plan.json",
+    "docs/agile/plan.md",
+    "docs/agile/ui-specification.md",
+    "docs/agile/workorder.md",
+    "workorder_sync_plan.json"
   ],
   "triggers": [
+    "ui_spec_manual",
     "docs_ci_changed"
   ],
-  "ui_sections": [],
+  "ui_sections": [
+    {
+      "title": "Positions Page",
+      "anchor": "positions-page"
+    }
+  ],
   "api_operations": [],
   "test_flows": []
 }

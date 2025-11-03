@@ -29,7 +29,7 @@
 <!-- AUTO:BEGIN name=plan.meta -->
 - plan_snapshot_id: aae60b595a15600d7573d9beda34dae8b5529479f695648a450fc94994b6d2fb
 - Doc ID: plan
-- Updated at: 2025-11-03T14:38:28+09:00
+- Updated at: 2025-11-03T05:40:27+00:00
 - Related PRs: []
 <!-- AUTO:END -->
 
@@ -51,13 +51,34 @@
 plan_snapshot_id: aae60b595a15600d7573d9beda34dae8b5529479f695648a450fc94994b6d2fb
 targets:
   modify:
-    - .github/workflows/workorder-ready.yml
+    - docs/agile/plan.md
+    - docs/agile/ui-specification.md
     - docs/agile/workorder.md
 <!-- AUTO:END -->
 
 ### TASKS — 下流が参照する唯一の実行タスク集合
 <!-- AUTO:BEGIN name=plan.tasks -->
-[]
+-
+  id: U-positions-page-update
+  refs:
+    - ui-spec:positions-page
+  outputs:
+    - frontend/src
+  acceptance:
+    max_changed_lines: 80
+    checks:
+      - name: frontend-tsc
+        command: npx --prefix frontend tsc --noEmit
+      - name: frontend-eslint
+        command: npx --prefix frontend eslint src --max-warnings=500 --quiet
+      - name: frontend-vitest
+        command: npm --prefix frontend run test:run -- --passWithNoTests
+  gate:
+    []
+  deps:
+    []
+  risk: 低
+  rollback: 前バージョンのUIを再適用
 <!-- AUTO:END -->
 
 ## 運用ガイド（MANUAL）
