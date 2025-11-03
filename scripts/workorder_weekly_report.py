@@ -140,9 +140,7 @@ def _github_json(url: str, token: str) -> dict[str, t.Any]:
         with urllib.request.urlopen(req, timeout=30) as resp:
             payload = resp.read()
     except urllib.error.HTTPError as exc:
-        error = GithubApiError(
-            f"GitHub API error {exc.code} for {url}: {exc.read().decode('utf-8', 'ignore')}"
-        )
+        error = GithubApiError(f"GitHub API error {exc.code} for {url}: {exc.read().decode('utf-8', 'ignore')}")
         error.status_code = exc.code  # type: ignore[attr-defined]
         raise error from exc
     except urllib.error.URLError as exc:  # pragma: no cover - network issues
@@ -184,9 +182,7 @@ def _download_artifact(url: str, token: str) -> bytes:
             location = exc.headers.get("Location")
             if location:
                 return _download_artifact(location, token)
-        raise GithubApiError(
-            f"Failed to download artifact {url}: {exc.read().decode('utf-8', 'ignore')}"
-        ) from exc
+        raise GithubApiError(f"Failed to download artifact {url}: {exc.read().decode('utf-8', 'ignore')}") from exc
     except urllib.error.URLError as exc:  # pragma: no cover - network issues
         raise GithubApiError(f"Network error downloading artifact {url}: {exc}") from exc
 
@@ -495,9 +491,7 @@ def render_markdown(summary: Summary) -> str:
     failure = summary.failure_count
     cancelled = summary.cancelled_count
     noop_rate = (
-        f"{summary.no_op_count}/{total_runs} ({(summary.no_op_count / total_runs) * 100:.1f}%)"
-        if total_runs
-        else "0/0"
+        f"{summary.no_op_count}/{total_runs} ({(summary.no_op_count / total_runs) * 100:.1f}%)" if total_runs else "0/0"
     )
     limit_ratio = (
         f"{summary.limit_hit_count}/{total_runs} ({(summary.limit_hit_count / total_runs) * 100:.1f}%)"
