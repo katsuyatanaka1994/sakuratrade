@@ -1,3 +1,24 @@
+# CI Impact Scan — WO-10 workorder runbook
+
+## Updated assets
+- `docs/runbooks/workorder.md` を新設し、workorder-ready の 1分/3分手順・FAQ 10 件・図版リンクを整備。
+- `docs/assets/workorder-ready-run-ui.svg` / `docs/assets/workorder-guard-fail.svg` を追加し、ランブック内の手順スクリーンショットとして参照できるようにした。
+- `docs/agile/runbooks/README.md` に workorder ランブックのリンクを追加し、Runbook ハブから辿れるようにした。
+
+## Triggers, contexts, permissions
+- ランブックで案内するエントリーポイントは既存どおり `workflow_run(plan-sync/Validate)`・`workflow_dispatch` のみで、新たなトークン権限は不要。
+- ガード解析やエスカレーション手順は現行ワークフロー (`workorder-ready.yml` / `workorder-validate.yml`) の権限設定に依存するため、運用者が DOC から直接確認できるよう参照リンクを明記した。
+
+## Impact & guardrails
+- 初見メンバーが 1 分で成功手順、3 分で赤状態の復旧判断に到達できるよう動線を明文化。guard 停止時の確認箇所（Artifacts・PR コメント）を具体的に指示した。
+- FAQ で `plan_snapshot_id` 不一致・`workorder:suspended`・`open docs-sync/workorder PRs` 等の既存ガード例外をまとめ、再設定手順を提示したため、誤操作による Required Check 失敗を減らせる。
+- 図版を共有することで UI 位置や guard メッセージを即時把握でき、ヒューマンオペレーションの属人化を抑制。
+
+## Validation log
+- `docs/runbooks/workorder.md` をローカルでプレビューし、図版パスとリンク切れが無いことを目視確認。
+
+---
+
 # CI Impact Scan — WO-9 workorder branch protection
 
 ## Updated assets
