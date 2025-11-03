@@ -1,5 +1,5 @@
 {
-  "plan_snapshot_id": "a2d0544958f8cb06a172c4a2bdfb609c1d75149ef0b8f93aea16bfc0a5e5d382",
+  "plan_snapshot_id": "8146ee3583d50e554e97ad0ae3a83c41b9449a77c1acdca5cd11e4e249be38f5",
   "task_ids": [
     "U-positions-page-update"
   ],
@@ -34,5 +34,57 @@
       "risk": "低",
       "rollback": "前バージョンのUIを再適用"
     }
-  ]
+  ],
+  "limits": {
+    "max_changed_lines": {
+      "per_task": 80,
+      "per_pr": 120,
+      "per_file": 80
+    },
+    "max_changed_lines_per_iter": 60,
+    "max_total_changed_lines": 180,
+    "max_changed_files": 6,
+    "max_open_automation_prs": 2,
+    "retry_guard": {
+      "max_iterations": 3,
+      "stop_reasons": [
+        "checks_green",
+        "no_patch",
+        "limit_exceeded"
+      ]
+    }
+  },
+  "allowed_paths": [
+    "docs/agile/workorder.md",
+    "frontend/src/**",
+    "workorder_sync_plan.json"
+  ],
+  "blocked_paths": [
+    "alembic/**",
+    "infra/**",
+    "migrations/**"
+  ],
+  "plan_links": {
+    "plan_snapshot_id": "8146ee3583d50e554e97ad0ae3a83c41b9449a77c1acdca5cd11e4e249be38f5",
+    "sources": [
+      {
+        "doc": "docs/agile/plan.md",
+        "sections": [
+          "plan.meta",
+          "plan.tasks"
+        ]
+      }
+    ],
+    "tasks": [
+      {
+        "id": "U-positions-page-update",
+        "refs": [
+          "ui-spec:positions-page"
+        ],
+        "outputs": [
+          "frontend/src"
+        ]
+      }
+    ]
+  }
 }

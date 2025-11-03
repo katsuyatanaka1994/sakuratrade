@@ -1,1 +1,1 @@
-__all__ = ["docsync_utils", "plan_cli", "workorder_cli"]
+__all__ = ["docsync_utils", "plan_cli", "workorder_cli", "workorder_guard"]

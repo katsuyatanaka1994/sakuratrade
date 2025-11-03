@@ -1,3 +1,27 @@
+# CI Impact Scan — WO-4 workorder guard & limits
+
+## Updated assets
+- `scripts/workorder_cli.py` で `workorder.limits` / `workorder.allowed_paths` / `workorder.blocked_paths` / `workorder.plan_links` の自動同期と JSON 出力 (`workorder_sync_plan.json`) を拡張。
+- 新規 `scripts/workorder_guard.py` を追加し、Diff の許可パス／禁止パス／行数・ファイル数上限を評価してレポート (`tmp/workorder_limits_report.json`) を生成。
+- `.github/workflows/workorder-ready.yml` にガード実行ステップ、レポート取込、Automation PR 上限制御、ランレポートのアーティファクト化、および各種既定値の env 配線を追加。
+- テスト `tests/test_workorder_cli.py` / `tests/test_workorder_guard.py` を更新・新設し、CLI 同期とガード評価のユニットテストを整備。
+
+## Triggers, contexts, permissions
+- ワークフローのトリガー（`workflow_run` / `workflow_dispatch` / `push`）と権限は現行のまま。追加のスコープ要求なし。
+- ガード失敗時は `workorder_ready` ジョブが即停止し、元 PR（`plan:sync` 発端）へコメントを返す。
+
+## Impact & guardrails
+- workorder CLI が plan 由来のタスクから許可パス／リミット／plan リンクを自動算出し、AUTO 節と JSON を常に整合させる。
+- ガードは `workorder_sync_plan.json` の設定を読み込み、許可外パス・禁止パス・行数/ファイル数上限超過を検出すると PR コメント付きで停止する。
+- `WORKORDER_MAX_AUTO_PRS` を越える `docs-sync/workorder` Open PR がある場合は自動同期を止め、元 PR へ抑止理由を通知する。
+- ガード結果は `workorder-limits-report` アーティファクトに保存され、運用レビュー時にヒット理由を再確認できる。
+
+## Validation log
+- `venv/bin/python -m pytest tests/test_workorder_cli.py tests/test_workorder_guard.py`
+- `python3 -m scripts.workorder_cli ready`
+
+---
+
 # CI Impact Scan — WO-3 workorder actions wiring
 
 ## Updated assets
