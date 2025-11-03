@@ -62,12 +62,20 @@ jobs:
             if (event === 'workflow_dispatch') {
               const baseInput = core.getInput('base') || 'docs-sync/plan';
               const planBranchInput = core.getInput('plan_branch') || baseInput;
+              const sourcePrInput = core.getInput('source_pr') || '';
+              const sourceHeadInput = core.getInput('source_head') || '';
               set('should_run', 'true');
               set('checkout_ref', `refs/heads/${planBranchInput}`);
               set('plan_branch', planBranchInput);
               set('pr_base', baseInput);
               set('trigger', 'workflow_dispatch');
               set('guard_ref', currentSha);
+              if (sourcePrInput) {
+                set('source_pr', sourcePrInput);
+              }
+              if (sourceHeadInput) {
+                set('source_head', sourceHeadInput);
+              }
               return;
             }
 
