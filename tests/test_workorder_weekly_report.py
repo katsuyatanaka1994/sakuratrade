@@ -1,7 +1,6 @@
 import datetime as dt
 
 import pytest
-
 from scripts.workorder_weekly_report import (
     RunTelemetry,
     _expand_workflow_identifiers,
@@ -9,7 +8,6 @@ from scripts.workorder_weekly_report import (
     render_markdown,
     summarise_runs,
 )
-
 
 pytestmark = pytest.mark.no_db
 
