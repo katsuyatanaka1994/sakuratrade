@@ -115,7 +115,11 @@ def _ensure_clean_tree(allowed_relative_paths: Sequence[str], *, allow_dirty: bo
             )
 
 
-def _evaluate_guard(allowed: Sequence[str], blocked: Sequence[str], limits: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def _evaluate_guard(
+    allowed: Sequence[str],
+    blocked: Sequence[str],
+    limits: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
     stats = workorder_guard.collect_diff_stats()
     evaluation = workorder_guard.evaluate_guard(stats, allowed, blocked, limits)
     return evaluation, stats
@@ -511,7 +515,10 @@ def cmd_pr(args: argparse.Namespace) -> None:
 
     fetch_result = _run(["git", "fetch", "origin", base], check=False)
     if fetch_result.returncode != 0:
-        print(f"警告: origin/{base} の取得に失敗しました (code={fetch_result.returncode})。ローカル {base} を使用します。")
+        print(
+            f"警告: origin/{base} の取得に失敗しました "
+            f"(code={fetch_result.returncode})。ローカル {base} を使用します。"
+        )
 
     try:
         _run(["git", "switch", "-C", head, base])
