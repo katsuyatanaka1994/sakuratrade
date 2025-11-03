@@ -7,6 +7,7 @@
 - Merge 後は `main/post-merge-smoke` が 60 秒監視を実施する前提を明文化し、ガードの抜け漏れを防ぐ。
 - 自動生成ブランチ `docs-sync/workorder` は GitHub Actions のみ force-with-lease push を許可し、人手での直接 push を抑止する。
 - `wo:ready/Validate` の Required 化はリポジトリ変数 `WORKORDER_ENFORCE_READY_LABEL`（既定値 `0`）で段階的に有効化できる。開発段階は `0`（警告のみ）、本番稼働時に `1` へ切り替えてブロック運用に移行する。
+- 自動生成 Draft PR（例: `docs-sync/workorder`）は `WORKORDER_READY_AUTO_BRANCHES`（既定値 `docs-sync/workorder`）に含まれる限り、同一リポジトリ内であればラベルなしでも検証が走り緑に収束する。
 
 ## 事前条件
 - `.github/CODEOWNERS` が `docs/agile/plan.md` / `docs/agile/workorder.md` / `doc_sync_plan.json` / `workorder_sync_plan.json` / `docs/agile/runbooks/plan-*.md` / `docs/agile/runbooks/workorder-*.md` を `@katsuyatanaka1994` に割り当て済み。
@@ -26,6 +27,7 @@
 4. 保存後、対象PRで Required Check が `plan-sync/Validate` と `wo:ready/Validate` の 2 本になり、両方が緑でないとマージできないことを確認する。
 5. GitHub → Settings → Branches で `docs-sync/workorder` ブランチに対し、**Restrict who can push to matching branches** を ON にして `GitHub Actions` アプリのみを許可し、**Allow force pushes** を ON にする（force-with-lease 更新のため）。
 6. `wo:ready` ラベルの強制を開始するタイミングで、リポジトリ変数 `WORKORDER_ENFORCE_READY_LABEL=1` を設定する。初期導入時は `0` のまま警告運用で構わない。
+7. 自動生成 PR を追加で許可したい場合は `WORKORDER_READY_AUTO_BRANCHES` にカンマ区切りでブランチ名を登録する（例: `docs-sync/workorder,docs-sync/workorder-hotfix`）。
 
 ## CLI での確認（`gh`）
 ```bash
@@ -46,6 +48,7 @@ gh workflow view main-post-merge-smoke --json name,state | jq '{name, state}'
 - 期待結果：`["plan-sync/Validate","wo:ready/Validate"]` が返り、`code_owner: false` / `approvals: 0`。`main/post-merge-smoke` は `active`。
 - `docs-sync/workorder` は `[{"slug":"github-actions","name":"GitHub Actions"}]` が返り、他ユーザー/チームは空配列。
 - `WORKORDER_ENFORCE_READY_LABEL` は `gh variable get WORKORDER_ENFORCE_READY_LABEL` で確認し、`1` になっていれば強制モード。
+- 自動化許可ブランチは `gh variable get WORKORDER_READY_AUTO_BRANCHES` で一覧化できる。
 
 ## ワークフローでの同期
 - `.github/workflows/branch-protection-sync.yml` を手動実行（Actions → branch-protection/sync → **Run workflow**）。最初のステップで `BRANCH_PROTECTION_TOKEN` 未設定が検知されると即時エラーになる。
@@ -63,6 +66,7 @@ gh workflow view main-post-merge-smoke --json name,state | jq '{name, state}'
 - Required Check がリストに表示されない → `plan-sync/Validate` / `wo:ready/Validate` を main で一度成功させ、チェック名を確定させる。いずれかが一度も成功していないと選択肢に出ない。
 - `docs-sync/workorder` へ push できない → GitHub Actions 以外のアカウントで push しようとしていないか確認。運用上、人手での push は禁止。緊急で必要なら Branch protection を一時解除した上で、作業後に `branch-protection/sync` で設定を戻す。
 - `wo:ready/Validate` が黄のままブロックされない → `WORKORDER_ENFORCE_READY_LABEL` が `0` のままか確認。ブロックを有効化したい場合は `1` に切り替え、ラベルを付けた状態で `wo:ready/Validate` を再実行する。
+- 自動生成 PR でも赤になる → `WORKORDER_READY_AUTO_BRANCHES` に該当ブランチが登録されているか確認。不足していれば変数に追加したうえで再実行する。
 - Code owner レビューで該当ユーザーに通知されない → `CODEOWNERS` のパス表記が `/` から始まっているか、GitHub側で Code Owners 機能が有効か確認する。
 
 ## 実測証跡（PL-6）

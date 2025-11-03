@@ -33,6 +33,7 @@
 - **実行中**: Actions Run に `trigger_mode`（label/auto/dispatch）が期待通り出ているか、ガードコメントが付いていないかを確認。
 - **完了後**: Draft PR の本文に最新の `plan_snapshot_id` と `targets.modify` が揃っていること、Required Checks (`plan-sync/Validate` / `wo:ready/Validate`) が両方緑であること、post-merge 監視 (`main/post-merge-smoke`) が緑のままであることを確認。
 - （開発段階で `wo:ready/Validate` のブロックを外したい場合は、リポジトリ変数 `WORKORDER_ENFORCE_READY_LABEL=0` を維持する。ブロックを戻すときは `1` に切替後、`wo:ready` ラベルを付けて再実行。）
+- 自動生成 Draft PR（`docs-sync/workorder` 等）をブロック対象外にしたい場合は `WORKORDER_READY_AUTO_BRANCHES` にブランチ名を追加しておくと、同一リポジトリ内であればラベル無しでもチェックが緑になる。
 - **週次**: `reports/plan-sync-report.md` のダイジェストをチェックし、ガードヒットや失敗理由が増えていないかをモニタリング。
 
 ![PR の Required Checks 一覧](../assets/plan-sync-checks.svg)
@@ -59,7 +60,7 @@
 - **Q. `wo:ready/Validate` が赤 (Required check) のままです。**
   - **A.** Workorder 側の同期・検証が未完了です。`python3 -m scripts.workorder_cli validate` で `docs/agile/workorder.md` を更新し、PR に `wo:ready` ラベルが付いているかを確認した上で再走させてください。
 - **Q. `wo:ready` ラベルなしでも緑になっています。ブロックされないのはなぜ？**
-  - **A.** `WORKORDER_ENFORCE_READY_LABEL=0`（既定）のまま運用している場合は警告止まりです。本番稼働でブロックしたいときはリポジトリ変数を `1` に設定してください。
+  - **A.** `WORKORDER_ENFORCE_READY_LABEL=0`（既定）のまま運用している場合は警告止まりです。本番稼働でブロックしたいときはリポジトリ変数を `1` に設定してください。自動生成 Draft PR を緑のまま許可したい場合は `WORKORDER_READY_AUTO_BRANCHES` に対象ブランチ名を登録します（同一リポジトリに限定されます）。
 
 ## 参考リンク
 - ワークフロー: `.github/workflows/plan-sync.yml`
