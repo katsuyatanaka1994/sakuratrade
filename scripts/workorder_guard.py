@@ -177,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
         "total_over_limit": evaluation["total_over_limit"],
         "file_count_over_limit": evaluation["file_count_over_limit"],
         "no_op": evaluation["status"] == "no_changes",
+        "treated_as_noop": evaluation["status"] in {"no_changes", "disallowed"},
     }
     _write_report(report)
 
@@ -196,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     if evaluation["file_count_over_limit"]:
         print(f"File count limit exceeded: {stats.get('file_count', 0)} > {limits.get('max_changed_files')}")
 
-    if status in {"ok", "no_changes"}:
+    if status in {"ok", "no_changes", "disallowed"}:
         return 0
     return 1
 

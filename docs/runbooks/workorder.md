@@ -39,6 +39,7 @@
 - **完了後**: Draft PR の本文に `plan_snapshot_id` と `Tasks` が記録されていること、`wo:ready/Validate` / `plan-sync/Validate` が緑であることを確認。
 - **週次**: `reports/workorder-weekly.md` をチェックし、No-Op 率や guard ヒット件数が異常に増えていないかをモニタリング。
 - **設定変更時**: `WORKORDER_ALLOWED_PATHS` や上限トグルを調整した場合は、同じ変更を CI 変数・Runbook・CI_IMPACT に反映する。
+- **監査ログ**: `docs/agile/workorder-audit.log`（JSON Lines）に最新実行が追記されていること、Actions アーティファクト `workorder-audit-entry` が run ID・guard 結果を記録していることを確認。
 
 ## FAQ 10 選（よくある問いと対処）
 - **Q. `Skipping workorder-ready: source PR missing plan:sync label` と出て止まります。**
@@ -68,6 +69,7 @@
 - ガード設定: `workorder_sync_plan.json`, `docs/agile/workorder.md` AUTO 節
 - メトリクス: `reports/workorder-weekly.md`
 - エスカレーション設定: `vars.WORKORDER_FAIL_THRESHOLD`, `vars.WORKORDER_ESCALATION_LABEL`
+- 監査ログ: `docs/agile/workorder-audit.log`, Actions アーティファクト `workorder-audit-entry`
 
 ## 更新手順メモ
 - ランブックを更新したら `katsuya-plan/CI_IMPACT.md` に影響範囲を追記し、Runbook ハブ（`docs/agile/runbooks/README.md`）へリンクを追加する。

@@ -55,6 +55,7 @@
     }
   },
   "allowed_paths": [
+    "docs/agile/workorder-audit.log",
     "docs/agile/workorder.md",
     "frontend/src/**",
     "workorder_sync_plan.json"

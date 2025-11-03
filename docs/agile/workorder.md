@@ -23,7 +23,7 @@
 <!-- AUTO:BEGIN name=workorder.meta -->
 - plan_snapshot_id: 8146ee3583d50e554e97ad0ae3a83c41b9449a77c1acdca5cd11e4e249be38f5
 - Doc ID: workorder
-- Updated at: 2025-11-03T10:33:11+09:00
+- Updated at: 2025-11-03T19:37:20+09:00
 - Tasks:
     -
       id: U-positions-page-update
@@ -68,6 +68,7 @@ retry_guard:
 
 ### ALLOWED PATHS — 自動実装が触れてよい領域
 <!-- AUTO:BEGIN name=workorder.allowed_paths -->
+- docs/agile/workorder-audit.log
 - docs/agile/workorder.md
 - frontend/src/**
 - workorder_sync_plan.json
