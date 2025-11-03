@@ -1,3 +1,26 @@
+# CI Impact Scan — WO-9 workorder branch protection
+
+## Updated assets
+- `.github/workflows/branch-protection-sync.yml` を更新し、`main` の Required Checks を `plan-sync/Validate` / `wo:ready/Validate` の 2 本に固定。併せて `docs-sync/workorder` ブランチを GitHub Actions アプリ専用の force-with-lease push のみに制限した。
+- `docs/agile/runbooks/plan-branch-protection.md` を刷新し、手動設定手順と CLI 検証コマンドを 2 本の Required Checks と push 制限に合わせて改版。
+- `docs/agile/runbooks/plan-sync-smoke.md` / `docs/runbooks/plan-sync.md` / `docs/assets/plan-sync-checks.svg` を更新し、チェック要件と復旧手順が最新の Branch Protection と整合するよう反映。
+- `.github/workflows/workorder-validate.yml` に `WORKORDER_ENFORCE_READY_LABEL` トグルを追加し、開発段階では警告運用・本番稼働でブロック運用へ切り替えられるようにした。
+
+## Triggers, contexts, permissions
+- `branch-protection/sync` は引き続き `workflow_dispatch` 手動起動。`BRANCH_PROTECTION_TOKEN` (repo administration:write) で GitHub API を呼び出し、同じトークンで `main` / `docs-sync/workorder` の保護を適用する。
+- `docs-sync/workorder` への push は `GitHub Actions` アプリのみ許可。人手で更新する必要がある場合は Branch Protection を一時解除し、作業後に再度 sync を実行する運用とした。
+
+## Impact & guardrails
+- `wo:ready/Validate` が必須になったことで、Workorder 側のガードを通過しない PR は `main` へマージできない。`wo:ready` ラベル未付与の場合でも Required Check が赤で止まるため、ラベル運用漏れを検知できる。
+- `docs-sync/workorder` を force-with-lease 更新専用にしたことで、誤 push や自動実装 PR の横取りを防止。アプリ権限外からの push には GitHub が `protected branch hook declined` を返して止める。
+- ガイド類と図版を更新しており、運用者が旧仕様（Warning で許容）を前提にしないよう情報を同期した。
+- `WORKORDER_ENFORCE_READY_LABEL=0` の間は `wo:ready/Validate` が警告で成功するため、ブロック開始時には変数を `1` に切替える運用手順が必要。
+
+## Validation log
+- `gh workflow run branch-protection/sync`（反映後に実行し CLI 出力で 2 本の Required Checks / push 制限を確認する想定）
+
+---
+
 # CI Impact Scan — WO-8 workorder 週次メトリクス
 
 ## 更新資産

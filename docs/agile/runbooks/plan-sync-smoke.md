@@ -26,7 +26,7 @@
 ## 手順（GitHub Actions 連携）
 1. Draft PR に `plan:sync` ラベルを付与する（または Actions → `plan-sync` → **Run workflow** を実行）。
 2. Workflow が `plan preflight → apply → validate → pr` の順で完走し、固定ブランチ上に Draft PR が生成されることを確認。
-3. `plan-sync/Validate` チェックが Green であることを PR の Required Check で確認。
+3. `plan-sync/Validate` と `wo:ready/Validate` の両チェックが Green であることを PR の Required Checks で確認。
 4. 必要に応じて `doc_sync_plan.json` や CLI 出力を PR コメントへ貼り、レビューに共有する。
 5. 元PRに `plan-sync: #<番号>` コメントが追加され、`[plan-sync] docs: update plan auto sections` Draft PR が生成されていることを確認。
 6. Draft PR 本文に Trigger / Source ref / Source PR が表示され、`doc_sync_plan.json` に `ui_spec_manual` トリガーが含まれていることを確認。
@@ -53,8 +53,9 @@
 - Workflow が止まる → Actions の権限が **Read and write** になっているか、固定ブランチに push 権限があるか確認。
 
 ## 運用クローズ（現行設定メモ）
-- Required Check は `plan-sync/Validate` のみ（`wo:ready/Validate` は未ラベル時に警告で成功）。
+- Required Check は `plan-sync/Validate` と `wo:ready/Validate` の 2 本。Workorder 側の同期が済んでいないと `wo:ready/Validate` が赤になるため、`workorder_cli validate` を合わせて通す。
 - DocSync 自動PRには `plan:sync` ラベルが自動付与される。
 - `plan-sync` ワークフローは PR 単位の concurrency（queue）と `--force-with-lease` push を徹底。
 - Merge 後は `main/post-merge-smoke` が 60 秒監視で衝突痕 / `.py` 差分 / 生成物サイズをチェックする。
+- `WORKORDER_ENFORCE_READY_LABEL` が `0` の場合は `wo:ready/Validate` が警告で緑に落ちる。ブロックを有効化する際はリポジトリ変数を `1` に切り替え、`wo:ready` ラベルを付けて再実行する。
 - Guard デフォルト: LINES=300 / FILES=4 / AUTO_PRS=2 / ALLOW=docs/agile/**, docs/specs/**, docs/tests/**, .github/workflows/**, backend/app/openapi.yaml。

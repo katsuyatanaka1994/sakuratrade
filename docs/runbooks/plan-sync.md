@@ -5,7 +5,7 @@
 ## 1 分ランブック（成功ルート）
 - **対象 PR / ブランチを決める**: UI 仕様 (`docs/agile/ui-specification.md`) など AUTO 対象差分が揃っていることを確認。
 - **plan-sync を起動する**: PR で `plan:sync` ラベルを付与、`/plan sync` コメント、もしくは Actions → `plan-sync/Validate` → Run workflow から手動実行。
-- **ガード結果をチェック**: `plan-sync/Validate` が `Success` になり、Run summary で `plan preflight → apply → validate → pr` が順番に緑で完走していることを確認。
+- **ガード結果をチェック**: `plan-sync/Validate` / `wo:ready/Validate` の両方が `Success` になり、Run summary で `plan preflight → apply → validate → pr` が順番に緑で完走していることを確認。
 - **自動 Draft PR を確認**: `docs-sync/plan` ブランチの Draft PR が生成され、本文に Trigger / Source PR / plan_snapshot_id が記録されていれば完了。
 
 ![plan-sync の手動起動ダイアログ](../assets/plan-sync-run-ui.svg)
@@ -31,7 +31,8 @@
 ## 運用チェックリスト
 - **事前**: `docs/agile/ui-specification.md` の差分を確認、不要な生成物差分が無いかレビュー。
 - **実行中**: Actions Run に `trigger_mode`（label/auto/dispatch）が期待通り出ているか、ガードコメントが付いていないかを確認。
-- **完了後**: Draft PR の本文に最新の `plan_snapshot_id` と `targets.modify` が揃っていること、post-merge 監視 (`main/post-merge-smoke`) が緑のままであることを確認。
+- **完了後**: Draft PR の本文に最新の `plan_snapshot_id` と `targets.modify` が揃っていること、Required Checks (`plan-sync/Validate` / `wo:ready/Validate`) が両方緑であること、post-merge 監視 (`main/post-merge-smoke`) が緑のままであることを確認。
+- （開発段階で `wo:ready/Validate` のブロックを外したい場合は、リポジトリ変数 `WORKORDER_ENFORCE_READY_LABEL=0` を維持する。ブロックを戻すときは `1` に切替後、`wo:ready` ラベルを付けて再実行。）
 - **週次**: `reports/plan-sync-report.md` のダイジェストをチェックし、ガードヒットや失敗理由が増えていないかをモニタリング。
 
 ![PR の Required Checks 一覧](../assets/plan-sync-checks.svg)
@@ -55,8 +56,10 @@
   - **A.** `plan_cli.py` が途中で落ちた可能性があります。CLI ログに Python 例外が無いか確認し、必要ならローカルで `python3 scripts/plan_cli.py apply` を再現。
 - **Q. `manual diff detected` で止まった後の進め方は？**
   - **A.** MANUAL 節の差分レビューを共有し、`manual-accept` ラベルまたは許可コメントをもらってから再実行。
-- **Q. `wo:ready/Validate` が黄 (warning) になっています。**
-  - **A.** ラベル未設定で警告成功になった状態です。`wo:ready` ラベルを付けるか、Workorder の同期 CLI を実行した上で再度 `wo:ready/Validate` を走らせれば消えます。
+- **Q. `wo:ready/Validate` が赤 (Required check) のままです。**
+  - **A.** Workorder 側の同期・検証が未完了です。`python3 -m scripts.workorder_cli validate` で `docs/agile/workorder.md` を更新し、PR に `wo:ready` ラベルが付いているかを確認した上で再走させてください。
+- **Q. `wo:ready` ラベルなしでも緑になっています。ブロックされないのはなぜ？**
+  - **A.** `WORKORDER_ENFORCE_READY_LABEL=0`（既定）のまま運用している場合は警告止まりです。本番稼働でブロックしたいときはリポジトリ変数を `1` に設定してください。
 
 ## 参考リンク
 - ワークフロー: `.github/workflows/plan-sync.yml`
