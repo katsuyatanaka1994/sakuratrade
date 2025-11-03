@@ -52,6 +52,7 @@ jobs:
             const repo = context.repo.repo;
             const set = (key, value) => core.setOutput(key, value ?? '');
             const event = context.eventName;
+            const currentSha = context.sha || '';
 
             if (event === 'workflow_dispatch') {
               const baseInput = core.getInput('base') || 'docs-sync/plan';
@@ -61,6 +62,7 @@ jobs:
               set('plan_branch', planBranchInput);
               set('pr_base', baseInput);
               set('trigger', 'workflow_dispatch');
+              set('guard_ref', currentSha);
               return;
             }
 
@@ -82,6 +84,7 @@ jobs:
               }
 
               const prInfo = Array.isArray(run.pull_requests) && run.pull_requests[0] ? run.pull_requests[0] : null;
+              const runHeadSha = run.head_sha || '';
 
               if (trigger === 'pull_request_target') {
                 if (!prInfo) {
@@ -113,6 +116,7 @@ jobs:
                 set('source_pr', String(prNumber));
                 set('source_head', pr.data.head?.ref ?? '');
                 set('trigger', `plan-sync:${trigger}`);
+                set('guard_ref', pr.data.head?.sha || runHeadSha);
                 return;
               }
 
@@ -124,6 +128,7 @@ jobs:
                 set('source_pr', prInfo ? String(prInfo.number) : '');
                 set('source_head', prInfo?.head_branch || '');
                 set('trigger', `plan-sync:${trigger}`);
+                set('guard_ref', runHeadSha);
                 return;
               }
 
@@ -145,11 +150,13 @@ jobs:
               set('plan_branch', branch);
               set('pr_base', branch);
               set('trigger', 'push');
+              set('guard_ref', currentSha);
               return;
             }
 
             set('should_run', 'false');
             set('reason', `unsupported event: ${event}`);
+            set('guard_ref', currentSha);
 
       - name: Skip (no action required)
         if: steps.context.outputs.should_run != 'true'
@@ -211,13 +218,34 @@ jobs:
             cat workorder_sync_plan.json
           fi
 
+      - name: Prepare guard script
+        if: steps.context.outputs.should_run == 'true'
+        id: guard-script
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          ref="${{ steps.context.outputs.guard_ref || '' }}"
+          if [ -n "$ref" ]; then
+            git fetch --no-tags --depth=1 origin "$ref"
+            git show "$ref":scripts/workorder_guard.py > tmp/workorder_guard.py || {
+              echo "Failed to load scripts/workorder_guard.py from $ref" >&2
+              exit 1
+            }
+          else
+            git show HEAD:scripts/workorder_guard.py > tmp/workorder_guard.py || {
+              echo "scripts/workorder_guard.py not found in current ref" >&2
+              exit 1
+            }
+          fi
+          echo "script_path=$(pwd)/tmp/workorder_guard.py" >> "$GITHUB_OUTPUT"
+
       - name: Run workorder guard
         if: steps.context.outputs.should_run == 'true'
         id: guard
         continue-on-error: true
         run: |
           set -euo pipefail
-          python3 scripts/workorder_guard.py
+          python3 "${{ steps.guard-script.outputs.script_path }}"
 
       - name: Handle guard outcome
         if: steps.context.outputs.should_run == 'true' && steps.guard.outcome == 'failure'
