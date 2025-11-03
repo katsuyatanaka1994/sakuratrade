@@ -178,9 +178,7 @@ def _download_artifact(url: str, token: str) -> bytes:
             location = exc.headers.get("Location")
             if location:
                 return _download_artifact(location, token)
-        raise GithubApiError(
-            f"Failed to download artifact {url}: {exc.read().decode('utf-8', 'ignore')}"
-        ) from exc
+        raise GithubApiError(f"Failed to download artifact {url}: {exc.read().decode('utf-8', 'ignore')}") from exc
     except urllib.error.URLError as exc:  # pragma: no cover - network issues
         raise GithubApiError(f"Network error downloading artifact {url}: {exc}") from exc
 

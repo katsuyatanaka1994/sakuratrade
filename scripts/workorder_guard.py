@@ -98,16 +98,9 @@ def evaluate_guard(
 ) -> dict[str, Any]:
     files = stats.get("files", [])
     disallowed = [
-        entry["path"]
-        for entry in files
-        if allowed_patterns
-        and not _matches_any(entry["path"], allowed_patterns)
+        entry["path"] for entry in files if allowed_patterns and not _matches_any(entry["path"], allowed_patterns)
     ]
-    blocked = [
-        entry["path"]
-        for entry in files
-        if blocked_patterns and _matches_any(entry["path"], blocked_patterns)
-    ]
+    blocked = [entry["path"] for entry in files if blocked_patterns and _matches_any(entry["path"], blocked_patterns)]
 
     max_changed = (limits.get("max_changed_lines") or {}) if isinstance(limits, dict) else {}
     per_file_limit = max_changed.get("per_file")
@@ -189,19 +182,13 @@ def main(argv: list[str] | None = None) -> int:
         print("Blocked files:", ", ".join(evaluation["blocked_files"]))
     if evaluation["file_over_limit"]:
         for item in evaluation["file_over_limit"]:
-            print(
-                f"File limit exceeded: {item['path']} (total={item['total']} > limit={item['limit']})"
-            )
+            print(f"File limit exceeded: {item['path']} (total={item['total']} > limit={item['limit']})")
     if evaluation["total_over_limit"]:
-        line_limit = limits.get("max_total_changed_lines") or (
-            limits.get("max_changed_lines") or {}
-        ).get("per_pr")
+        line_limit = limits.get("max_total_changed_lines") or (limits.get("max_changed_lines") or {}).get("per_pr")
         total_lines = stats.get("total_lines", 0)
         print(f"Total line limit exceeded: {total_lines} > {line_limit}")
     if evaluation["file_count_over_limit"]:
-        print(
-            f"File count limit exceeded: {stats.get('file_count', 0)} > {limits.get('max_changed_files')}"
-        )
+        print(f"File count limit exceeded: {stats.get('file_count', 0)} > {limits.get('max_changed_files')}")
 
     if status in {"ok", "no_changes"}:
         return 0

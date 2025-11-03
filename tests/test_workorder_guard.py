@@ -78,10 +78,7 @@ def test_evaluate_guard_total_limit() -> None:
 
 def test_evaluate_guard_file_count_limit() -> None:
     stats = {
-        "files": [
-            {"path": f"frontend/src/Comp{i}.tsx", "total": 10, "added": 6, "deleted": 4}
-            for i in range(7)
-        ],
+        "files": [{"path": f"frontend/src/Comp{i}.tsx", "total": 10, "added": 6, "deleted": 4} for i in range(7)],
         "file_count": 7,
         "total_lines": 70,
     }
