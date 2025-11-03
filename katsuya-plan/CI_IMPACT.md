@@ -1,3 +1,28 @@
+# CI Impact Scan — WO-11 workorder sandbox & audit
+
+## Updated assets
+- `.github/workflows/workorder-ready.yml` にガード結果の解析・禁止パス差分のリセット・監査ログ出力を追加。`docs-sync/workorder` 以外の head/base を拒否し、ガード結果に応じてコミットメッセージを切り替えるよう更新。
+- `scripts/workorder_cli.py` で base/head ブランチを許可リスト化し、許可パス外の差分は No-Op として終了。監査ログファイル（`docs/agile/workorder-audit.log`）を AUTO 節/guard 設定へ組み込んだ。
+- `scripts/workorder_guard.py` は `disallowed` をノンエラー扱いにし、レポートへ `treated_as_noop` を出力。
+- `scripts/workorder_audit.py` を新設し、Actions から JSON Lines 形式の監査ログを生成・保存。
+- `docs/agile/workorder-audit.log` を追加し、`docs/agile/workorder.md` / `workorder_sync_plan.json` の許可パスへ反映。
+
+## Triggers, contexts, permissions
+- トリガーは従来どおり `workflow_run(plan-sync/Validate)` / `workflow_dispatch` / `push(main)` のまま。`workorder-ready` の `permissions` は `contents/pull-requests/issues: write` を維持。
+- `scripts.workorder_cli pr` 実行時は `WORKORDER_ALLOWED_BASES/HEADS`（既定: `docs-sync/plan` / `docs-sync/workorder`）外を即座に拒否し、`git push` 対象を固定ブランチに限定。
+- 監査ログ出力は GitHub App トークンが存在すればそれを利用、無い場合は既存の `GITHUB_TOKEN`（同パーミッション）で実行。新しいシークレット・権限追加は不要。
+
+## Impact & guardrails
+- 許可パス外の差分は guard が `disallowed` で捕捉後に No-Op として扱い、対象ファイルを checkout でロールバック。監査ログのみを記録し、意図しないファイルが Draft PR に積まれない。
+- すべての実行が `docs/agile/workorder-audit.log`（リポジトリ上の JSONL）と `workorder-audit-entry` アーティファクトに記録され、`run_id` / `actor` / guard 結果 / 差分統計を後追い確認できる。
+- `workorder_ready` のコミットはガード結果に応じてメッセージを切り替え（`sync` / `audit (noop)` / `audit (disallowed)`）、レビュー時に挙動が即判別できる。
+- CLI でも base/head を固定したため、ローカル実行で誤って main へ push する経路を遮断。監査ログパスも guard の Allowlist に加わり、ファイル更新が自動実装の許可範囲内で完結する。
+
+## Validation log
+- `python3 -m scripts.workorder_cli ready`
+
+---
+
 # CI Impact Scan — WO-10 workorder runbook
 
 ## Updated assets

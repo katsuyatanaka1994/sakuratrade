@@ -20,10 +20,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Iterable, List, Sequence
 
-from scripts import plan_cli, workorder_guard
-from scripts.docsync_utils import (
-    ROOT as PROJECT_ROOT,
-)
+from scripts import docsync_utils, plan_cli, workorder_guard
 from scripts.docsync_utils import (
     extract_auto_block,
     render_yaml_block,
@@ -32,9 +29,10 @@ from scripts.docsync_utils import (
 
 ROOT = Path(__file__).resolve().parent.parent
 
-PLAN_PATH = PROJECT_ROOT / "docs" / "agile" / "plan.md"
-WORKORDER_PATH = PROJECT_ROOT / "docs" / "agile" / "workorder.md"
-WORKORDER_SYNC_PLAN_PATH = PROJECT_ROOT / "workorder_sync_plan.json"
+PLAN_PATH = docsync_utils.ROOT / "docs" / "agile" / "plan.md"
+WORKORDER_PATH = docsync_utils.ROOT / "docs" / "agile" / "workorder.md"
+WORKORDER_SYNC_PLAN_PATH = docsync_utils.ROOT / "workorder_sync_plan.json"
+AUDIT_LOG_RELATIVE_PATH = Path("docs") / "agile" / "workorder-audit.log"
 
 DEFAULT_TASK_LINE_LIMIT = 80
 DEFAULT_PR_LINE_LIMIT = 120
@@ -54,10 +52,13 @@ DEFAULT_BLOCKED_PATTERNS = [
 DEFAULT_DOC_ALLOWED_PATTERNS = [
     "docs/agile/workorder.md",
     "workorder_sync_plan.json",
+    "docs/agile/workorder-audit.log",
 ]
 
 DEFAULT_BASE_BRANCH = "docs-sync/plan"
 DEFAULT_HEAD_BRANCH = "docs-sync/workorder"
+DEFAULT_ALLOWED_BASE_BRANCHES = [DEFAULT_BASE_BRANCH]
+DEFAULT_ALLOWED_HEAD_BRANCHES = [DEFAULT_HEAD_BRANCH]
 COMMIT_MESSAGE = "chore(workorder): sync workorder AUTO sections"
 PR_TITLE = "[workorder-ready] docs: sync workorder auto sections"
 
@@ -69,8 +70,16 @@ def _relative_path(path: Path) -> str:
         return str(path)
 
 
+def _audit_log_path() -> Path:
+    return ROOT / AUDIT_LOG_RELATIVE_PATH
+
+
 def _target_files() -> list[str]:
-    return [_relative_path(WORKORDER_PATH), _relative_path(WORKORDER_SYNC_PLAN_PATH)]
+    return [
+        _relative_path(WORKORDER_PATH),
+        _relative_path(WORKORDER_SYNC_PLAN_PATH),
+        _relative_path(_audit_log_path()),
+    ]
 
 
 def _pr_body_path() -> Path:
@@ -189,6 +198,23 @@ def _split_patterns(raw: str | None) -> list[str]:
     if not raw:
         return []
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _load_allowed_branches(env_name: str, default: Sequence[str]) -> list[str]:
+    raw = os.environ.get(env_name)
+    if not raw:
+        return list(default)
+    values = [item.strip() for item in raw.split(",") if item.strip()]
+    return values or list(default)
+
+
+def _assert_allowed_branch(role: str, branch: str, allowed: Sequence[str]) -> None:
+    if branch in allowed:
+        return
+    joined = ", ".join(allowed)
+    raise SystemExit(
+        f"{role} ブランチ '{branch}' は許可されていません。許可ブランチ: {joined}"
+    )
 
 
 def _safe_int(value: str | None, default: int, *, env_name: str) -> int:
@@ -423,6 +449,15 @@ def cmd_ready(args: argparse.Namespace) -> None:
     )
     print(f"Saved {WORKORDER_SYNC_PLAN_PATH.relative_to(ROOT)}")
 
+    audit_path = _audit_log_path()
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    if not audit_path.exists():
+        audit_path.write_text(
+            json.dumps({"schema_version": 1, "note": "workorder-ready audit log (JSON Lines)"}, ensure_ascii=False)
+            + "\n",
+            encoding="utf-8",
+        )
+
 
 def cmd_validate(args: argparse.Namespace) -> None:
     snapshot, plan_tasks = _load_plan_data()
@@ -496,6 +531,11 @@ def cmd_pr(args: argparse.Namespace) -> None:
     if status == "no_changes":
         print("Implementation Draft PR に含める差分はありませんでした。")
         return
+    if status == "disallowed":
+        message = _format_guard_failure(evaluation, stats, limits)
+        print(message)
+        print("許可パス外の変更が含まれるため、自動実装は No-Op としてスキップします。")
+        return
     if status != "ok":
         message = _format_guard_failure(evaluation, stats, limits)
         raise SystemExit(message)
@@ -506,6 +546,11 @@ def cmd_pr(args: argparse.Namespace) -> None:
 
     base = getattr(args, "base", DEFAULT_BASE_BRANCH) or DEFAULT_BASE_BRANCH
     head = getattr(args, "head", DEFAULT_HEAD_BRANCH) or DEFAULT_HEAD_BRANCH
+
+    allowed_bases = _load_allowed_branches("WORKORDER_ALLOWED_BASES", DEFAULT_ALLOWED_BASE_BRANCHES)
+    allowed_heads = _load_allowed_branches("WORKORDER_ALLOWED_HEADS", DEFAULT_ALLOWED_HEAD_BRANCHES)
+    _assert_allowed_branch("Base", base, allowed_bases)
+    _assert_allowed_branch("Head", head, allowed_heads)
 
     try:
         _run(["git", "rev-parse", "--verify", "HEAD"])

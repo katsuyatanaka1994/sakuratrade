@@ -103,6 +103,20 @@ Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・C
 
 以降のタスクを「自動実装を安全に回すためにMVPまでに必須なもの」と「後追い導入でもリスクが限定的な任意項目」に分類した。判断基準は `katsuya-workorder.md` で明示された強制要件と、安全性/信頼性のガードレールに直結するかどうか。
 
+[DONE]#### WO-10: ランブック＆オンボーディング（1分/3分）
+**Outcome**: 新メンバーでも短時間で実行と復旧が可能、共通の“成功/復旧”手順が整う。
+**カテゴリ**:
+ランブック/教育
+**説明・背景**:
+属人化を減らし、失敗時の対応時間を最小化する。
+**完了条件**:
+`docs/runbooks/workorder.md` に 1分/3分手順と FAQ 10件、スクショ付きで整備。
+
+**実績メモ（2025-11-03）**:
+- `docs/runbooks/workorder.md` を新設し、1分/3分手順・FAQ 10 件・guard/エスカレーション復旧フローを記述。
+- `docs/assets/workorder-ready-run-ui.svg` / `docs/assets/workorder-guard-fail.svg` を追加し、手順イメージを参照可能にした。
+- `docs/agile/runbooks/README.md` のナビゲーションへ workorder ランブックを追加し、Runbook ハブから辿れるようにした。
+
 ### 必須タスク（Must）
 
 #### WO-11: 実行サンドボックス＆権限分離
@@ -113,6 +127,13 @@ Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・C
 自動実装は“安全な檻”の中でのみ行う。固定ブランチ（Implementation Draft 専用）と限定スコープのトークンにより、意図しない書き込みや他ブランチ汚染、再帰的発火を抑止する。誰がいつ何を動かしたかを追跡できるようにする。
 **完了条件**:
 固定ブランチへの書き込みのみ許可、許可パス（Allowlist）外は No-Op、トークンは最小権限・リポジトリ変数で管理、実行ID・操作者・コミット範囲を含む監査ログが保存される。
+
+**実績メモ（2025-11-03）**:
+- `scripts/workorder_cli.py` を更新し、`docs-sync/plan` / `docs-sync/workorder` 以外の base/head を拒否。許可パス外の差分は No-Op として終了し、guard からの disallowed を CLI 側で握りつぶすようにした。
+- `scripts/workorder_guard.py` に `treated_as_noop` を追加し、`disallowed` を非エラー扱いでレポート化。
+- `scripts/workorder_audit.py` を新設。`workorder-ready` が run ID / actor / guard 結果を `docs/agile/workorder-audit.log` と `workorder-audit-entry` アーティファクトへ JSONL で記録。
+- `.github/workflows/workorder-ready.yml` が guard レポートを解析し、禁止パスを checkout で戻したうえで監査ログを出力。コミットメッセージも guard 結果に応じて変化させ、Draft PR には監査ログのみを push。
+- `docs/agile/workorder.md` と `workorder_sync_plan.json` の AUTO 節へ監査ログパスを許可パスとして追加。
 
 #### WO-12: テスト実行レイヤ＋即時ロールバック
 **Outcome**: Implementation Draft PR に対し「高速スモーク→単体→軽統合」を段階実行し、赤なら自動停止＋自動リバート（またはPR自動クローズ）。
@@ -143,19 +164,7 @@ CLI `validate` がタスク上限を超過すると即 Fail し、`acceptance.ch
 
 ### 任意タスク（Should）
 
-[DONE]#### WO-10: ランブック＆オンボーディング（1分/3分）
-**Outcome**: 新メンバーでも短時間で実行と復旧が可能、共通の“成功/復旧”手順が整う。
-**カテゴリ**:
-ランブック/教育
-**説明・背景**:
-属人化を減らし、失敗時の対応時間を最小化する。
-**完了条件**:
-`docs/runbooks/workorder.md` に 1分/3分手順と FAQ 10件、スクショ付きで整備。
 
-**実績メモ（2025-11-03）**:
-- `docs/runbooks/workorder.md` を新設し、1分/3分手順・FAQ 10 件・guard/エスカレーション復旧フローを記述。
-- `docs/assets/workorder-ready-run-ui.svg` / `docs/assets/workorder-guard-fail.svg` を追加し、手順イメージを参照可能にした。
-- `docs/agile/runbooks/README.md` のナビゲーションへ workorder ランブックを追加し、Runbook ハブから辿れるようにした。
 
 #### WO-13: AI出力の監査・再現性（署名）
 **Outcome**: 生成に用いたプロンプト/設定のハッシュと `plan_snapshot_id`・実行IDを PR に埋め込み、同条件再実行で同一差分になる“再現性”を確保する。
