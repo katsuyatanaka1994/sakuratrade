@@ -176,6 +176,7 @@ def test_validate_passes_when_synced(
     workorder_cli.cmd_validate(argparse.Namespace())
     captured = capsys.readouterr()
     assert "docs/agile/workorder.md: OK" in captured.out
+    assert "workorder_sync_plan.json: OK" in captured.out
 
 
 def test_validate_detects_missing_task(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -190,6 +191,24 @@ def test_validate_detects_missing_task(monkeypatch: pytest.MonkeyPatch, tmp_path
         workorder_cli.cmd_validate(argparse.Namespace())
 
 
+def test_validate_detects_doc_task_mismatch_detail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _, _, workorder_path = _create_repo(monkeypatch, tmp_path)
+    workorder_cli.cmd_ready(argparse.Namespace())
+
+    text = workorder_path.read_text(encoding="utf-8")
+    updated = text.replace("risk: 低", "risk: 高")
+    workorder_path.write_text(updated, encoding="utf-8")
+
+    with pytest.raises(SystemExit):
+        workorder_cli.cmd_validate(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "Tasks の U-sample-update が plan.md と一致しません" in out
+
+
 def test_validate_detects_snapshot_mismatch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _, _, workorder_path = _create_repo(monkeypatch, tmp_path)
     workorder_cli.cmd_ready(argparse.Namespace())
@@ -200,6 +219,60 @@ def test_validate_detects_snapshot_mismatch(monkeypatch: pytest.MonkeyPatch, tmp
 
     with pytest.raises(SystemExit):
         workorder_cli.cmd_validate(argparse.Namespace())
+
+
+def test_validate_detects_missing_sync_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root, _, _ = _create_repo(monkeypatch, tmp_path)
+    workorder_cli.cmd_ready(argparse.Namespace())
+
+    (root / "workorder_sync_plan.json").unlink()
+
+    with pytest.raises(SystemExit):
+        workorder_cli.cmd_validate(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "workorder_sync_plan.json が見つかりません" in out
+
+
+def test_validate_detects_json_snapshot_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root, _, _ = _create_repo(monkeypatch, tmp_path)
+    workorder_cli.cmd_ready(argparse.Namespace())
+
+    sync_path = root / "workorder_sync_plan.json"
+    data = json.loads(sync_path.read_text(encoding="utf-8"))
+    data["plan_snapshot_id"] = "OTHER456"
+    sync_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(SystemExit):
+        workorder_cli.cmd_validate(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "plan_snapshot_id が plan.md と一致しません" in out
+
+
+def test_validate_detects_json_task_content_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root, _, _ = _create_repo(monkeypatch, tmp_path)
+    workorder_cli.cmd_ready(argparse.Namespace())
+
+    sync_path = root / "workorder_sync_plan.json"
+    data = json.loads(sync_path.read_text(encoding="utf-8"))
+    data["tasks"][0]["risk"] = "高"
+    sync_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(SystemExit):
+        workorder_cli.cmd_validate(argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "tasks の U-sample-update が plan.md と一致しません" in out
 
 
 def test_pr_outputs_summary(

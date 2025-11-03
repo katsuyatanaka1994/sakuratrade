@@ -1,3 +1,24 @@
+# CI Impact Scan — WO-5 plan↔workorder consistency checks
+
+## Updated assets
+- `scripts/workorder_cli.py` に plan 由来の `plan_snapshot_id` / `Tasks.id` を `docs/agile/workorder.md` / `workorder_sync_plan.json` / `workorder.plan_links` / `plan_links`(JSON) の双方で突合する検証ロジックを追加。
+- `_tasks_by_id()` 等のヘルパーを拡張し、タスク内容（`refs` / `outputs` を含む）の不一致や重複 ID／欠損を詳細にレポートする仕組みを実装。
+- `tests/test_workorder_cli.py` に整合性チェックのユニットテストを追加（ドキュ／JSON のスナップショット差分、内容改ざん、ファイル欠如などの検出ケース）。
+
+## Triggers, contexts, permissions
+- 既存ワークフロー（`wo:ready/Validate` / `workorder-ready`）で呼び出す CLI を強化したのみで、追加のトリガーや権限変更は無し。
+- `workorder_cli validate` が失敗した場合は `wo:ready/Validate` が赤となり、Branch Protection でブロックされる前提。
+
+## Impact & guardrails
+- plan 側で更新した `plan_snapshot_id` が workorder ドキュメント／同期 JSON の全レイヤーに伝播していない場合に即時 Fail。
+- `Tasks` 配列の ID 欠損・重複・Plan 未定義タスク混入を検出し、該当 ID をエラーメッセージで明示。
+- `workorder.plan_links`／JSON `plan_links` が Plan と同じ `refs` / `outputs` を指しているかを比較し、古い UI spec 参照のままになっていないかをガード。
+- `workorder_sync_plan.json` の破損（JSON decode エラー）や未生成時も Guard が理由付きで停止するため、DocSync→Workorder の連鎖で抜け漏れが起きない。
+
+## Validation log
+- `./venv/bin/python -m pytest tests/test_workorder_cli.py`
+
+
 # CI Impact Scan — WO-4 workorder guard & limits
 
 ## Updated assets

@@ -18,6 +18,8 @@ import re
 from pathlib import Path
 from typing import Any, Iterable, List
 
+import yaml
+
 from scripts import plan_cli
 from scripts.docsync_utils import (
     ROOT as PROJECT_ROOT,
@@ -59,6 +61,13 @@ def _join_strings(items: Iterable[object], sep: str = ", ") -> str:
     clean: List[str] = [value for value in items if isinstance(value, str) and value]
     clean.sort()
     return sep.join(clean)
+
+
+def _rel_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 def _split_patterns(raw: str | None) -> list[str]:
@@ -242,6 +251,48 @@ def _ordered_task(task: dict[str, Any]) -> dict[str, Any]:
     return ordered
 
 
+def _tasks_by_id(
+    tasks: Any,
+    *,
+    source: str,
+    errors: list[str],
+) -> dict[str, dict[str, Any]]:
+    mapping: dict[str, dict[str, Any]] = {}
+    if not isinstance(tasks, list):
+        errors.append(f"::error {source}::Tasks は配列である必要があります。")
+        return mapping
+
+    for index, entry in enumerate(tasks):
+        if not isinstance(entry, dict):
+            errors.append(f"::error {source}::Tasks[{index}] がマッピング形式ではありません。")
+            continue
+        task_id = entry.get("id")
+        if not isinstance(task_id, str) or not task_id.strip():
+            errors.append(f"::error {source}::Tasks[{index}] に id が設定されていません。")
+            continue
+        if task_id in mapping:
+            errors.append(f"::error {source}::タスク ID {task_id} が重複しています。")
+            continue
+        mapping[task_id] = _ordered_task({**entry})
+    return mapping
+
+
+def _canonical_json(data: Any) -> str:
+    return json.dumps(data, sort_keys=True, ensure_ascii=False)
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if value is None:
+        return []
+    return [str(value)]
+
+
+def _push_file_error(errors: list[str], file_path: str, message: str) -> None:
+    errors.append(f"::error file={file_path}::{message}")
+
+
 def cmd_ready(args: argparse.Namespace) -> None:
     snapshot, plan_tasks = _load_plan_data()
 
@@ -302,40 +353,306 @@ def cmd_ready(args: argparse.Namespace) -> None:
 
 def cmd_validate(args: argparse.Namespace) -> None:
     snapshot, plan_tasks = _load_plan_data()
-    plan_task_ids: list[str] = [
-        task_id for task_id in (task.get("id") for task in plan_tasks) if isinstance(task_id, str) and task_id
-    ]
+    ordered_plan_tasks = [_ordered_task(task) for task in plan_tasks]
+    plan_task_map: dict[str, dict[str, Any]] = {}
+    for task in ordered_plan_tasks:
+        if not isinstance(task, dict):
+            continue
+        task_id = task.get("id")
+        if isinstance(task_id, str) and task_id:
+            plan_task_map[task_id] = task
+    plan_task_ids = list(plan_task_map.keys())
 
     if not WORKORDER_PATH.exists():
         raise SystemExit("docs/agile/workorder.md が見つかりません。")
 
     text = WORKORDER_PATH.read_text(encoding="utf-8")
     errors: list[str] = []
+    workorder_rel = _rel_path(WORKORDER_PATH)
 
     try:
-        workorder_block = extract_auto_block(text, "workorder.meta")
+        meta_block = extract_auto_block(text, "workorder.meta")
     except ValueError:
-        errors.append("::error file=docs/agile/workorder.md::AUTO セクション workorder.meta が見つかりません。")
-        workorder_block = ""
+        _push_file_error(errors, workorder_rel, "AUTO セクション workorder.meta が見つかりません。")
+        meta_block = ""
 
     snapshot_in_workorder: str | None = None
-    if workorder_block:
-        match = re.search(r"-\s*plan_snapshot_id:\s*(\S+)", workorder_block)
-        if match:
-            snapshot_in_workorder = match.group(1).strip()
+    doc_tasks_map: dict[str, dict[str, Any]] = {}
+    if meta_block:
+        try:
+            meta_loaded = yaml.safe_load(meta_block)
+        except yaml.YAMLError as exc:
+            _push_file_error(
+                errors,
+                workorder_rel,
+                f"workorder.meta の YAML パースに失敗しました: {exc}",
+            )
+            meta_loaded = None
+
+        meta_mapping: dict[str, Any] = {}
+        if isinstance(meta_loaded, list):
+            for entry in meta_loaded:
+                if isinstance(entry, dict):
+                    meta_mapping.update(entry)
+                else:
+                    _push_file_error(
+                        errors,
+                        workorder_rel,
+                        "workorder.meta の YAML が不正です（配列要素はマッピング形式にしてください）。",
+                    )
+        elif isinstance(meta_loaded, dict):
+            meta_mapping = dict(meta_loaded)
+        elif meta_loaded is not None:
+            _push_file_error(
+                errors,
+                workorder_rel,
+                "workorder.meta の形式が不正です（マッピングを期待しました）。",
+            )
+
+        raw_snapshot = meta_mapping.get("plan_snapshot_id")
+        if raw_snapshot:
+            snapshot_in_workorder = str(raw_snapshot).strip()
         else:
-            errors.append("::error file=docs/agile/workorder.md::plan_snapshot_id が設定されていません。")
-    else:
-        snapshot_in_workorder = None
+            _push_file_error(errors, workorder_rel, "plan_snapshot_id が設定されていません。")
+
+        doc_tasks_raw = meta_mapping.get("Tasks")
+        doc_tasks_map = _tasks_by_id(
+            doc_tasks_raw,
+            source=f"file={workorder_rel}::workorder.meta",
+            errors=errors,
+        )
 
     if snapshot_in_workorder and snapshot_in_workorder != snapshot:
-        errors.append("::error file=docs/agile/workorder.md::plan_snapshot_id が plan.md と一致しません。")
+        _push_file_error(errors, workorder_rel, "plan_snapshot_id が plan.md と一致しません。")
 
-    workorder_ids = [match.group(1).strip() for match in re.finditer(r"^\s+id:\s*(.+)$", workorder_block, re.MULTILINE)]
-    missing = sorted({task_id for task_id in plan_task_ids if task_id not in workorder_ids})
-    if missing:
-        details = _join_strings(missing)
-        errors.append(f"::error file=docs/agile/workorder.md::Tasks に Plan のタスクが不足しています: {details}")
+    missing_doc = sorted(task_id for task_id in plan_task_map if task_id not in doc_tasks_map)
+    if missing_doc:
+        _push_file_error(
+            errors,
+            workorder_rel,
+            f"Tasks に Plan のタスクが不足しています: {_join_strings(missing_doc)}",
+        )
+
+    extra_doc = sorted(task_id for task_id in doc_tasks_map if task_id not in plan_task_map)
+    if extra_doc:
+        _push_file_error(
+            errors,
+            workorder_rel,
+            f"Plan に存在しないタスクが含まれています: {_join_strings(extra_doc)}",
+        )
+
+    for task_id in sorted(set(plan_task_map) & set(doc_tasks_map)):
+        if _canonical_json(plan_task_map[task_id]) != _canonical_json(doc_tasks_map[task_id]):
+            _push_file_error(
+                errors,
+                workorder_rel,
+                f"Tasks の {task_id} が plan.md と一致しません。",
+            )
+
+    try:
+        plan_links_block = extract_auto_block(text, "workorder.plan_links")
+    except ValueError:
+        _push_file_error(
+            errors,
+            workorder_rel,
+            "AUTO セクション workorder.plan_links が見つかりません。",
+        )
+        plan_links_block = ""
+
+    if plan_links_block:
+        try:
+            plan_links_loaded = yaml.safe_load(plan_links_block) or {}
+        except yaml.YAMLError as exc:
+            _push_file_error(
+                errors,
+                workorder_rel,
+                f"workorder.plan_links の YAML パースに失敗しました: {exc}",
+            )
+            plan_links_loaded = {}
+
+        if not isinstance(plan_links_loaded, dict):
+            _push_file_error(
+                errors,
+                workorder_rel,
+                "workorder.plan_links はマッピング形式である必要があります。",
+            )
+        else:
+            links_snapshot = plan_links_loaded.get("plan_snapshot_id")
+            if links_snapshot and links_snapshot != snapshot:
+                _push_file_error(
+                    errors,
+                    workorder_rel,
+                    "workorder.plan_links の plan_snapshot_id が plan.md と一致しません。",
+                )
+
+            plan_links_tasks = plan_links_loaded.get("tasks")
+            plan_links_map = _tasks_by_id(
+                plan_links_tasks,
+                source=f"file={workorder_rel}::workorder.plan_links",
+                errors=errors,
+            )
+
+            missing_links = sorted(task_id for task_id in plan_task_map if task_id not in plan_links_map)
+            if missing_links:
+                _push_file_error(
+                    errors,
+                    workorder_rel,
+                    f"workorder.plan_links に Plan のタスクが不足しています: {_join_strings(missing_links)}",
+                )
+
+            extra_links = sorted(task_id for task_id in plan_links_map if task_id not in plan_task_map)
+            if extra_links:
+                _push_file_error(
+                    errors,
+                    workorder_rel,
+                    f"workorder.plan_links に Plan に存在しないタスクが含まれています: {_join_strings(extra_links)}",
+                )
+
+            for task_id in sorted(set(plan_task_map) & set(plan_links_map)):
+                plan_task = plan_task_map[task_id]
+                links_task = plan_links_map[task_id]
+                plan_refs = _string_list(plan_task.get("refs"))
+                link_refs = _string_list(links_task.get("refs"))
+                if plan_refs != link_refs:
+                    _push_file_error(
+                        errors,
+                        workorder_rel,
+                        f"workorder.plan_links の {task_id}.refs が plan.md と一致しません。",
+                    )
+                plan_outputs = _string_list(plan_task.get("outputs"))
+                link_outputs = _string_list(links_task.get("outputs"))
+                if plan_outputs != link_outputs:
+                    _push_file_error(
+                        errors,
+                        workorder_rel,
+                        f"workorder.plan_links の {task_id}.outputs が plan.md と一致しません。",
+                    )
+
+    json_rel = _rel_path(WORKORDER_SYNC_PLAN_PATH)
+    json_tasks_map: dict[str, dict[str, Any]] = {}
+    if not WORKORDER_SYNC_PLAN_PATH.exists():
+        _push_file_error(
+            errors,
+            json_rel,
+            "workorder_sync_plan.json が見つかりません。先に ready を実行してください。",
+        )
+    else:
+        try:
+            json_data = json.loads(WORKORDER_SYNC_PLAN_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            _push_file_error(
+                errors,
+                json_rel,
+                f"JSON の読み込みに失敗しました: {exc}",
+            )
+            json_data = {}
+
+        if isinstance(json_data, dict):
+            json_snapshot = json_data.get("plan_snapshot_id")
+            if json_snapshot and json_snapshot != snapshot:
+                _push_file_error(
+                    errors,
+                    json_rel,
+                    "plan_snapshot_id が plan.md と一致しません。",
+                )
+
+            expected_ids = plan_task_ids
+            actual_ids = [task_id for task_id in json_data.get("task_ids", []) if isinstance(task_id, str) and task_id]
+            if actual_ids != expected_ids:
+                _push_file_error(
+                    errors,
+                    json_rel,
+                    (
+                        "task_ids が plan.md と一致しません "
+                        f"(expected: {_join_strings(expected_ids)}, actual: {_join_strings(actual_ids)})"
+                    ),
+                )
+
+            json_tasks_map = _tasks_by_id(
+                json_data.get("tasks"),
+                source=f"file={json_rel}::tasks",
+                errors=errors,
+            )
+
+            missing_json = sorted(task_id for task_id in plan_task_map if task_id not in json_tasks_map)
+            if missing_json:
+                _push_file_error(
+                    errors,
+                    json_rel,
+                    f"tasks に Plan のタスクが不足しています: {_join_strings(missing_json)}",
+                )
+
+            extra_json = sorted(task_id for task_id in json_tasks_map if task_id not in plan_task_map)
+            if extra_json:
+                _push_file_error(
+                    errors,
+                    json_rel,
+                    f"tasks に Plan に存在しないタスクが含まれています: {_join_strings(extra_json)}",
+                )
+
+            for task_id in sorted(set(plan_task_map) & set(json_tasks_map)):
+                if _canonical_json(plan_task_map[task_id]) != _canonical_json(json_tasks_map[task_id]):
+                    _push_file_error(
+                        errors,
+                        json_rel,
+                        f"tasks の {task_id} が plan.md と一致しません。",
+                    )
+
+            plan_links_json = json_data.get("plan_links")
+            if isinstance(plan_links_json, dict):
+                links_json_snapshot = plan_links_json.get("plan_snapshot_id")
+                if links_json_snapshot and links_json_snapshot != snapshot:
+                    _push_file_error(
+                        errors,
+                        json_rel,
+                        "plan_links.plan_snapshot_id が plan.md と一致しません。",
+                    )
+                plan_links_json_map = _tasks_by_id(
+                    plan_links_json.get("tasks"),
+                    source=f"file={json_rel}::plan_links",
+                    errors=errors,
+                )
+                for task_id in sorted(set(plan_task_map) & set(plan_links_json_map)):
+                    plan_task = plan_task_map[task_id]
+                    links_task = plan_links_json_map[task_id]
+                    plan_refs = _string_list(plan_task.get("refs"))
+                    link_refs = _string_list(links_task.get("refs"))
+                    if plan_refs != link_refs:
+                        _push_file_error(
+                            errors,
+                            json_rel,
+                            f"plan_links の {task_id}.refs が plan.md と一致しません。",
+                        )
+                    plan_outputs = _string_list(plan_task.get("outputs"))
+                    link_outputs = _string_list(links_task.get("outputs"))
+                    if plan_outputs != link_outputs:
+                        _push_file_error(
+                            errors,
+                            json_rel,
+                            f"plan_links の {task_id}.outputs が plan.md と一致しません。",
+                        )
+                missing_json_links = sorted(task_id for task_id in plan_task_map if task_id not in plan_links_json_map)
+                if missing_json_links:
+                    _push_file_error(
+                        errors,
+                        json_rel,
+                        f"plan_links に Plan のタスクが不足しています: {_join_strings(missing_json_links)}",
+                    )
+                extra_json_links = sorted(task_id for task_id in plan_links_json_map if task_id not in plan_task_map)
+                if extra_json_links:
+                    _push_file_error(
+                        errors,
+                        json_rel,
+                        f"plan_links に Plan に存在しないタスクが含まれています: {_join_strings(extra_json_links)}",
+                    )
+            elif plan_links_json not in (None, {}):
+                _push_file_error(
+                    errors,
+                    json_rel,
+                    "plan_links はマッピング形式である必要があります。",
+                )
+        else:
+            _push_file_error(errors, json_rel, "JSON ルートはマッピング形式である必要があります。")
 
     if errors:
         for message in errors:
@@ -343,6 +660,7 @@ def cmd_validate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
     print("docs/agile/workorder.md: OK")
+    print("workorder_sync_plan.json: OK")
 
 
 def cmd_pr(args: argparse.Namespace) -> None:
