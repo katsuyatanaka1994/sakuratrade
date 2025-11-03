@@ -11,7 +11,7 @@ workorder.md を **“自動実装オーケストレータ”**として稼働�
 - 上限: 行数 / ファイル数 / PR 数の三層リミット（初期は保守的な値）。
 
 ---
-## 実行順（WO-1〜WO-10）
+## 実行順（WO-1〜WO-9）
 
 [DONE]### WO-1: workorder.md テンプレ＆ASSIST 枠の確定
 **Outcome**: workorder.md に AUTO 区画（`LIMITS` / `ALLOWED_PATHS` / `BLOCKED_PATHS` / `PLAN_LINKS`）と `plan_snapshot_id` 鏡像を定義。
@@ -90,7 +90,7 @@ PR生成
 - `.github/workflows/workorder-weekly-report.yml` を追加し、毎週月曜 JST 朝の定期実行＋手動トリガーを配線。
 - `reports/workorder-weekly.md` を初期化し、CI Impact へ追記。
 
-### WO-9: Branch Protection / Required Checks の確定
+[DONE]### WO-9: Branch Protection / Required Checks の確定
 **Outcome**: 誰が PR しても危険経路は通らず、レビュー前に機械が止める体制を固定化。
 **カテゴリ**:
 ガバナンス/保護
@@ -99,18 +99,13 @@ AUTO 生成物の直編集や無審査マージを物理的に防ぐ。
 **完了条件**:
 Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・CODEOWNERS が有効。
 
-### WO-10: ランブック＆オンボーディング（1分/3分）
-**Outcome**: 新メンバーでも短時間で実行と復旧が可能、共通の“成功/復旧”手順が整う。
-**カテゴリ**:
-ランブック/教育
-**説明・背景**:
-属人化を減らし、失敗時の対応時間を最小化する。
-**完了条件**:
-`docs/runbooks/workorder.md` に 1分/3分手順と FAQ 10件、スクショ付きで整備。
+## WO-10以降の優先度整理
 
+以降のタスクを「自動実装を安全に回すためにMVPまでに必須なもの」と「後追い導入でもリスクが限定的な任意項目」に分類した。判断基準は `katsuya-workorder.md` で明示された強制要件と、安全性/信頼性のガードレールに直結するかどうか。
 
+### 必須タスク（Must）
 
-### WO-11: 実行サンドボックス＆権限分離
+#### WO-11: 実行サンドボックス＆権限分離
 **Outcome**: Codex 実行の権限境界を固定ブランチ・限定パス・最小トークンで物理分離し、自己発火や汚染を防ぐ。全実行に監査ログを残す。
 **カテゴリ**:
 ガバナンス/権限
@@ -119,7 +114,7 @@ Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・C
 **完了条件**:
 固定ブランチへの書き込みのみ許可、許可パス（Allowlist）外は No-Op、トークンは最小権限・リポジトリ変数で管理、実行ID・操作者・コミット範囲を含む監査ログが保存される。
 
-### WO-12: テスト実行レイヤ＋即時ロールバック
+#### WO-12: テスト実行レイヤ＋即時ロールバック
 **Outcome**: Implementation Draft PR に対し「高速スモーク→単体→軽統合」を段階実行し、赤なら自動停止＋自動リバート（またはPR自動クローズ）。
 **カテゴリ**:
 品質/リスク低減
@@ -128,25 +123,7 @@ Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・C
 **完了条件**:
 3段テストが自動起動し、任意段でFailなら実装ジョブ停止・Draft PRは自動リバート/クローズ・理由コメント付与・再実行は手動ゲートに切替。
 
-### WO-13: AI出力の監査・再現性（署名）
-**Outcome**: 生成に用いたプロンプト/設定のハッシュと `plan_snapshot_id`・実行IDを PR に埋め込み、同条件再実行で同一差分になる“再現性”を確保する。
-**カテゴリ**:
-監査/再現性
-**説明・背景**:
-AI出力は“同じ入力→同じ出力”の検証可能性が重要。PR本文とコミットフッターに出力署名を残し、後追い検証・差分比較を容易にする。
-**完了条件**:
-PR本文に（生成設定ハッシュ・`plan_snapshot_id`・実行ID）の署名が出力、`Co-authored-by` と実行メタがコミットに付与、同条件再実行で差分が一致し、監査ログに追記される。
-
-### WO-14: `outputs` ベースの concurrency group 算出
-**Outcome**: `plan.md` の `outputs` を読み取り、ファイル＋2階層ディレクトリを正規化してハッシュ化した `concurrency.group` を CLI / Actions 双方で共有する。
-**カテゴリ**:
-直列制御
-**説明・背景**:
-`katsuya-workorder.md` が求める「同一領域は順番待ち」を実現するため、レイヤを跨いでも同一計算式でグループ化する必要がある。
-**完了条件**:
-CLI と Workflow が同じヘルパーで group を生成し、`outputs` 未設定時は安全側（単一グループ）で待機することを確認する。
-
-### WO-15: タスク個別上限の適用 (`tasks[i].acceptance.max_changed_lines`)
+#### WO-15: タスク個別上限の適用 (`tasks[i].acceptance.max_changed_lines`)
 **Outcome**: plan 由来の `TASKS` からタスク単位の上限と `acceptance.checks` を取得し、グローバル閾値より優先して実行・検証する。
 **カテゴリ**:
 安全運用/上限
@@ -155,7 +132,7 @@ CLI と Workflow が同じヘルパーで group を生成し、`outputs` 未設�
 **完了条件**:
 CLI `validate` がタスク上限を超過すると即 Fail し、`acceptance.checks` で指定されたコマンドを順次実行。失敗時はPR / `.runs/` に実測値・対象タスク ID・こけたチェック名を出力する。
 
-### WO-16: 自動レビュー→修正ループ（auto_revise）実装
+#### WO-16: 自動レビュー→修正ループ（auto_revise）実装
 **Outcome**: Implementation Draft PR 作成後に `review_policy.auto_revise:true` でレビュー指示と失敗ログを読み、最小パッチ生成→再テスト→`Self-review passed (n iterations)` コメントまで自動化する。
 **カテゴリ**:
 品質/自動収束
@@ -164,7 +141,41 @@ CLI `validate` がタスク上限を超過すると即 Fail し、`acceptance.ch
 **完了条件**:
 最大イテレーション・行数・禁止パス上限を守りつつ、成功時はPR本文・コメント・`.runs/` に結果を記録し、失敗時は停止理由と次アクションをPRコメントする。
 
-### WO-17: 失敗ログ＆ `.runs/` 出力の標準化
+### 任意タスク（Should）
+
+[DONE]#### WO-10: ランブック＆オンボーディング（1分/3分）
+**Outcome**: 新メンバーでも短時間で実行と復旧が可能、共通の“成功/復旧”手順が整う。
+**カテゴリ**:
+ランブック/教育
+**説明・背景**:
+属人化を減らし、失敗時の対応時間を最小化する。
+**完了条件**:
+`docs/runbooks/workorder.md` に 1分/3分手順と FAQ 10件、スクショ付きで整備。
+
+**実績メモ（2025-11-03）**:
+- `docs/runbooks/workorder.md` を新設し、1分/3分手順・FAQ 10 件・guard/エスカレーション復旧フローを記述。
+- `docs/assets/workorder-ready-run-ui.svg` / `docs/assets/workorder-guard-fail.svg` を追加し、手順イメージを参照可能にした。
+- `docs/agile/runbooks/README.md` のナビゲーションへ workorder ランブックを追加し、Runbook ハブから辿れるようにした。
+
+#### WO-13: AI出力の監査・再現性（署名）
+**Outcome**: 生成に用いたプロンプト/設定のハッシュと `plan_snapshot_id`・実行IDを PR に埋め込み、同条件再実行で同一差分になる“再現性”を確保する。
+**カテゴリ**:
+監査/再現性
+**説明・背景**:
+AI出力は“同じ入力→同じ出力”の検証可能性が重要。PR本文とコミットフッターに出力署名を残し、後追い検証・差分比較を容易にする。
+**完了条件**:
+PR本文に（生成設定ハッシュ・`plan_snapshot_id`・実行ID）の署名が出力、`Co-authored-by` と実行メタがコミットに付与、同条件再実行で差分が一致し、監査ログに追記される。
+
+#### WO-14: `outputs` ベースの concurrency group 算出
+**Outcome**: `plan.md` の `outputs` を読み取り、ファイル＋2階層ディレクトリを正規化してハッシュ化した `concurrency.group` を CLI / Actions 双方で共有する。
+**カテゴリ**:
+直列制御
+**説明・背景**:
+`katsuya-workorder.md` が求める「同一領域は順番待ち」を実現するため、レイヤを跨いでも同一計算式でグループ化する必要がある。
+**完了条件**:
+CLI と Workflow が同じヘルパーで group を生成し、`outputs` 未設定時は安全側（単一グループ）で待機することを確認する。
+
+#### WO-17: 失敗ログ＆ `.runs/` 出力の標準化
 **Outcome**: `validate` / auto-revise の成否を `.runs/workorder/<timestamp>.json` に書き出し、PRコメントと整合するよう統一フォーマット化する。
 **カテゴリ**:
 運用/可観測性
