@@ -26,6 +26,18 @@ permissions:
 jobs:
   ready:
     name: workorder-ready
+    env:
+      WORKORDER_ALLOWED_PATHS: ${{ vars.WORKORDER_ALLOWED_PATHS || '' }}
+      WORKORDER_BLOCKED_PATHS: ${{ vars.WORKORDER_BLOCKED_PATHS || 'alembic/**,infra/**,migrations/**' }}
+      WORKORDER_MAX_TASK_LINES: ${{ vars.WORKORDER_MAX_TASK_LINES || '80' }}
+      WORKORDER_MAX_PR_LINES: ${{ vars.WORKORDER_MAX_PR_LINES || '120' }}
+      WORKORDER_MAX_FILE_LINES: ${{ vars.WORKORDER_MAX_FILE_LINES || '80' }}
+      WORKORDER_MAX_TOTAL_LINES: ${{ vars.WORKORDER_MAX_TOTAL_LINES || '180' }}
+      WORKORDER_MAX_LINES_PER_ITER: ${{ vars.WORKORDER_MAX_LINES_PER_ITER || '60' }}
+      WORKORDER_MAX_ITERATIONS: ${{ vars.WORKORDER_MAX_ITERATIONS || '3' }}
+      WORKORDER_MAX_CHANGED_FILES: ${{ vars.WORKORDER_MAX_CHANGED_FILES || '6' }}
+      WORKORDER_MAX_AUTO_PRS: ${{ vars.WORKORDER_MAX_AUTO_PRS || vars.WORKORDER_MAX_OPEN_AUTOMATION_PRS || '2' }}
+      WORKORDER_RUN_REPORT: tmp/workorder_limits_report.json
     concurrency:
       group: docs-sync:workorder
       cancel-in-progress: true
@@ -40,6 +52,7 @@ jobs:
             const repo = context.repo.repo;
             const set = (key, value) => core.setOutput(key, value ?? '');
             const event = context.eventName;
+            const currentSha = context.sha || '';
 
             if (event === 'workflow_dispatch') {
               const baseInput = core.getInput('base') || 'docs-sync/plan';
@@ -49,6 +62,7 @@ jobs:
               set('plan_branch', planBranchInput);
               set('pr_base', baseInput);
               set('trigger', 'workflow_dispatch');
+              set('guard_ref', currentSha);
               return;
             }
 
@@ -70,6 +84,7 @@ jobs:
               }
 
               const prInfo = Array.isArray(run.pull_requests) && run.pull_requests[0] ? run.pull_requests[0] : null;
+              const runHeadSha = run.head_sha || '';
 
               if (trigger === 'pull_request_target') {
                 if (!prInfo) {
@@ -101,6 +116,7 @@ jobs:
                 set('source_pr', String(prNumber));
                 set('source_head', pr.data.head?.ref ?? '');
                 set('trigger', `plan-sync:${trigger}`);
+                set('guard_ref', pr.data.head?.sha || runHeadSha);
                 return;
               }
 
@@ -112,6 +128,7 @@ jobs:
                 set('source_pr', prInfo ? String(prInfo.number) : '');
                 set('source_head', prInfo?.head_branch || '');
                 set('trigger', `plan-sync:${trigger}`);
+                set('guard_ref', runHeadSha);
                 return;
               }
 
@@ -133,11 +150,13 @@ jobs:
               set('plan_branch', branch);
               set('pr_base', branch);
               set('trigger', 'push');
+              set('guard_ref', currentSha);
               return;
             }
 
             set('should_run', 'false');
             set('reason', `unsupported event: ${event}`);
+            set('guard_ref', currentSha);
 
       - name: Skip (no action required)
         if: steps.context.outputs.should_run != 'true'
@@ -199,6 +218,104 @@ jobs:
             cat workorder_sync_plan.json
           fi
 
+      - name: Prepare guard script
+        if: steps.context.outputs.should_run == 'true'
+        id: guard-script
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          ref="${{ steps.context.outputs.guard_ref || '' }}"
+          if [ -n "$ref" ]; then
+            git fetch --no-tags --depth=1 origin "$ref"
+            git show "$ref":scripts/workorder_guard.py > tmp/workorder_guard.py || {
+              echo "Failed to load scripts/workorder_guard.py from $ref" >&2
+              exit 1
+            }
+          else
+            git show HEAD:scripts/workorder_guard.py > tmp/workorder_guard.py || {
+              echo "scripts/workorder_guard.py not found in current ref" >&2
+              exit 1
+            }
+          fi
+          echo "script_path=$(pwd)/tmp/workorder_guard.py" >> "$GITHUB_OUTPUT"
+
+      - name: Run workorder guard
+        if: steps.context.outputs.should_run == 'true'
+        id: guard
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 "${{ steps.guard-script.outputs.script_path }}"
+
+      - name: Handle guard outcome
+        if: steps.context.outputs.should_run == 'true' && steps.guard.outcome == 'failure'
+        uses: actions/github-script@v7
+        env:
+          REPORT_PATH: ${{ env.WORKORDER_RUN_REPORT }}
+          SOURCE_PR: ${{ steps.context.outputs.source_pr }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = process.env.REPORT_PATH || 'tmp/workorder_limits_report.json';
+            let report;
+            try {
+              report = JSON.parse(fs.readFileSync(path, 'utf-8'));
+            } catch (error) {
+              core.setFailed(`workorder guard failed but report ${path} could not be read: ${error.message}`);
+              return;
+            }
+
+            const status = report.status || 'unknown';
+            const stats = report.stats || {};
+            const limits = report.limits || {};
+
+            const fmtList = (items) => (items && items.length ? items.join(', ') : 'unknown');
+            let message;
+            if (status === 'disallowed') {
+              message = `🛑 workorder-ready stopped: disallowed paths detected (${fmtList(report.disallowed_files || [])}).`;
+            } else if (status === 'blocked_paths') {
+              message = `🛑 workorder-ready stopped: blocked paths detected (${fmtList(report.blocked_files || [])}).`;
+            } else if (status === 'limit_exceeded') {
+              const reasons = [];
+              for (const item of report.file_over_limit || []) {
+                reasons.push(`${item.path} (${item.total}/${item.limit})`);
+              }
+              if (report.total_over_limit) {
+                const actual = stats.total_lines ?? 'unknown';
+                const limit = limits.max_total_changed_lines ?? (limits.max_changed_lines || {}).per_pr ?? 'unknown';
+                reasons.push(`total lines ${actual}/${limit}`);
+              }
+              if (report.file_count_over_limit) {
+                const actualFiles = stats.file_count ?? 'unknown';
+                const limitFiles = limits.max_changed_files ?? 'unknown';
+                reasons.push(`file count ${actualFiles}/${limitFiles}`);
+              }
+              const detail = reasons.length ? reasons.join('; ') : 'limit exceeded';
+              message = `🛑 workorder-ready stopped: guard limits hit (${detail}).`;
+            } else {
+              message = `🛑 workorder-ready stopped: guard status ${status}.`;
+            }
+
+            if (process.env.SOURCE_PR) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: Number(process.env.SOURCE_PR),
+                body: message,
+              });
+            } else {
+              core.warning('No source PR available to attach guard failure comment.');
+            }
+
+            core.setFailed(message);
+
+      - name: Upload guard report
+        if: always() && steps.context.outputs.should_run == 'true' && hashFiles(env.WORKORDER_RUN_REPORT) != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: workorder-limits-report
+          path: ${{ env.WORKORDER_RUN_REPORT }}
+
       - name: Detect workorder changes
         if: steps.context.outputs.should_run == 'true'
         id: changes
@@ -209,6 +326,40 @@ jobs:
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Enforce automation PR ceiling
+        if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        env:
+          MAX_AUTO_PRS: ${{ env.WORKORDER_MAX_AUTO_PRS }}
+          SOURCE_PR: ${{ steps.context.outputs.source_pr }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const limitRaw = process.env.MAX_AUTO_PRS || '0';
+            const limit = Number(limitRaw);
+            if (!Number.isFinite(limit) || limit <= 0) {
+              core.info(`Automation PR ceiling disabled (max=${limitRaw}).`);
+              return;
+            }
+            const headRef = `${owner}:docs-sync/workorder`;
+            const prs = await github.rest.pulls.list({ owner, repo, head: headRef, state: 'open', per_page: 100 });
+            const open = prs.data.length;
+            if (open >= limit) {
+              const message = `🛑 workorder-ready stopped: open docs-sync/workorder PRs (${open}/${limit}).`;
+              if (process.env.SOURCE_PR) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: Number(process.env.SOURCE_PR),
+                  body: message,
+                });
+              }
+              core.setFailed(message);
+              return;
+            }
+            core.info(`Open docs-sync/workorder PRs: ${open}/${limit}`);
 
       - name: Comment no-op result
         if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed != 'true' && steps.context.outputs.source_pr != ''

@@ -34,4 +34,10 @@ workorder_ready:
       sections: ['plan.meta', 'plan.tasks']
   targets:
     - path: docs/agile/workorder.md
-      sections: ['workorder.meta']
+      sections: [
+        'workorder.meta',
+        'workorder.limits',
+        'workorder.allowed_paths',
+        'workorder.blocked_paths',
+        'workorder.plan_links'
+      ]

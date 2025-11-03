@@ -44,9 +44,26 @@ PLAN_TEMPLATE = """# Plan
 WORKORDER_TEMPLATE = """# Workorder
 
 <!-- AUTO:BEGIN name=workorder.meta -->
-- Ticket(s):
-- Owner(s):
-- Due:
+- plan_snapshot_id:
+- Doc ID:
+- Updated at:
+- Tasks: []
+<!-- AUTO:END -->
+
+<!-- AUTO:BEGIN name=workorder.limits -->
+{}
+<!-- AUTO:END -->
+
+<!-- AUTO:BEGIN name=workorder.allowed_paths -->
+[]
+<!-- AUTO:END -->
+
+<!-- AUTO:BEGIN name=workorder.blocked_paths -->
+[]
+<!-- AUTO:END -->
+
+<!-- AUTO:BEGIN name=workorder.plan_links -->
+{}
 <!-- AUTO:END -->
 """
 
@@ -97,6 +114,20 @@ def _create_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path,
     )
     monkeypatch.setattr(docsync_utils, "ROOT", root)
 
+    for key in [
+        "WORKORDER_ALLOWED_PATHS",
+        "WORKORDER_BLOCKED_PATHS",
+        "WORKORDER_MAX_TASK_LINES",
+        "WORKORDER_MAX_PR_LINES",
+        "WORKORDER_MAX_FILE_LINES",
+        "WORKORDER_MAX_TOTAL_LINES",
+        "WORKORDER_MAX_LINES_PER_ITER",
+        "WORKORDER_MAX_ITERATIONS",
+        "WORKORDER_MAX_CHANGED_FILES",
+        "WORKORDER_MAX_AUTO_PRS",
+    ]:
+        monkeypatch.delenv(key, raising=False)
+
     return root, plan_path, workorder_path
 
 
@@ -110,9 +141,28 @@ def test_ready_updates_workorder_and_json(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert re.search(r"-\s*plan_snapshot_id:\s*SNAP123", block)
     assert re.search(r"id:\s*U-sample-update", block)
 
+    limits_block = docsync_utils.extract_auto_block(text, "workorder.limits")
+    assert "per_pr: 120" in limits_block
+    assert "per_file: 80" in limits_block
+
+    allowed_block = docsync_utils.extract_auto_block(text, "workorder.allowed_paths")
+    assert "frontend/src/**" in allowed_block
+    assert "docs/agile/workorder.md" in allowed_block
+
+    blocked_block = docsync_utils.extract_auto_block(text, "workorder.blocked_paths")
+    assert "alembic/**" in blocked_block
+
+    plan_links_block = docsync_utils.extract_auto_block(text, "workorder.plan_links")
+    assert "plan_snapshot_id: SNAP123" in plan_links_block
+    assert "id: U-sample-update" in plan_links_block
+
     data = json.loads((root / "workorder_sync_plan.json").read_text(encoding="utf-8"))
     assert data["plan_snapshot_id"] == "SNAP123"
     assert data["task_ids"] == ["U-sample-update"]
+    assert data["limits"]["max_changed_lines"]["per_pr"] == 120
+    assert "frontend/src/**" in data["allowed_paths"]
+    assert "workorder_sync_plan.json" in data["allowed_paths"]
+    assert data["plan_links"]["plan_snapshot_id"] == "SNAP123"
 
 
 def test_validate_passes_when_synced(
