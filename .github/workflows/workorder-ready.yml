@@ -243,10 +243,10 @@ jobs:
           TRIGGER="${{ steps.context.outputs.trigger }}"
           SOURCE_HEAD="${{ steps.context.outputs.source_head || '' }}"
           python3 -c 'import sys;from pathlib import Path;trigger,head,snapshot,tasks=sys.argv[1:5];lines=["Automated workorder sync run.","",f"- Trigger: {trigger}"];\
-lines.append(f"- Source ref: `{head}`") if head else None;\
-lines.append(f"- plan_snapshot_id: {snapshot}") if snapshot else None;\
-lines.append(f"- Tasks: {tasks}") if tasks else None;\
-Path("/tmp/workorder-body.txt").write_text("\n".join(lines)+"\n",encoding="utf-8")' "$TRIGGER" "$SOURCE_HEAD" "$SNAPSHOT" "$TASKS"
+          lines.append(f"- Source ref: `{head}`") if head else None;\
+          lines.append(f"- plan_snapshot_id: {snapshot}") if snapshot else None;\
+          lines.append(f"- Tasks: {tasks}") if tasks else None;\
+          Path("/tmp/workorder-body.txt").write_text("\n".join(lines)+"\n",encoding="utf-8")' "$TRIGGER" "$SOURCE_HEAD" "$SNAPSHOT" "$TASKS"
           if gh pr view docs-sync/workorder >/dev/null 2>&1; then
             gh pr edit docs-sync/workorder \
               --title "[workorder-ready] docs: sync workorder auto sections" \
