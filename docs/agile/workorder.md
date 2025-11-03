@@ -20,31 +20,10 @@
 
 ### メタデータ（DocSync管理）
 <!-- AUTO:BEGIN name=workorder.meta -->
-- plan_snapshot_id: a2d0544958f8cb06a172c4a2bdfb609c1d75149ef0b8f93aea16bfc0a5e5d382
+- plan_snapshot_id: 8146ee3583d50e554e97ad0ae3a83c41b9449a77c1acdca5cd11e4e249be38f5
 - Doc ID: workorder
-- Updated at: 2025-11-01T11:21:26+09:00
-- Tasks:
-    -
-      id: U-positions-page-update
-      refs:
-        - ui-spec:positions-page
-      outputs:
-        - frontend/src
-      acceptance:
-        max_changed_lines: 80
-        checks:
-          - name: frontend-tsc
-            command: npx --prefix frontend tsc --noEmit
-          - name: frontend-eslint
-            command: npx --prefix frontend eslint src --max-warnings=500 --quiet
-          - name: frontend-vitest
-            command: npm --prefix frontend run test:run -- --passWithNoTests
-      gate:
-        []
-      deps:
-        []
-      risk: 低
-      rollback: 前バージョンのUIを再適用
+- Updated at: 2025-11-03T01:02:32+00:00
+- Tasks: []
 <!-- AUTO:END -->
 
 ### LIMITS — 自動実装のガード設定
