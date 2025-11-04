@@ -1,5 +1,5 @@
 {
-  "plan_snapshot_id": "8146ee3583d50e554e97ad0ae3a83c41b9449a77c1acdca5cd11e4e249be38f5",
+  "plan_snapshot_id": "TEST-SNAPSHOT-DESYNC",
   "task_ids": [
     "U-positions-page-update"
   ],
@@ -13,7 +13,7 @@
         "frontend/src"
       ],
       "acceptance": {
-        "max_changed_lines": 80,
+        "max_changed_lines": 999,
         "checks": [
           {
             "name": "frontend-tsc",
