@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,7 +56,8 @@ def _infer_stage(name: str, command: str) -> str:
 def _load_checks() -> list[Check]:
     if not SYNC_PLAN_PATH.exists():
         raise SystemExit(
-            "workorder_sync_plan.json が見つかりません。先に `python -m scripts.workorder_cli ready` を実行してください。"
+            "workorder_sync_plan.json が見つかりません。"
+            "先に `python -m scripts.workorder_cli ready` を実行してください。"
         )
     try:
         payload = json.loads(SYNC_PLAN_PATH.read_text(encoding="utf-8"))
