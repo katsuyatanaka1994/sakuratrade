@@ -134,6 +134,7 @@ Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・C
 - `scripts/workorder_audit.py` を新設。`workorder-ready` が run ID / actor / guard 結果を `docs/agile/workorder-audit.log` と `workorder-audit-entry` アーティファクトへ JSONL で記録。
 - `.github/workflows/workorder-ready.yml` が guard レポートを解析し、禁止パスを checkout で戻したうえで監査ログを出力。コミットメッセージも guard 結果に応じて変化させ、Draft PR には監査ログのみを push。
 - `docs/agile/workorder.md` と `workorder_sync_plan.json` の AUTO 節へ監査ログパスを許可パスとして追加。
+- PR 向けの読み取り専用サニティフローとして `.github/workflows/workorder-ready-pr.yml` を追加。`plan:sync` ラベル付き PR で禁止パス／上限ガードを事前検証し、監査エントリを artifact で確認できるようにした（本番の書き込み・監査ログ追記は default branch の `workorder-ready.yml` が担当）。
 
 #### WO-12: テスト実行レイヤ＋即時ロールバック
 **Outcome**: Implementation Draft PR に対し「高速スモーク→単体→軽統合」を段階実行し、赤なら自動停止＋自動リバート（またはPR自動クローズ）。

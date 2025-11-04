@@ -129,7 +129,8 @@ def _evaluate_guard(
     blocked: Sequence[str],
     limits: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    stats = workorder_guard.collect_diff_stats()
+    diff_range = os.environ.get("WORKORDER_DIFF_RANGE")
+    stats = workorder_guard.collect_diff_stats(diff_range=diff_range)
     evaluation = workorder_guard.evaluate_guard(stats, allowed, blocked, limits)
     return evaluation, stats
 
