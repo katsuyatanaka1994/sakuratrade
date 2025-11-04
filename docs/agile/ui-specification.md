@@ -85,3 +85,4 @@
 <!-- ASSIST-END:ui-spec -->
 
 <!-- Sanity check: placeholder to confirm pr-sanity guard runs in read-only mode -->
+<!-- Additional sanity line -->
