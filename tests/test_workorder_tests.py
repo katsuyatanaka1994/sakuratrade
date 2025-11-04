@@ -15,12 +15,7 @@ def _write_sync_plan(path: Path, checks: list[tuple[str, str]]) -> None:
         "tasks": [
             {
                 "id": "T-sample",
-                "acceptance": {
-                    "checks": [
-                        {"name": name, "command": command}
-                        for name, command in checks
-                    ]
-                },
+                "acceptance": {"checks": [{"name": name, "command": command} for name, command in checks]},
             }
         ]
     }
@@ -77,7 +72,7 @@ def test_cmd_run_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
         sync_plan,
         [
             ("frontend-tsc", "python3 -c \"print('tsc ok')\""),
-            ("frontend-vitest", "python3 -c \"import sys; sys.exit(2)\""),
+            ("frontend-vitest", 'python3 -c "import sys; sys.exit(2)"'),
         ],
     )
 
