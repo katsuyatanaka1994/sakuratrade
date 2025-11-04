@@ -130,7 +130,7 @@ Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・C
 
 **対応計画（改訂案）**:
 1. PR サニティワークフローから監査書き込み・artifact 生成など write 権限を要するステップを削除し、`actions/github-script` もステータス制御のみに限定する。ジョブの通知手段は Step Summary と失敗時の `core.setFailed` に一本化する。
-2. ワークフロー `permissions` を `contents: read` / `pull-requests: read` / `actions: read` へ縮小し、default branch 側の push ワークフローだけが audit・artifact を扱うよう役割分担を文書化する。
+2. ワークフローの明示的な `permissions` 設定を削除し、リポジトリ既定の read 権限だけで動作させる。default branch 側の push ワークフローだけが audit・artifact を扱うよう役割分担を文書化する。
 3. `scripts.workorder_guard` / `workorder_cli ready` の read-only 実行を前提に、上限ヒット時は guard step の失敗、その他は No-Op 成功となる挙動を確認。Summary に掲載する失敗理由テンプレを確定し、PR から即時参照できるようにする。
 4. base ブランチへ先行マージ→テスト PR 作成の手順で pull_request 実行を再現し、成功・失敗ケースが Required Check `workorder-ready/pr-sanity` として反映されること、最小権限トークン不要で起動することを検証する。
 
