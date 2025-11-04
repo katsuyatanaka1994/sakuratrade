@@ -128,6 +128,9 @@ Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・C
 **完了条件**:
 固定ブランチへの書き込みのみ許可、許可パス（Allowlist）外は No-Op、トークンは最小権限・リポジトリ変数で管理、実行ID・操作者・コミット範囲を含む監査ログが保存される。
 
+**状況メモ（2025-11-04）**:
+GitHub の pull_request ワークフロー制限により read-only サニティ案は未実装。push ベース guard/監査運用へ復帰し、WO-11 は当面スキップ。
+
 **実績メモ（2025-11-03）**:
 - `scripts/workorder_cli.py` を更新し、`docs-sync/plan` / `docs-sync/workorder` 以外の base/head を拒否。許可パス外の差分は No-Op として終了し、guard からの disallowed を CLI 側で握りつぶすようにした。
 - `scripts/workorder_guard.py` に `treated_as_noop` を追加し、`disallowed` を非エラー扱いでレポート化。
