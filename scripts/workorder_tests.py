@@ -136,16 +136,17 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     for stage in stages:
         stage_checks = [check for check in checks if check.stage == stage]
+        stage_checks_summary: list[dict[str, Any]] = []
         stage_summary = {
             "name": stage,
             "status": "skipped",
-            "checks": [],
+            "checks": stage_checks_summary,
         }
         stage_summaries.append(stage_summary)
 
         if overall_status == "failure":
             for check in stage_checks:
-                stage_summary["checks"].append(
+                stage_checks_summary.append(
                     {
                         "name": check.name,
                         "command": check.command,
@@ -163,7 +164,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"[workorder-tests] Running {stage}: {check.name}\n→ {check.command}")
             code, output = _run_command(check.command)
             log_path.write_text(output, encoding="utf-8")
-            stage_summary["checks"].append(
+            stage_checks_summary.append(
                 {
                     "name": check.name,
                     "command": check.command,
@@ -185,7 +186,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                     later_slug = _slugify(later.name or f"check-{later_index}")
                     skipped_path = log_dir / f"{stage}-{later_index:02d}-{later_slug}.log"
                     skipped_path.write_text("<skipped due to earlier failure>\n", encoding="utf-8")
-                    stage_summary["checks"].append(
+                    stage_checks_summary.append(
                         {
                             "name": later.name,
                             "command": later.command,
@@ -199,7 +200,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 print(f"[workorder-tests] ✅ {check.name} passed.")
         stage_summary["status"] = stage_status
 
-    summary = {
+    result: dict[str, Any] = {
         "status": overall_status,
         "stages": stage_summaries,
         "failed_stage": failed_stage,
@@ -207,10 +208,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         "failed_command": failed_command,
         "log_dir": str(log_dir.relative_to(ROOT)),
     }
-    _write_summary(Path(args.summary), summary)
+    _write_summary(Path(args.summary), result)
 
     print("[workorder-tests] Summary:")
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
 
     return 0 if overall_status == "success" else 1
 
