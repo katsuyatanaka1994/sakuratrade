@@ -128,6 +128,12 @@ Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・C
 **完了条件**:
 固定ブランチへの書き込みのみ許可、許可パス（Allowlist）外は No-Op、トークンは最小権限・リポジトリ変数で管理、実行ID・操作者・コミット範囲を含む監査ログが保存される。
 
+**対応計画（改訂案）**:
+1. PR サニティワークフローから監査書き込み・artifact 生成など write 権限を要するステップを削除し、`actions/github-script` もステータス制御のみに限定する。ジョブの通知手段は Step Summary と失敗時の `core.setFailed` に一本化する。
+2. ワークフロー `permissions` を `contents: read` / `pull-requests: read` / `actions: read` へ縮小し、default branch 側の push ワークフローだけが audit・artifact を扱うよう役割分担を文書化する。
+3. `scripts.workorder_guard` / `workorder_cli ready` の read-only 実行を前提に、上限ヒット時は guard step の失敗、その他は No-Op 成功となる挙動を確認。Summary に掲載する失敗理由テンプレを確定し、PR から即時参照できるようにする。
+4. base ブランチへ先行マージ→テスト PR 作成の手順で pull_request 実行を再現し、成功・失敗ケースが Required Check `workorder-ready/pr-sanity` として反映されること、最小権限トークン不要で起動することを検証する。
+
 **実績メモ（2025-11-03）**:
 - `scripts/workorder_cli.py` を更新し、`docs-sync/plan` / `docs-sync/workorder` 以外の base/head を拒否。許可パス外の差分は No-Op として終了し、guard からの disallowed を CLI 側で握りつぶすようにした。
 - `scripts/workorder_guard.py` に `treated_as_noop` を追加し、`disallowed` を非エラー扱いでレポート化。

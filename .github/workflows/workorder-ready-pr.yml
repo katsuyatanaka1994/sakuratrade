@@ -1,12 +1,13 @@
 name: workorder-ready/pr-sanity
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, reopened, synchronize, ready_for_review, labeled]
 
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
+  actions: read
 
 jobs:
   guard:
@@ -147,34 +148,6 @@ jobs:
               core.setFailed(`Failed to read guard report: ${error}`);
             }
 
-      - name: Record audit entry (dry run)
-        if: steps.context.outputs.should_run == 'true' && steps.guard.outcome != 'failure'
-        run: |
-          set -euo pipefail
-          python -m scripts.workorder_audit \
-            --trigger "pr-sanity" \
-            --source-pr "${{ steps.context.outputs.source_pr || github.event.number }}" \
-            --source-head "${{ steps.context.outputs.source_head || github.event.pull_request.head.ref }}" \
-            --head-branch "${{ github.event.pull_request.head.ref }}" \
-            --pr-base "${{ github.event.pull_request.base.ref }}" \
-            --log tmp/workorder_audit_pr.json \
-            --artifact tmp/workorder_audit_entry.json \
-            --skip-append
-
-      - name: Upload guard report
-        if: steps.context.outputs.should_run == 'true' && hashFiles(env.WORKORDER_RUN_REPORT) != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: workorder-pr-guard-report
-          path: ${{ env.WORKORDER_RUN_REPORT }}
-
-      - name: Upload audit entry
-        if: steps.context.outputs.should_run == 'true' && hashFiles('tmp/workorder_audit_entry.json') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: workorder-pr-audit-entry
-          path: tmp/workorder_audit_entry.json
-
       - name: Cleanup modified files
         if: steps.context.outputs.should_run == 'true'
         run: |
@@ -189,9 +162,5 @@ jobs:
               echo "- Result: failure"
             else
               echo "- Result: success"
-              if [ -f tmp/workorder_audit_entry.json ]; then
-                echo
-                echo '\`workorder_audit_entry.json\` を artifact に保存しました。'
-              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
