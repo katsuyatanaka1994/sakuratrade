@@ -12,6 +12,7 @@
 
 ### Notes（MANUAL）
 - 仕様上の判断・補足・TODO を記録する。
+- （検証）workorder-ready 手動トリガー確認用メモ。
 
 ### DoD（完了条件）
 - [ ] Unit / Integration / Smoke テストが合格している。
