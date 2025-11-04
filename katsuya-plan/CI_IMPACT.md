@@ -1,3 +1,25 @@
+# CI Impact Scan — WO-12 workorder staged tests & rollback
+
+## Updated assets
+- `.github/workflows/workorder-ready.yml` に acceptance テスト段階（smoke/unit/integration）と失敗時のロールバック／コメント処理を追加。Node 20 と `npm ci` をセットアップし、実行ログを `tmp/workorder_tests` 配下へ保存して artifact 化する。
+- `scripts/workorder_tests.py` を新設し、`workorder_sync_plan.json` の `acceptance.checks` を読み取って段階別に実行・要約を出力するユーティリティを実装。
+- `scripts/__init__.py` に新スクリプトを公開し、`tests/test_workorder_tests.py` を追加して段階判定・サマリ生成の単体テストを整備。
+
+## Triggers, contexts, permissions
+- `workorder-ready` の `workflow_run(plan-sync/Validate)` / `workflow_dispatch` / `push(main)` トリガーは維持。追加の Required Check 設定は不要で、既存ジョブ内にテスト段階を内包する。
+- `actions/setup-node@v4` で Node.js 20 を導入し、`frontend/package-lock.json` に基づき `npm ci` を実行。これまで通り `GITHUB_TOKEN` / GitHub App トークンの `contents/pull-requests/issues: write` 権限で十分。
+- 失敗時のロールバックはローカル `git reset --hard` のみで完結し、新たな push 先や追加シークレットは発生しない。
+
+## Impact & guardrails
+- acceptance テストを `smoke → unit → integration` の順で自動実行。途中失敗で残り段階をスキップし、失敗ステージ・コマンド・ログパスをサマリに記録する。
+- 失敗時は即座にコミットを元 SHA へ戻し、ソース PR へ失敗理由＋ログ案内をコメント。`WORKORDER_FAILURE_REASON` に反映して failure ledger／エスカレーション運用と連動。
+- 成功時のみ `docs-sync/workorder` を push し、既存の連続失敗カウンタ（成功でリセット／失敗で加算）の振る舞いは維持。
+- ログを `workorder-tests-logs` アーティファクトとして保存し、後追いでガード／テストの詳細を確認可能。
+
+## Validation log
+- `python -m pytest tests/test_workorder_tests.py`
+- `python -m pytest tests/test_workorder_cli.py`
+
 # CI Impact Scan — WO-11 workorder sandbox & audit
 
 ## Updated assets

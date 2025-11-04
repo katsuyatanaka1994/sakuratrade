@@ -213,9 +213,7 @@ def _assert_allowed_branch(role: str, branch: str, allowed: Sequence[str]) -> No
     if branch in allowed:
         return
     joined = ", ".join(allowed)
-    raise SystemExit(
-        f"{role} ブランチ '{branch}' は許可されていません。許可ブランチ: {joined}"
-    )
+    raise SystemExit(f"{role} ブランチ '{branch}' は許可されていません。許可ブランチ: {joined}")
 
 
 def _safe_int(value: str | None, default: int, *, env_name: str) -> int:
