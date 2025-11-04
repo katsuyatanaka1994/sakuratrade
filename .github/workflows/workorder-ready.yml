@@ -63,6 +63,35 @@ jobs:
             if (event === 'workflow_dispatch') {
               const baseInput = core.getInput('base') || 'docs-sync/plan';
               const planBranchInput = core.getInput('plan_branch') || baseInput;
+              const allowedBases = ['main', 'docs-sync/plan'];
+              const allowPrefixes = ['sandbox/', 'docs-sync/'];
+
+              if (!allowedBases.includes(baseInput)) {
+                set('should_run', 'false');
+                set('reason', `workflow_dispatch base '${baseInput}' not permitted (allowed: ${allowedBases.join(', ')})`);
+                return;
+              }
+
+              const isAllowedPlanBranch = allowPrefixes.some((prefix) => planBranchInput.startsWith(prefix));
+              if (!isAllowedPlanBranch) {
+                set('should_run', 'false');
+                set('reason', `workflow_dispatch plan_branch '${planBranchInput}' not permitted (allow prefixes: ${allowPrefixes.join(', ')})`);
+                return;
+              }
+
+              try {
+                await github.rest.git.getRef({
+                  owner,
+                  repo,
+                  ref: `heads/${planBranchInput}`,
+                });
+              } catch (error) {
+                core.warning(`workflow_dispatch plan_branch '${planBranchInput}' not found: ${error}`);
+                set('should_run', 'false');
+                set('reason', `workflow_dispatch plan_branch '${planBranchInput}' not found`);
+                return;
+              }
+
               set('should_run', 'true');
               set('checkout_ref', `refs/heads/${planBranchInput}`);
               set('plan_branch', planBranchInput);
