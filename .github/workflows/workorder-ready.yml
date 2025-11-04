@@ -530,19 +530,29 @@ PY
               body: 'ℹ️ workorder-ready を実行しましたが、自動更新はありませんでした (No-Op)。'
             });
 
-      - name: Create / update workorder PR
+      - name: Prepare workorder commit
         if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed == 'true' && (steps.guard-status.outputs.status == 'ok' || steps.guard-status.outputs.status == 'no_changes' || steps.guard-status.outputs.status == 'disallowed')
-        id: create-pr
+        id: prepare_workorder
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GUARD_STATUS: ${{ steps.guard-status.outputs.status || 'unknown' }}
+          TRIGGER: ${{ steps.context.outputs.trigger }}
+          SOURCE_HEAD: ${{ steps.context.outputs.source_head || '' }}
         run: |
           set -euo pipefail
           git add docs/agile/workorder.md workorder_sync_plan.json "$WORKORDER_AUDIT_LOG_PATH"
           if git diff --cached --quiet; then
+            {
+              echo "commit_created=false"
+              echo "before_sha="
+              echo "after_sha="
+              echo "body_path="
+              echo "snapshot="
+              echo "tasks_csv="
+            } >> "$GITHUB_OUTPUT"
             echo "No workorder changes to commit"
             exit 0
           fi
+          before_sha=$(git rev-parse HEAD)
           commit_msg="chore(workorder): sync workorder AUTO sections"
           if [ "${GUARD_STATUS}" = "disallowed" ]; then
             commit_msg="chore(workorder): record audit (disallowed)"
@@ -550,32 +560,228 @@ PY
             commit_msg="chore(workorder): record audit (noop)"
           fi
           git commit -m "$commit_msg"
+          after_sha=$(git rev-parse HEAD)
+          export BEFORE_SHA="$before_sha"
+          export AFTER_SHA="$after_sha"
+          python3 <<'PY'
+import json
+import os
+import pathlib
+
+data = json.loads(pathlib.Path("workorder_sync_plan.json").read_text(encoding="utf-8"))
+snapshot = data.get("plan_snapshot_id", "")
+task_ids = [t for t in data.get("task_ids", []) if isinstance(t, str)]
+tasks_csv = ", ".join(task_ids)
+trigger = os.environ.get("TRIGGER") or "workorder-ready"
+source_head = os.environ.get("SOURCE_HEAD") or ""
+lines = ["Automated workorder sync run.", "", f"- Trigger: {trigger}"]
+if source_head:
+    lines.append(f"- Source ref: `{source_head}`")
+if snapshot:
+    lines.append(f"- plan_snapshot_id: {snapshot}")
+if tasks_csv:
+    lines.append(f"- Tasks: {tasks_csv}")
+
+body_path = pathlib.Path("/tmp/workorder-body.txt")
+body_path.parent.mkdir(parents=True, exist_ok=True)
+body_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+before = os.environ.get("BEFORE_SHA", "")
+after = os.environ.get("AFTER_SHA", "")
+cwd = pathlib.Path.cwd()
+try:
+    rel_body = body_path.relative_to(cwd)
+except ValueError:
+    rel_body = body_path
+
+with output.open("a", encoding="utf-8") as fh:
+    fh.write("commit_created=true\n")
+    fh.write(f"before_sha={before}\n")
+    fh.write(f"after_sha={after}\n")
+    fh.write(f"body_path={rel_body}\n")
+    fh.write(f"snapshot={snapshot}\n")
+    fh.write(f"tasks_csv={tasks_csv}\n")
+PY
+          echo "Prepared workorder commit ${after_sha}"
+
+      - name: Setup Node for acceptance tests
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true'
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Run workorder acceptance tests
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true'
+        id: acceptance_tests
+        continue-on-error: true
+        env:
+          SUMMARY_PATH: tmp/workorder_tests_summary.json
+        run: |
+          set -euo pipefail
+          SUMMARY_PATH="${SUMMARY_PATH}"
+          EXIT_CODE=0
+          set +e
+          python3 -m scripts.workorder_tests run --summary "$SUMMARY_PATH" --log-dir tmp/workorder_tests
+          EXIT_CODE=$?
+          set -e
+          {
+            echo "summary_path=$SUMMARY_PATH"
+            echo "exit_code=$EXIT_CODE"
+          } >> "$GITHUB_OUTPUT"
+          exit $EXIT_CODE
+
+      - name: Analyse acceptance summary
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true'
+        id: acceptance_summary
+        env:
+          SUMMARY_PATH: ${{ steps.acceptance_tests.outputs.summary_path || '' }}
+        run: |
+          set -euo pipefail
+          summary_path="${SUMMARY_PATH}"
+          if [ -z "$summary_path" ] || [ ! -f "$summary_path" ]; then
+            {
+              echo "status=error"
+              echo "summary_path=$summary_path"
+              echo "failed_stage="
+              echo "failed_check="
+              echo "failed_command="
+              echo "log_dir="
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 <<'PY'
+import json
+import os
+import pathlib
+
+summary_path = pathlib.Path(os.environ['SUMMARY_PATH']).resolve()
+data = json.loads(summary_path.read_text(encoding='utf-8'))
+cwd = pathlib.Path.cwd()
+try:
+    rel_summary = summary_path.relative_to(cwd)
+except ValueError:
+    rel_summary = summary_path
+
+log_dir = data.get('log_dir') or ''
+if log_dir:
+    log_path = cwd / log_dir
+    try:
+        rel_log = log_path.relative_to(cwd)
+    except ValueError:
+        rel_log = log_dir
+else:
+    rel_log = ''
+
+output = pathlib.Path(os.environ['GITHUB_OUTPUT'])
+with output.open('a', encoding='utf-8') as fh:
+    fh.write(f"status={data.get('status', 'unknown')}\n")
+    fh.write(f"summary_path={rel_summary}\n")
+    fh.write(f"failed_stage={data.get('failed_stage') or ''}\n")
+    fh.write(f"failed_check={data.get('failed_check') or ''}\n")
+    fh.write(f"failed_command={data.get('failed_command') or ''}\n")
+    fh.write(f"log_dir={rel_log}\n")
+PY
+
+      - name: Upload acceptance logs
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_tests.outputs.summary_path != '' && hashFiles('tmp/workorder_tests/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: workorder-tests-logs
+          path: tmp/workorder_tests
+
+      - name: Comment acceptance failure
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_summary.outputs.status == 'failure' && steps.context.outputs.source_pr != ''
+        uses: actions/github-script@v7
+        env:
+          SOURCE_PR: ${{ steps.context.outputs.source_pr }}
+          FAILED_STAGE: ${{ steps.acceptance_summary.outputs.failed_stage }}
+          FAILED_CHECK: ${{ steps.acceptance_summary.outputs.failed_check }}
+          FAILED_COMMAND: ${{ steps.acceptance_summary.outputs.failed_command }}
+          LOG_DIR: ${{ steps.acceptance_summary.outputs.log_dir }}
+          SUMMARY_PATH: ${{ steps.acceptance_summary.outputs.summary_path }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const stage = process.env.FAILED_STAGE || 'unknown';
+            const check = process.env.FAILED_CHECK || 'unknown';
+            const command = process.env.FAILED_COMMAND || '';
+            const logDir = process.env.LOG_DIR || 'tmp/workorder_tests';
+            const summaryPath = process.env.SUMMARY_PATH || 'tmp/workorder_tests_summary.json';
+            let body = '🛑 workorder-ready acceptance tests failed.\n';
+            body += `- Stage: ${stage}\n`;
+            body += `- Check: ${check}\n`;
+            if (command) {
+              body += `- Command: \`${command}\`\n`;
+            }
+            body += `- Logs: ${logDir} (artifact: workorder-tests-logs)\n`;
+            body += `- Summary: ${summaryPath}\n`;
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: Number(process.env.SOURCE_PR),
+              body,
+            });
+            const label = command ? `${check} (${stage})` : (check || stage);
+            core.exportVariable('WORKORDER_FAILURE_REASON', `workorder tests failed: ${label}`);
+
+      - name: Rollback workorder commit
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_summary.outputs.status == 'failure'
+        run: |
+          set -euo pipefail
+          git reset --hard ${{ steps.prepare_workorder.outputs.before_sha }}
+          echo "Rolled back workorder commit due to failed acceptance tests"
+
+      - name: Fail due to acceptance failure
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_summary.outputs.status == 'failure'
+        run: |
+          echo "::error::workorder acceptance tests failed"
+          exit 1
+
+      - name: Push workorder branch
+        if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && ((steps.guard-status.outputs.status == 'ok' && steps.acceptance_summary.outputs.status == 'success') || (steps.guard-status.outputs.status != 'ok'))
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          BODY_PATH: ${{ steps.prepare_workorder.outputs.body_path }}
+          PR_BASE: ${{ steps.context.outputs.pr_base }}
+        run: |
+          set -euo pipefail
           git push --force-with-lease origin docs-sync/workorder
-          SNAPSHOT=$(python3 -c 'import json;print(json.load(open("workorder_sync_plan.json","r",encoding="utf-8"))["plan_snapshot_id"])')
-          TASKS=$(python3 -c 'import json;data=json.load(open("workorder_sync_plan.json","r",encoding="utf-8"));print(", ".join(data.get("task_ids", [])))')
-          TRIGGER="${{ steps.context.outputs.trigger }}"
-          SOURCE_HEAD="${{ steps.context.outputs.source_head || '' }}"
-          python3 -c 'import sys;from pathlib import Path;trigger,head,snapshot,tasks=sys.argv[1:5];lines=["Automated workorder sync run.","",f"- Trigger: {trigger}"];\
-          lines.append(f"- Source ref: `{head}`") if head else None;\
-          lines.append(f"- plan_snapshot_id: {snapshot}") if snapshot else None;\
-          lines.append(f"- Tasks: {tasks}") if tasks else None;\
-          Path("/tmp/workorder-body.txt").write_text("\n".join(lines)+"\n",encoding="utf-8")' "$TRIGGER" "$SOURCE_HEAD" "$SNAPSHOT" "$TASKS"
+          body_path="${BODY_PATH}"
+          if [ -z "$body_path" ] || [ ! -f "$body_path" ]; then
+            echo "PR body missing; skipped body update"
+            exit 0
+          fi
           if gh pr view docs-sync/workorder >/dev/null 2>&1; then
             gh pr edit docs-sync/workorder \
               --title "[workorder-ready] docs: sync workorder auto sections" \
-              --body-file /tmp/workorder-body.txt \
-              --base ${{ steps.context.outputs.pr_base }}
+              --body-file "$body_path" \
+              --base "$PR_BASE"
           else
             gh pr create \
               --draft \
               --title "[workorder-ready] docs: sync workorder auto sections" \
-              --body-file /tmp/workorder-body.txt \
-              --base ${{ steps.context.outputs.pr_base }} \
+              --body-file "$body_path" \
+              --base "$PR_BASE" \
               --head docs-sync/workorder
           fi
 
       - name: Comment PR link
-        if: steps.context.outputs.should_run == 'true' && steps.context.outputs.source_pr != '' && steps.changes.outputs.changed == 'true' && (steps.guard-status.outputs.status == 'ok' || steps.guard-status.outputs.status == 'no_changes' || steps.guard-status.outputs.status == 'disallowed')
+        if: steps.context.outputs.should_run == 'true' && steps.context.outputs.source_pr != '' && steps.prepare_workorder.outputs.commit_created == 'true' && ((steps.guard-status.outputs.status == 'ok' && steps.acceptance_summary.outputs.status == 'success') || (steps.guard-status.outputs.status != 'ok'))
         uses: actions/github-script@v7
         env:
           SOURCE_PR: ${{ steps.context.outputs.source_pr }}
