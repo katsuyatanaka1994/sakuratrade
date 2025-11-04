@@ -83,3 +83,5 @@
 #### UIイベント → API
 - （例）POST /trades, GET /trades/{trade_id}
 <!-- ASSIST-END:ui-spec -->
+
+<!-- Sanity check: placeholder to confirm pr-sanity guard runs in read-only mode -->
