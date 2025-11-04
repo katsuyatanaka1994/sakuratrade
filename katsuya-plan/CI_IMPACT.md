@@ -305,3 +305,17 @@
 ## Follow-up signals
 - If report JSON is missing or malformed, `Handle guard outcome` fails the job with a diagnostic.
 - When ceilings are hit, PR comments begin with `🛑 plan-sync stopped…` so they can be searched for operations review.
+# CI Impact Scan — WO-11 workorder sandbox & audit (追加検証フロー)
+
+## Updated assets
+- `.github/workflows/workorder-ready-pr.yml` を新設し、`plan:sync` ラベル付き PR を対象とした読み取り専用サニティチェックを追加。禁止パス・上限ガードを PR 上で先に検証し、監査エントリ（artifactのみ）を出力する。
+- `.github/workflows/workorder-ready.yml` は従来どおり default branch / `workflow_dispatch` でのみ動作し、固定ブランチ更新と監査ログ追記を担当。
+- `docs/runbooks/workorder.md` に PR サニティチェックの流れと artifact 確認手順を追記。
+
+## Triggers, contexts, permissions
+- 新ワークフローは `pull_request` イベントで走り、`plan:sync` ラベルと同一リポジトリ PR のみを対象にする。`contents: read` / `pull-requests: write` 権限でガード結果のみをコメントではなく artifact とステップサマリに残す。
+- 既存の `workorder-ready.yml` は default branch の `workflow_run(plan-sync/Validate)` または手動 `workflow_dispatch` で実行し、GitHub App トークン（`actions/create-github-app-token`）で固定ブランチを更新する。
+
+## Impact & guardrails
+- PR 上で禁止パス＋上限チェックと監査エントリを確認できるようになり、本番ワークフローを実行する前に汚染や上限超過を検知可能。
+- 本番ワークフローは引き続き固定ブランチ (`docs-sync/workorder`) と最小権限トークンのみに限定され、PR から直接 push されることはない。

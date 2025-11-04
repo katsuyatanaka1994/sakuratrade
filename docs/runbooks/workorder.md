@@ -5,6 +5,7 @@
 ## 1 分ランブック（成功ルート）
 - **対象 PR を確認する**: `plan:sync` ラベルが付き、`wo:ready` ラベルも付与済み（または `WORKORDER_ENFORCE_READY_LABEL=0` で非ブロック）であることを確認。Required Check `wo:ready/Validate` が緑なら自動実装に進めます。
 - **workorder-ready を起動する**: plan-sync の完了を待つか、Actions ▸ `workorder-ready` ▸ `Run workflow` から手動実行。必要に応じて `plan_branch` / `base` 入力を `docs-sync/plan` 以外に切り替えます。
+- **PR上のサニティチェック**: PR を `plan:sync` ラベルで開いたら `workorder-ready/pr-sanity`（`pull_request`）が自動で走り、禁止パス・上限ガードと監査ログ（artifact）を先に確認できます。fork PR やラベル未付与の場合はスキップされます。
 - **ガード結果を確認する**: Run summary に `workorder_cli ready` → guard → PR 作成の順で緑が並んでいることを確認。Artifact `workorder-limits-report.zip` が生成されていれば、ガード統計も保存済みです。
 - **Draft PR を点検する**: `docs-sync/workorder` の Draft PR が更新され、本文に Trigger / plan_snapshot_id / Tasks が記録されているか確認。Required Checks が緑のままなら完了です。
 
@@ -35,7 +36,7 @@
 
 ## 運用チェックリスト
 - **事前**: `docs/agile/workorder.md` の MANUAL 節が最新であるか、plan 側の `tasks` / `outputs` に変化がないか確認。
-- **実行中**: Run summary に `Skipping workorder-ready: ...` が出た場合は理由を読み、必要なラベル／トグル設定を直す。
+- **実行中**: Run summary に `Skipping workorder-ready: ...` が出た場合は理由を読み、必要なラベル／トグル設定を直す。PR 側の `workorder-ready/pr-sanity` が赤のときは artifact の guard レポート／audit entry を確認し、差分を調整して再実行する。
 - **完了後**: Draft PR の本文に `plan_snapshot_id` と `Tasks` が記録されていること、`wo:ready/Validate` / `plan-sync/Validate` が緑であることを確認。
 - **週次**: `reports/workorder-weekly.md` をチェックし、No-Op 率や guard ヒット件数が異常に増えていないかをモニタリング。
 - **設定変更時**: `WORKORDER_ALLOWED_PATHS` や上限トグルを調整した場合は、同じ変更を CI 変数・Runbook・CI_IMPACT に反映する。

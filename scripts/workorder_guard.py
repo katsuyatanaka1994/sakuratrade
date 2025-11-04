@@ -35,8 +35,10 @@ def _matches_any(path: str, patterns: Sequence[str]) -> bool:
     return any(fnmatch(normalized, pattern) for pattern in patterns)
 
 
-def _collect_diff_stats(paths: Sequence[str] | None = None) -> dict[str, Any]:
+def _collect_diff_stats(paths: Sequence[str] | None = None, diff_range: str | None = None) -> dict[str, Any]:
     cmd = ["git", "diff", "--numstat"]
+    if diff_range:
+        cmd.append(diff_range)
     if paths:
         cmd.append("--")
         cmd.extend(paths)
@@ -68,10 +70,10 @@ def _collect_diff_stats(paths: Sequence[str] | None = None) -> dict[str, Any]:
     return {"files": files, "file_count": len(files), "total_lines": total_lines}
 
 
-def collect_diff_stats(paths: Sequence[str] | None = None) -> dict[str, Any]:
+def collect_diff_stats(paths: Sequence[str] | None = None, diff_range: str | None = None) -> dict[str, Any]:
     """Public wrapper so other modules can reuse the diff parser."""
 
-    return _collect_diff_stats(paths)
+    return _collect_diff_stats(paths, diff_range)
 
 
 def _load_config() -> dict[str, Any]:
@@ -162,7 +164,8 @@ def main(argv: list[str] | None = None) -> int:
     blocked_patterns = list(config.get("blocked_paths") or [])
     limits = config.get("limits") or {}
 
-    stats = collect_diff_stats()
+    diff_range = os.environ.get("WORKORDER_DIFF_RANGE")
+    stats = collect_diff_stats(diff_range=diff_range)
     evaluation = evaluate_guard(stats, allowed_patterns, blocked_patterns, limits)
 
     report = {
