@@ -34,6 +34,11 @@
 2. リストされている Draft PR を確認し、不要なものをクローズ・マージして枠を空ける。必要なら差分を手動でマージ後に PR を閉じる。
 3. 枠を確保したら `workorder-ready` を再実行し、新しい Draft PR が作成されることを確認。
 
+### ケース 5: Draft PR 更新が警告で終了した
+1. Run summary に `::warning::gh pr edit failed` や `::warning::gh pr create failed` のログがないか確認し、`Record workorder-ready notice` ステップの `status` が `error` を示していないか併せて確認する。
+2. `Ensure workorder draft PR` ステップのログに表示される `gh pr ...` コマンドをコピーし、手元または Actions の手動実行で再試行する（既存 PR がある場合は `gh pr edit docs-sync/workorder ...`、存在しない場合は `gh pr create --draft ...`）。
+3. 手動更新後に `gh workflow run workorder-ready.yml` もしくは `gh workflow run plan-sync.yml -f pr=<番号>` を実行し直し、ログに `::notice::workorder-ready create|edit` が出て PR 番号が記録されることを確認する。
+
 ## 運用チェックリスト
 - **事前**: `docs/agile/workorder.md` の MANUAL 節が最新であるか、plan 側の `tasks` / `outputs` に変化がないか確認。
 - **実行中**: Run summary に `Skipping workorder-ready: ...` が出た場合は理由を読み、必要なラベル／トグル設定を直す。PR 側の `workorder-ready/pr-sanity` が赤のときは artifact の guard レポート／audit entry を確認し、差分を調整して再実行する。

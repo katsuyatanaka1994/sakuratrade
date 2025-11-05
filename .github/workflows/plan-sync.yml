@@ -26,6 +26,14 @@ defaults:
 jobs:
   sync:
     name: plan-sync/Validate
+    outputs:
+      should_run: ${{ steps.context.outputs.should_run }}
+      pr_number: ${{ steps.context.outputs.pr_number }}
+      head_ref: ${{ steps.context.outputs.head_ref }}
+      head_sha: ${{ steps.context.outputs.head_sha }}
+      base_ref: ${{ steps.context.outputs.base_ref }}
+      plan_branch: ${{ steps.context.outputs.plan_branch }}
+      trigger_mode: ${{ steps.context.outputs.trigger_mode }}
     env:
       PLAN_SYNC_ALLOWED_PATHS: ${{ vars.PLAN_SYNC_ALLOWED_PATHS || vars.PLAN_SYNC_ALLOW_GLOBS || 'docs/agile/**,docs/specs/**,docs/tests/**,.github/workflows/**,backend/app/openapi.yaml' }}
       PLAN_SYNC_BLOCKED_PATHS: ${{ vars.PLAN_SYNC_BLOCKED_PATHS || vars.PLAN_SYNC_DENY_GLOBS || 'docs/secrets/**' }}
@@ -62,6 +70,12 @@ jobs:
             const repo = context.repo.repo;
 
             const set = (key, value) => core.setOutput(key, value ?? '');
+            set('plan_branch', '');
+            set('head_sha', '');
+            set('pr_number', '');
+            set('base_ref', '');
+            set('head_ref', '');
+            set('trigger_mode', '');
 
             if (event === 'workflow_dispatch') {
               const prInput = core.getInput('pr');
@@ -76,6 +90,8 @@ jobs:
                 set('base_ref', pr.data.base.ref);
                 set('base_sha', pr.data.base.sha ?? '');
                 set('head_ref', pr.data.head.ref);
+                set('plan_branch', 'docs-sync/plan');
+                set('head_sha', pr.data.head?.sha ?? '');
                 return;
               }
               const inferredBranch = branchInput || context.ref.replace('refs/heads/', '');
@@ -86,6 +102,8 @@ jobs:
               set('base_ref', 'main');
               set('base_sha', '');
               set('head_ref', inferredBranch);
+              set('plan_branch', inferredBranch);
+              set('head_sha', context.sha || '');
               return;
             }
 
@@ -120,6 +138,8 @@ jobs:
                 set('base_ref', pr.base.ref);
                 set('base_sha', pr.base.sha ?? '');
                 set('head_ref', pr.head.ref);
+                set('plan_branch', planBranch);
+                set('head_sha', pr.head?.sha ?? '');
                 return;
               }
 
@@ -245,6 +265,8 @@ jobs:
               set('base_ref', pr.base.ref);
               set('base_sha', pr.base.sha ?? '');
               set('head_ref', pr.head.ref);
+              set('plan_branch', planBranch);
+              set('head_sha', pr.head?.sha ?? '');
               set('auto_history', JSON.stringify({ timestamps: recentHistory }));
               set('auto_comment_id', ledgerComment?.id ? String(ledgerComment.id) : '');
               return;
@@ -298,6 +320,8 @@ jobs:
               set('base_ref', pr.data.base.ref);
               set('base_sha', pr.data.base.sha ?? '');
               set('head_ref', pr.data.head.ref);
+              set('plan_branch', 'docs-sync/plan');
+              set('head_sha', pr.data.head?.sha ?? '');
               return;
             }
 
@@ -651,3 +675,24 @@ jobs:
               issue_number: Number(process.env.SOURCE_PR),
               body: `📋 plan-sync: ${url}`,
             });
+
+  workorder_ready:
+    name: workorder-ready
+    needs: sync
+    if: >-
+      needs.sync.result == 'success' &&
+      needs.sync.outputs.should_run == 'true' &&
+      needs.sync.outputs.pr_number != ''
+    uses: ./.github/workflows/workorder-ready.yml
+    with:
+      pr_number: ${{ needs.sync.outputs.pr_number }}
+      head_branch: ${{ needs.sync.outputs.head_ref }}
+      source_sha: ${{ needs.sync.outputs.head_sha }}
+      plan_branch: ${{ needs.sync.outputs.plan_branch || 'docs-sync/plan' }}
+      base_branch: ${{ needs.sync.outputs.plan_branch || 'docs-sync/plan' }}
+      trigger_mode: ${{ needs.sync.outputs.trigger_mode }}
+      caller_run_id: ${{ github.run_id }}
+    secrets:
+      GH_APP_ID: ${{ secrets.GH_APP_ID }}
+      GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
