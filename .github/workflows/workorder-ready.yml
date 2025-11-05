@@ -312,31 +312,11 @@ jobs:
         id: guard-status
         run: |
           set -euo pipefail
-          python3 <<'PY'
-import json
-import os
-import pathlib
-
-report_path = os.environ.get('WORKORDER_RUN_REPORT')
-status = 'unknown'
-treated = 'false'
-disallowed = ''
-limit_exceeded = 'false'
-if report_path and pathlib.Path(report_path).is_file():
-    with open(report_path, 'r', encoding='utf-8') as fh:
-        data = json.load(fh)
-    status = (data.get('status') or 'unknown').strip() or 'unknown'
-    treated = 'true' if data.get('treated_as_noop') else 'false'
-    disallowed = ','.join(data.get('disallowed_files') or [])
-    over_limit = bool(data.get('file_over_limit')) or bool(data.get('total_over_limit')) or bool(data.get('file_count_over_limit'))
-    limit_exceeded = 'true' if over_limit else 'false'
-output_path = pathlib.Path(os.environ['GITHUB_OUTPUT'])
-with output_path.open('a', encoding='utf-8') as fh:
-    fh.write(f"status={status}\n")
-    fh.write(f"treated_as_noop={treated}\n")
-    fh.write(f"disallowed_files={disallowed}\n")
-    fh.write(f"limit_exceeded={limit_exceeded}\n")
-PY
+          if [ -n "${WORKORDER_RUN_REPORT:-}" ] && [ -f "${WORKORDER_RUN_REPORT}" ]; then
+            python3 -m scripts.workorder_ready --guard-report "${WORKORDER_RUN_REPORT}" --write-guard-outputs
+          else
+            python3 -m scripts.workorder_ready --write-guard-outputs
+          fi
 
       - name: Fail when disallowed hides limit breaches
         if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'disallowed' && steps.guard-status.outputs.limit_exceeded == 'true'
@@ -364,26 +344,9 @@ PY
         if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'disallowed'
         run: |
           set -euo pipefail
-          python3 <<'PY'
-import json
-import os
-import pathlib
-import subprocess
-
-report_path = os.environ.get('WORKORDER_RUN_REPORT')
-if not report_path:
-    raise SystemExit(0)
-path = pathlib.Path(report_path)
-if not path.is_file():
-    raise SystemExit(0)
-with path.open('r', encoding='utf-8') as fh:
-    data = json.load(fh)
-files = data.get('disallowed_files') or []
-for item in files:
-    if not item:
-        continue
-    subprocess.run(['git', 'checkout', '--', item], check=False)
-PY
+          if [ -n "${WORKORDER_RUN_REPORT:-}" ] && [ -f "${WORKORDER_RUN_REPORT}" ]; then
+            python3 -m scripts.workorder_ready --guard-report "${WORKORDER_RUN_REPORT}" --reset-disallowed
+          fi
 
       - name: Record audit log entry
         if: steps.context.outputs.should_run == 'true'
@@ -587,48 +550,12 @@ PY
           fi
           git commit -m "$commit_msg"
           after_sha=$(git rev-parse HEAD)
-          export BEFORE_SHA="$before_sha"
-          export AFTER_SHA="$after_sha"
-          python3 <<'PY'
-import json
-import os
-import pathlib
-
-data = json.loads(pathlib.Path("workorder_sync_plan.json").read_text(encoding="utf-8"))
-snapshot = data.get("plan_snapshot_id", "")
-task_ids = [t for t in data.get("task_ids", []) if isinstance(t, str)]
-tasks_csv = ", ".join(task_ids)
-trigger = os.environ.get("TRIGGER") or "workorder-ready"
-source_head = os.environ.get("SOURCE_HEAD") or ""
-lines = ["Automated workorder sync run.", "", f"- Trigger: {trigger}"]
-if source_head:
-    lines.append(f"- Source ref: `{source_head}`")
-if snapshot:
-    lines.append(f"- plan_snapshot_id: {snapshot}")
-if tasks_csv:
-    lines.append(f"- Tasks: {tasks_csv}")
-
-body_path = pathlib.Path("/tmp/workorder-body.txt")
-body_path.parent.mkdir(parents=True, exist_ok=True)
-body_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
-before = os.environ.get("BEFORE_SHA", "")
-after = os.environ.get("AFTER_SHA", "")
-cwd = pathlib.Path.cwd()
-try:
-    rel_body = body_path.relative_to(cwd)
-except ValueError:
-    rel_body = body_path
-
-with output.open("a", encoding="utf-8") as fh:
-    fh.write("commit_created=true\n")
-    fh.write(f"before_sha={before}\n")
-    fh.write(f"after_sha={after}\n")
-    fh.write(f"body_path={rel_body}\n")
-    fh.write(f"snapshot={snapshot}\n")
-    fh.write(f"tasks_csv={tasks_csv}\n")
-PY
+          {
+            echo "commit_created=true"
+            echo "before_sha=${before_sha}"
+            echo "after_sha=${after_sha}"
+          } >> "$GITHUB_OUTPUT"
+          python3 -m scripts.workorder_ready --plan-json workorder_sync_plan.json --trigger "${TRIGGER}" --source-head "${SOURCE_HEAD}"
           echo "Prepared workorder commit ${after_sha}"
 
       - name: Setup Node for acceptance tests
@@ -689,38 +616,7 @@ PY
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          python3 <<'PY'
-import json
-import os
-import pathlib
-
-summary_path = pathlib.Path(os.environ['SUMMARY_PATH']).resolve()
-data = json.loads(summary_path.read_text(encoding='utf-8'))
-cwd = pathlib.Path.cwd()
-try:
-    rel_summary = summary_path.relative_to(cwd)
-except ValueError:
-    rel_summary = summary_path
-
-log_dir = data.get('log_dir') or ''
-if log_dir:
-    log_path = cwd / log_dir
-    try:
-        rel_log = log_path.relative_to(cwd)
-    except ValueError:
-        rel_log = log_dir
-else:
-    rel_log = ''
-
-output = pathlib.Path(os.environ['GITHUB_OUTPUT'])
-with output.open('a', encoding='utf-8') as fh:
-    fh.write(f"status={data.get('status', 'unknown')}\n")
-    fh.write(f"summary_path={rel_summary}\n")
-    fh.write(f"failed_stage={data.get('failed_stage') or ''}\n")
-    fh.write(f"failed_check={data.get('failed_check') or ''}\n")
-    fh.write(f"failed_command={data.get('failed_command') or ''}\n")
-    fh.write(f"log_dir={rel_log}\n")
-PY
+          python3 -m scripts.workorder_ready --summary "$summary_path"
 
       - name: Upload acceptance logs
         if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_tests.outputs.summary_path != '' && hashFiles('tmp/workorder_tests/**') != ''
@@ -805,132 +701,7 @@ PY
           SOURCE_PR: ${{ steps.context.outputs.source_pr }}
         run: |
           set -euo pipefail
-          python3 <<'PY'
-import json
-import os
-import subprocess
-from pathlib import Path
-
-body_path = os.environ.get('BODY_PATH') or ''
-base = os.environ.get('PR_BASE') or ''
-source_pr = os.environ.get('SOURCE_PR') or ''
-head = 'docs-sync/workorder'
-output_path = Path(os.environ['GITHUB_OUTPUT'])
-action = ''
-status = 'skipped'
-pr_number = ''
-
-body = Path(body_path)
-if not body_path or not body.is_file():
-    print('::warning::workorder-ready: PR body missing; skipped PR update')
-else:
-    status = 'success'
-
-    def run(cmd):
-        return subprocess.run(cmd, text=True, capture_output=True)
-
-    list_cmd = ['gh', 'pr', 'list', '--head', head, '--state', 'open', '--json', 'number', '--limit', '1']
-    open_number = ''
-    list_proc = run(list_cmd)
-    if list_proc.returncode == 0 and list_proc.stdout.strip():
-        try:
-            data = json.loads(list_proc.stdout)
-        except json.JSONDecodeError as error:
-            print(f'::warning::gh pr list parse error: {error}')
-        else:
-            if data:
-                open_number = str(data[0].get('number') or '')
-    elif list_proc.stderr:
-        print(f"::warning::gh pr list failed: {list_proc.stderr.strip()}")
-
-    base_branch = base or 'docs-sync/plan'
-
-    if open_number:
-        edit_cmd = [
-            'gh', 'pr', 'edit', head,
-            '--title', '[workorder-ready] docs: sync workorder auto sections',
-            '--body-file', body_path,
-            '--base', base_branch,
-        ]
-        edit_proc = run(edit_cmd)
-        if edit_proc.returncode == 0:
-            action = 'edit'
-            pr_number = open_number
-        else:
-            message = f'gh pr edit failed (code {edit_proc.returncode})'
-            if edit_proc.stderr:
-                message += f': {edit_proc.stderr.strip()}'
-            print(f'::warning::{message}. Falling back to draft creation.')
-
-    if action != 'edit':
-        create_cmd = [
-            'gh', 'pr', 'create',
-            '--draft',
-            '--title', '[workorder-ready] docs: sync workorder auto sections',
-            '--body-file', body_path,
-            '--base', base_branch,
-            '--head', head,
-        ]
-        create_proc = run(create_cmd)
-        if create_proc.returncode == 0:
-            action = 'create'
-            list_proc = run(list_cmd)
-            if list_proc.returncode == 0 and list_proc.stdout.strip():
-                try:
-                    data = json.loads(list_proc.stdout)
-                except json.JSONDecodeError as error:
-                    print(f'::warning::gh pr list parse error after create: {error}')
-                else:
-                    if data:
-                        pr_number = str(data[0].get('number') or pr_number)
-        else:
-            status = 'error'
-            message = f'gh pr create failed (code {create_proc.returncode})'
-            if create_proc.stderr:
-                message += f': {create_proc.stderr.strip()}'
-            cmd = ("gh pr create --draft --title '[workorder-ready] docs: sync workorder auto sections' "
-                   f"--body-file {body_path} --base {base_branch} --head {head}")
-            print(f'::warning::{message}. Push is complete; rerun workorder-ready or execute "{cmd}" manually.')
-            if not pr_number:
-                pr_number = open_number
-            if not action:
-                action = 'error'
-
-    if action == 'edit' and not pr_number:
-        pr_number = open_number
-
-    if not action:
-        action = 'skipped'
-        status = 'skipped'
-
-with output_path.open('a', encoding='utf-8') as fh:
-    fh.write(f'status={status}\n')
-    fh.write(f'action={action}\n')
-    fh.write(f'pr_number={pr_number}\n')
-PY
-
-      - name: Record workorder-ready notice
-        if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.sync_pr.outputs.status != ''
-        env:
-          WORKORDER_PR_ACTION: ${{ steps.sync_pr.outputs.action || 'skipped' }}
-          WORKORDER_PR_STATUS: ${{ steps.sync_pr.outputs.status || 'skipped' }}
-          WORKORDER_PR_NUMBER: ${{ steps.sync_pr.outputs.pr_number || '' }}
-          CALLER_RUN_ID: ${{ steps.context.outputs.caller_run_id }}
-          SOURCE_SHA: ${{ steps.context.outputs.source_sha || steps.context.outputs.guard_ref || github.sha }}
-        run: |
-          set -euo pipefail
-          caller="${CALLER_RUN_ID}"
-          if [ -n "$caller" ]; then
-            run_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${caller}"
-          else
-            run_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          fi
-          pr_number="${WORKORDER_PR_NUMBER:-unknown}"
-          action="${WORKORDER_PR_ACTION:-skipped}"
-          sha="${SOURCE_SHA:-${GITHUB_SHA}}"
-          status="${WORKORDER_PR_STATUS:-skipped}"
-          echo "::notice::workorder-ready ${action} (status=${status}) for PR #${pr_number} via ${run_url} sha ${sha}"
-
+          python3 -m scripts.workorder_ready --ensure-pr --body-path "${BODY_PATH}" --base "${PR_BASE}" --source-pr "${SOURCE_PR}"
 
       - name: Comment PR link
         if: steps.context.outputs.should_run == 'true' && steps.context.outputs.source_pr != '' && steps.prepare_workorder.outputs.commit_created == 'true' && ((steps.guard-status.outputs.status == 'ok' && steps.acceptance_summary.outputs.status == 'success') || (steps.guard-status.outputs.status != 'ok'))
