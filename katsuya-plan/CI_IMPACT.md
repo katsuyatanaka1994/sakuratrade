@@ -337,6 +337,7 @@
 ## Triggers, contexts, permissions
 - 新ワークフローは `pull_request` イベントで走り、`plan:sync` ラベルと同一リポジトリ PR のみを対象にする。`contents: read` / `pull-requests: write` 権限でガード結果のみをコメントではなく artifact とステップサマリに残す。
 - 既存の `workorder-ready.yml` は default branch の `workflow_run(plan-sync/Validate)` または手動 `workflow_dispatch` で実行し、GitHub App トークン（`actions/create-github-app-token`）で固定ブランチを更新する。
+- `workorder-ready.yml` の `workflow_run` 分岐で `event == 'pull_request'` を正式サポートし、`plan-sync/Validate` の PR 実行完了後でも `plan:sync` ラベル付き PR から Draft 再生成フローを起動できるようにした（自己発火・ラベル欠如・エスカレーションラベルは従来どおりスキップ）。
 
 ## Impact & guardrails
 - PR 上で禁止パス＋上限チェックと監査エントリを確認できるようになり、本番ワークフローを実行する前に汚染や上限超過を検知可能。

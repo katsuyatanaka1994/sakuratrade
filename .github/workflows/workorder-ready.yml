@@ -92,7 +92,7 @@ jobs:
               const prInfo = Array.isArray(run.pull_requests) && run.pull_requests[0] ? run.pull_requests[0] : null;
               const runHeadSha = run.head_sha || '';
 
-              if (trigger === 'pull_request_target') {
+              if (trigger === 'pull_request_target' || trigger === 'pull_request') {
                 if (!prInfo) {
                   set('should_run', 'false');
                   set('reason', 'workflow_run missing associated pull request');
