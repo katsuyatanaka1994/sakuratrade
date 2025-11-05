@@ -10,7 +10,10 @@ on:
         description: 'Plan branch to read tasks from (default: docs-sync/plan)'
         required: false
   workflow_run:
-    workflows: ['plan-sync/Validate']
+    workflows:
+      - 'plan-sync/Validate'
+      - 'plan-sync.yml'
+      - 'plan-validate.yml'
     types: [completed]
   push:
     branches:
