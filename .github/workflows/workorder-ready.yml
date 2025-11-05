@@ -136,52 +136,6 @@ jobs:
                 return;
               }
 
-              if (trigger === 'pull_request') {
-                if (!prInfo) {
-                  set('should_run', 'false');
-                  set('reason', 'workflow_run missing associated pull request');
-                  return;
-                }
-
-                const prNumber = Number(prInfo.number);
-                const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-                const headRepoName = pr.data.head?.repo?.full_name?.toLowerCase() || '';
-                if (headRepoName !== `${owner}/${repo}`.toLowerCase()) {
-                  core.info('Skipping workorder-ready: pull_request event from fork repository.');
-                  set('should_run', 'false');
-                  set('reason', 'pull_request from fork not permitted');
-                  return;
-                }
-                const hasPlanSync = (pr.data.labels || []).some((label) => label?.name === 'plan:sync');
-                if (!hasPlanSync) {
-                  core.info(`Skipping workorder-ready: PR #${prNumber} missing plan:sync label.`);
-                  set('should_run', 'false');
-                  set('reason', 'source PR missing plan:sync label');
-                  return;
-                }
-
-                const escalationLabel = process.env.WORKORDER_ESCALATION_LABEL || 'workorder:suspended';
-                const hasEscalationLabel = (pr.data.labels || []).some((label) => label?.name === escalationLabel);
-                if (hasEscalationLabel) {
-                  core.info(`Skipping workorder-ready: PR #${prNumber} marked with ${escalationLabel}.`);
-                  set('should_run', 'false');
-                  set('reason', 'workorder automation suspended');
-                  set('source_pr', String(prNumber));
-                  set('escalated', 'true');
-                  return;
-                }
-
-                set('should_run', 'true');
-                set('checkout_ref', `refs/heads/${planBranch}`);
-                set('plan_branch', planBranch);
-                set('pr_base', planBranch);
-                set('source_pr', String(prNumber));
-                set('source_head', pr.data.head?.ref ?? '');
-                set('trigger', `plan-sync:${trigger}`);
-                set('guard_ref', pr.data.head?.sha || runHeadSha);
-                return;
-              }
-
               if (trigger === 'workflow_dispatch' || trigger === 'issue_comment') {
                 const escalationLabel = process.env.WORKORDER_ESCALATION_LABEL || 'workorder:suspended';
                 if (prInfo && prInfo.number) {
