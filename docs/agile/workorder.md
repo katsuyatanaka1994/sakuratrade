@@ -15,6 +15,7 @@
 ### 補足ログ
 - relnotes test B @2025-10-24_11:59:15
 - workorder-ready 自動停止: 連続失敗が既定閾値（リポジトリ変数で調整可、初期値2回）に達すると `workorder:suspended` ラベルとエスカレーションコメントを付与し、ラベル解除まで自動実行を停止。
+- Implementation Draft PR 自動テスト: 2025-11-05 16:40 JST、WO-6 フォローアップ用の E2E を実施。
 
 ## AUTOレイヤー（Codex管理セクション）
 > Codex は以下の `<!-- AUTO:BEGIN --> ... <!-- AUTO:END -->` 範囲のみを書き換える。MANUAL 節は人が保守する。
