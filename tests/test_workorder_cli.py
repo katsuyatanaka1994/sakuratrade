@@ -267,6 +267,61 @@ def test_pr_creates_commit_and_body_file(
     assert "U-sample-update" in body_text
 
 
+def test_sync_pr_updates_open(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    body_path = tmp_path / "body.md"
+    body_path.write_text("body", encoding="utf-8")
+
+    calls: list[str] = []
+    original_run = workorder_cli._run
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        check: bool = True,
+        capture_output: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:3] == ["gh", "pr", "view"]:
+            calls.append("view")
+            return subprocess.CompletedProcess(cmd, 0, stdout='{"number": 579, "state": "OPEN"}', stderr="")
+        if cmd[:3] == ["gh", "pr", "edit"]:
+            calls.append("edit")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return original_run(cmd, check=check, capture_output=capture_output)
+
+    monkeypatch.setattr(workorder_cli, "_run", fake_run)
+    workorder_cli._sync_github_pr("docs-sync/plan", "docs-sync/workorder", body_path)
+    assert "view" in calls
+    assert "edit" in calls
+
+
+def test_sync_pr_creates_when_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    body_path = tmp_path / "body.md"
+    body_path.write_text("body", encoding="utf-8")
+
+    calls: list[str] = []
+    original_run = workorder_cli._run
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        check: bool = True,
+        capture_output: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:3] == ["gh", "pr", "view"]:
+            calls.append("view")
+            return subprocess.CompletedProcess(cmd, 0, stdout='{"number": 579, "state": "CLOSED"}', stderr="")
+        if cmd[:3] == ["gh", "pr", "edit"]:
+            pytest.fail("edit should not be called when PR is closed")
+        if cmd[:3] == ["gh", "pr", "create"]:
+            calls.append("create")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return original_run(cmd, check=check, capture_output=capture_output)
+
+    monkeypatch.setattr(workorder_cli, "_run", fake_run)
+    workorder_cli._sync_github_pr("docs-sync/plan", "docs-sync/workorder", body_path)
+    assert "create" in calls
+
+
 def test_pr_skips_when_no_changes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

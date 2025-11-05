@@ -162,6 +162,79 @@ def _format_guard_failure(evaluation: dict[str, Any], stats: dict[str, Any], lim
     return f"ガード失敗: status={status}"
 
 
+def _gh_pr_view(head: str) -> tuple[int, str]:
+    result = _run(
+        ["gh", "pr", "view", head, "--json", "number,state"],
+        check=False,
+        capture_output=True,
+    )
+    stdout = result.stdout or ""
+    return result.returncode, stdout
+
+
+def _sync_github_pr(base: str, head: str, body_path: Path) -> None:
+    view_code, view_stdout = _gh_pr_view(head)
+    if view_code == 0:
+        try:
+            data = json.loads(view_stdout) if view_stdout else {}
+        except json.JSONDecodeError:
+            data = {}
+        state = str(data.get("state", "")).upper()
+        pr_number = data.get("number")
+        if state == "OPEN":
+            try:
+                _run(
+                    [
+                        "gh",
+                        "pr",
+                        "edit",
+                        head,
+                        "--title",
+                        PR_TITLE,
+                        "--body-file",
+                        str(body_path),
+                        "--base",
+                        base,
+                    ]
+                )
+                print("既存の Implementation Draft PR を更新しました。")
+                return
+            except subprocess.CalledProcessError as exc:
+                print(
+                    f"gh pr edit に失敗しました (code={exc.returncode})。新規作成に切り替えます。"
+                )
+        else:
+            if pr_number is not None:
+                print(
+                    f"既存の Implementation Draft PR (#{pr_number}) は state={state or 'UNKNOWN'} のため、新規作成に切り替えます。"
+                )
+            else:
+                print("既存の Implementation Draft PR は OPEN ではありません。新規作成に切り替えます。")
+    else:
+        print("既存の Implementation Draft PR を確認できませんでした。新規作成に切り替えます。")
+
+    try:
+        _run(
+            [
+                "gh",
+                "pr",
+                "create",
+                "--draft",
+                "--title",
+                PR_TITLE,
+                "--body-file",
+                str(body_path),
+                "--base",
+                base,
+                "--head",
+                head,
+            ]
+        )
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit("gh pr create に失敗しました。") from exc
+    print("Implementation Draft PR を新規作成しました。")
+
+
 def _render_pr_body(
     *,
     trigger: str,
@@ -620,47 +693,7 @@ def cmd_pr(args: argparse.Namespace) -> None:
         print(f"  gh pr create --draft --title '{PR_TITLE}' --body-file {body_path} --base {base} --head {head}")
         return
 
-    view_result = _run(["gh", "pr", "view", head], check=False)
-    if view_result.returncode == 0:
-        try:
-            _run(
-                [
-                    "gh",
-                    "pr",
-                    "edit",
-                    head,
-                    "--title",
-                    PR_TITLE,
-                    "--body-file",
-                    str(body_path),
-                    "--base",
-                    base,
-                ]
-            )
-        except subprocess.CalledProcessError as exc:
-            raise SystemExit("gh pr edit に失敗しました。") from exc
-        print("既存の Implementation Draft PR を更新しました。")
-    else:
-        try:
-            _run(
-                [
-                    "gh",
-                    "pr",
-                    "create",
-                    "--draft",
-                    "--title",
-                    PR_TITLE,
-                    "--body-file",
-                    str(body_path),
-                    "--base",
-                    base,
-                    "--head",
-                    head,
-                ]
-            )
-        except subprocess.CalledProcessError as exc:
-            raise SystemExit("gh pr create に失敗しました。") from exc
-        print("Implementation Draft PR を新規作成しました。")
+    _sync_github_pr(base, head, body_path)
 
 
 def main(argv: list[str] | None = None) -> int:
