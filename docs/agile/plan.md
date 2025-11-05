@@ -1,4 +1,5 @@
 # プロジェクト計画（Plan）
+<!-- test plan-sync verification -->
 
 > 仕様（UI/API/テスト/CI）の変更を実行タスクへ変換し、スプリント計画を一元管理する 単一の信頼できる情報源（Single Source of Truth）。
 
