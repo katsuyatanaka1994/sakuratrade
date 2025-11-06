@@ -96,19 +96,20 @@ jobs:
             const set = (key, value) => core.setOutput(key, value ?? '');
             const event = context.eventName;
             const currentSha = context.sha || '';
+            const prInputRaw = (core.getInput('pr_number', { required: false }) || '').trim();
             set('escalated', 'false');
             const markSkip = (reason) => {
               set('should_run', 'false');
               set('reason', reason);
             };
 
-            if (event === 'workflow_call') {
-              const prInput = core.getInput('pr_number');
-              if (!prInput) {
+            const reusableInvocation = event === 'workflow_call' || (event === 'pull_request_target' && prInputRaw);
+            if (reusableInvocation) {
+              if (!prInputRaw) {
                 markSkip('missing pr_number input');
                 return;
               }
-              const prNumber = Number(prInput);
+              const prNumber = Number(prInputRaw);
               if (!Number.isFinite(prNumber) || prNumber <= 0) {
                 markSkip('invalid pr_number input');
                 return;
@@ -118,17 +119,17 @@ jobs:
                 const response = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
                 pr = response.data;
               } catch (error) {
-                markSkip(`source PR #${prInput} not found`);
-                core.warning(`workorder-ready: unable to load PR #${prInput}: ${error}`);
+                markSkip(`source PR #${prInputRaw} not found`);
+                core.warning(`workorder-ready: unable to load PR #${prInputRaw}: ${error}`);
                 return;
               }
 
-              const planBranch = core.getInput('plan_branch') || 'docs-sync/plan';
-              const baseInput = core.getInput('base_branch') || '';
-              const headInput = core.getInput('head_branch') || '';
-              const sourceShaInput = core.getInput('source_sha') || '';
-              const triggerMode = core.getInput('trigger_mode') || '';
-              const callerRunId = core.getInput('caller_run_id') || '';
+              const planBranch = core.getInput('plan_branch', { required: false }) || 'docs-sync/plan';
+              const baseInput = core.getInput('base_branch', { required: false }) || '';
+              const headInput = core.getInput('head_branch', { required: false }) || '';
+              const sourceShaInput = core.getInput('source_sha', { required: false }) || '';
+              const triggerMode = core.getInput('trigger_mode', { required: false }) || '';
+              const callerRunId = core.getInput('caller_run_id', { required: false }) || '';
               const escalationLabel = process.env.WORKORDER_ESCALATION_LABEL || 'workorder:suspended';
               const labels = Array.isArray(pr.labels) ? pr.labels : [];
               const hasPlanSync = labels.some((label) => label?.name === 'plan:sync');
@@ -161,7 +162,7 @@ jobs:
               set('source_head', headInput || pr.head?.ref || '');
               set('guard_ref', guardRef);
               set('source_sha', guardRef);
-              const trigger = triggerMode ? `plan-sync:${triggerMode}` : 'plan-sync:workflow_call';
+              const trigger = triggerMode ? `plan-sync:${triggerMode}` : `plan-sync:${event === 'workflow_call' ? 'workflow_call' : 'pull_request_target'}`;
               set('trigger', trigger);
               set('caller_run_id', callerRunId);
               if (callerRunId) {
