@@ -72,7 +72,7 @@ PR生成
 - `.github/workflows/workorder-ready.yml` の `Resolve run context` を補正し、`pull_request_target` かつ `pr_number` 入力ありの場合は `workflow_call` 相当として処理するよう修正（commit 523e2a0bcf3942f5d181154bcf21ee850b59f09f、branch chore/workorder-ready-validation、PR #660）。
 - 修正を含むブランチを ref にした `workflow_dispatch` 実行で plan-sync → workorder-ready を追試 (`plan-sync` run [19100556669](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19100556669)、`workorder-ready` 単体 run [19100627561](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19100627561))。guard 解析・監査ログ出力・Node テスト・docs-sync/workorder への force-push まで新 python ヘルパー経由で完走することを確認。
 - fix を main へ取り込んだ後に plan:sync ラベルで再度 run を取得し、`::notice::workorder-ready create|edit` と Draft PR 更新時刻を採取する（ラベル経由の E2E 連鎖が最終確認ポイント）。
-- **[TBD]** 本番ブランチ上での確認 run: `RUN_ID_PLACEHOLDER`（`NOTICE_PLACEHOLDER`）。Draft PR 更新: `UPDATED_AT_PLACEHOLDER`。
+- 2025-11-06 plan:sync ラベル検証 run: [19128055573](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19128055573)（PR コメント: `🛠️ workorder-ready: https://github.com/katsuyatanaka1994/sakuratrade/pull/664`）。Draft PR 更新: 2025-11-06T07:25:51Z。
 
 [DONE]### WO-7: 失敗時の安全停止とエスカレーション
 **Outcome**: 連続失敗・重大検出で自動停止、ラベル付与・コメント通知・レビュア召集を自動化。
