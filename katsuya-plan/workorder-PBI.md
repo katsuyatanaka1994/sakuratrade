@@ -74,6 +74,71 @@ PR生成
 - fix を main へ取り込んだ後に plan:sync ラベルで再度 run を取得し、`::notice::workorder-ready create|edit` と Draft PR 更新時刻を採取する（ラベル経由の E2E 連鎖が最終確認ポイント）。
 - 2025-11-06 plan:sync ラベル検証 run: [19128055573](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19128055573)（PR コメント: `🛠️ workorder-ready: https://github.com/katsuyatanaka1994/sakuratrade/pull/664`）。Draft PR 更新: 2025-11-06T07:25:51Z。
 
+### workorder-ready 発火条件メモ（運用・デバッグ用）
+
+| イベント | 呼び出し経路 | 発火条件 | 備考 |
+| --- | --- | --- | --- |
+| `workflow_call` | `.github/workflows/plan-sync.yml` 内 `workorder_ready` ジョブ | ・直前の `plan-sync/Validate` が `success`<br>・入力 `pr_number` が必須<br>・PR に `plan:sync` ラベルが付与済み<br>・PR HEAD が `docs-sync/workorder` ではない<br>・PR にエスカレーションラベル (`workorder:suspended`) が付与されていない | 最も一般的な経路。`trigger_mode` に `label` 等が記録され、`caller_run_id` から親 Run を参照可能。|
+| `pull_request_target` | `plan-sync/Validate` の `pull_request_target` 実行（ラベル再付与/再実行）| ・イベント payload に `pr_number` が含まれる（#660 で補正）<br>・内部ガード条件は `workflow_call` と同一<br>・`plan-sync` 側で `should_run == 'true'` | Run [19128055573](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19128055573) で確認。PR コメント `🛠️ workorder-ready: …` が自動投稿される。|
+| `workflow_dispatch` | 手動トリガ (`gh workflow run workorder-ready.yml …`) | ・`pr_number` 指定で PR 連携モード<br>・未指定の場合は plan ブランチの HEAD を直接処理 (`source_pr=''`)<br>・内部ガードは `workflow_call` と同じ | Run [19100627561](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19100627561) で guard → 監査 → Draft 更新まで完走。|
+| `push` | `main` への `docs/agile/plan.md` 変更 | ・`refs/heads/main` の push かつ対象パスヒット<br>・`source_pr=''` のまま docs-sync/workorder を更新 | DocSync 自動更新用。PR なしで audit のみ残す。|
+
+**実行確認済み Run（抜粋）**
+- 19100477220（`pull_request_target`、修正前の skip 再現）
+- 19100627561（`workflow_dispatch`、修正版で成功）
+- 19127888892（`workflow_dispatch`、main マージ後のリグレッション成功）
+- 19128055573（`pull_request_target`、本番ラベル再付与で成功）
+
+**発火しないケースまとめ**
+- PR に `plan:sync` ラベルがない → `workorder-ready skipped: source PR missing plan:sync label`
+- PR HEAD が `docs-sync/workorder`（自己発火防止）
+- エスカレーションラベル `workorder:suspended` が付与されている
+- `pull_request_target` で `pr_number` を取得できない（削除済み・権限不足等）
+- `push` イベントで `refs/heads/` 以外の参照（タグ等）
+- Guard が `disallowed` かつ limit 超過 → 即 `setFailed`
+
+**デバッグ時チェック項目**
+- `Resolve run context` の `should_run` と `reason`（ログ先頭）
+- `tmp/workorder_limits_report.json` と `workorder_audit_entry.json`
+- PR コメントに投稿されるエラーメッセージ（Guard／Acceptance）
+- `docs-sync/workorder` ブランチの push 先 SHA と Draft PR (#664) 更新時刻
+- `plan-sync` 側 `workorder_ready` ジョブの `caller_run_id` リンク
+
+**権限スコープ表（permissionsマトリクス）**
+
+| トークン/資格 | 主な用途 | 必要権限 | 備考 |
+| --- | --- | --- | --- |
+| `GITHUB_TOKEN`（デフォルト） | git checkout / push、PR・Issue コメント | `contents: write`, `pull-requests: write`, `issues: write` | Workflow の `permissions` で付与済み。|
+| `actions/create-github-app-token` 出力 | GitHub App 経由 push（任意） | App に `Administration: write` を含む | 秘匿値 `GH_APP_ID` / `GH_APP_PRIVATE_KEY`。取得失敗時は `GITHUB_TOKEN` にフォールバック。|
+| `gh` CLI（ランナー同梱） | Draft PR 作成/編集 (`gh pr create/edit`) | 上記トークンが `gh` に渡される | `Ensure workorder draft PR` ステップで使用。|
+
+**経路別ユースケース（使い分け早見表）**
+- `workflow_call`：通常の `plan-sync` 連鎖。PR ごとの自動実装。
+- `pull_request_target`：ラベル再付与による再検証や、手動で `plan-sync` をリトリガしたいとき。
+- `workflow_dispatch`：運用者が単独テスト／リハーサルを行うとき（`pr_number` 有無で挙動切替）。
+- `push`：DocSync 自動更新を監査ログ付きで反映したいとき。
+
+**失敗パターンと復旧手順（ログサンプル付き）**
+- ラベル不足：`workorder-ready skipped: source PR missing plan:sync label` → PR にラベル付与後 `plan-sync` を再実行。
+- 自己発火防止：`workorder-ready skipped: source PR head is docs-sync/workorder` → 検証ブランチを切り直し。
+- Guard limit 超過：コメント例 `🛑 workorder-ready stopped: guard limits hit (total lines 190/180 …)` → 差分分割または閾値再調整。
+- Acceptance failure：コメント例 `🛑 workorder-ready acceptance tests failed. - Stage: vitest` → `workorder-tests-logs` を確認し修正。
+- エスカレーション中：`workorder-ready skipped: workorder automation suspended` → 原因調査→`workorder:suspended` 解除→再実行。
+
+**関連コード参照（関数・スクリプト名）**
+- `.github/workflows/workorder-ready.yml`（`Resolve run context`、`Ensure workorder draft PR`）
+- `.github/workflows/plan-sync.yml` 内 `workorder_ready` ジョブ（呼び出し側）
+- `scripts/workorder_ready.py`（guard 解析／Draft PR 更新）
+- `scripts/workorder_cli.py`・`scripts/workorder_guard.py`（メタ同期とガード本体）
+- `scripts/workorder_tests.py`（acceptance テスト実行）
+
+**将来仕様変更リスクと監視ポイント**
+- `Resolve run context` の条件分岐（イベント増減・ラベル名変更時）
+- `permissions` と GitHub App トークンの有効期限（push 失敗原因になりやすい）
+- `concurrency` グループ `${{ github.ref }}-workorder-ready`（手動 dispatch の連投で詰まりやすい）
+- `docs-sync/workorder` Draft PR (#664) の存在と `gh pr edit` の成功可否
+- `WORKORDER_*` リポジトリ変数の変更（閾値／許可パスがズレた場合の監視）
+
 [DONE]### WO-7: 失敗時の安全停止とエスカレーション
 **Outcome**: 連続失敗・重大検出で自動停止、ラベル付与・コメント通知・レビュア召集を自動化。
 **カテゴリ**:
