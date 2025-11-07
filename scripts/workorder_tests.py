@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Run staged acceptance checks for workorder automation.
+"""Run staged acceptance checks and support controlled rollback for workorder.
 
-Reads ``workorder_sync_plan.json`` to discover ``acceptance.checks`` entries for
-all tasks and executes them in the order ``smoke → unit → integration``.
-Results are summarised to JSON so GitHub Actions can consume the outcome,
-including the failing stage and command when a check stops the pipeline.
+`run`（既定）コマンドは `smoke → unit → integration` の順にチェックを実行し、
+結果を `.workorder-tests-logs/summary.json` に集約する。`--phase` を指定すると
+個別フェーズのみを実行して同じサマリーファイルへ反映する。
+
+`rollback` コマンドは最新コミットが指定 SHA に一致する場合のみ安全に
+`git reset --hard` を行い、他のコミットには触れない。
 """
 
 from __future__ import annotations
@@ -15,12 +17,12 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, List
+from typing import Any, Iterable, List, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 SYNC_PLAN_PATH = ROOT / "workorder_sync_plan.json"
-DEFAULT_LOG_DIR = ROOT / "tmp" / "workorder_tests"
-DEFAULT_SUMMARY_PATH = ROOT / "tmp" / "workorder_tests_summary.json"
+DEFAULT_LOGS_DIR = ROOT / ".workorder-tests-logs"
+DEFAULT_SUMMARY_PATH = DEFAULT_LOGS_DIR / "summary.json"
 
 STAGE_ORDER = ["smoke", "unit", "integration"]
 _STAGE_KEYWORDS = {
@@ -91,7 +93,7 @@ def _ordered_stages(checks: Iterable[Check]) -> list[str]:
     return names
 
 
-def _run_command(command: str) -> tuple[int, str]:
+def _run_command(command: str) -> Tuple[int, str]:
     completed = subprocess.run(
         command,
         cwd=ROOT,
@@ -104,111 +106,170 @@ def _run_command(command: str) -> tuple[int, str]:
     return completed.returncode, output
 
 
+def _ensure_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def _rel(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _load_existing_summary(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
 def _write_summary(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _stage_stub(name: str) -> dict[str, Any]:
+    return {
+        "name": name,
+        "status": "pending",
+        "checks": [],
+        "failed_check": None,
+        "failed_command": None,
+    }
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     checks = _load_checks()
+    summary_path = Path(args.summary or DEFAULT_SUMMARY_PATH).resolve()
+    logs_dir = Path(args.logs_dir or DEFAULT_LOGS_DIR).resolve()
+    _ensure_dir(logs_dir)
+
+    existing = _load_existing_summary(summary_path)
+    stage_map: dict[str, dict[str, Any]] = {}
+    for stage in existing.get("stages", []) or []:
+        name = stage.get("name")
+        if isinstance(name, str) and name:
+            stage_map[name] = {
+                "name": name,
+                "status": stage.get("status", "pending"),
+                "checks": stage.get("checks", []),
+                "failed_check": stage.get("failed_check"),
+                "failed_command": stage.get("failed_command"),
+            }
+
+    ordered_all = _ordered_stages(checks)
+    if args.phase:
+        target_stages = [args.phase]
+        if args.phase not in ordered_all:
+            ordered_all.append(args.phase)
+    else:
+        target_stages = ordered_all
+
     if not checks:
-        summary = {
+        result = {
             "status": "success",
             "stages": [],
             "failed_stage": None,
             "failed_check": None,
             "failed_command": None,
-            "log_dir": str(Path(args.log_dir).resolve()),
+            "log_dir": _rel(logs_dir),
         }
-        _write_summary(Path(args.summary), summary)
+        _write_summary(summary_path, result)
         print("No acceptance checks defined. Nothing to run.")
         return 0
 
-    log_dir = Path(args.log_dir).resolve()
-    log_dir.mkdir(parents=True, exist_ok=True)
+    for name in ordered_all:
+        stage_map.setdefault(name, _stage_stub(name))
 
-    stages = _ordered_stages(checks)
-    stage_summaries: List[dict[str, Any]] = []
-    overall_status = "success"
-    failed_stage: str | None = None
-    failed_check: str | None = None
-    failed_command: str | None = None
-
-    for stage in stages:
-        stage_checks = [check for check in checks if check.stage == stage]
-        stage_checks_summary: list[dict[str, Any]] = []
+    for stage_name in target_stages:
+        stage_checks = [check for check in checks if check.stage == stage_name]
         stage_summary = {
-            "name": stage,
+            "name": stage_name,
             "status": "skipped",
-            "checks": stage_checks_summary,
+            "checks": [],
+            "failed_check": None,
+            "failed_command": None,
         }
-        stage_summaries.append(stage_summary)
-
-        if overall_status == "failure":
-            for check in stage_checks:
-                stage_checks_summary.append(
-                    {
-                        "name": check.name,
-                        "command": check.command,
-                        "status": "skipped",
-                        "return_code": None,
-                        "log": None,
-                    }
-                )
+        if not stage_checks:
+            print(f"[workorder-tests] No checks registered for '{stage_name}'.")
+            stage_map[stage_name] = stage_summary
             continue
 
         stage_status = "success"
+        failed_check = None
+        failed_command = None
+
         for index, check in enumerate(stage_checks, start=1):
             slug = _slugify(check.name or f"check-{index}")
-            log_path = log_dir / f"{stage}-{index:02d}-{slug}.log"
-            print(f"[workorder-tests] Running {stage}: {check.name}\n→ {check.command}")
+            log_path = logs_dir / f"{stage_name}-{index:02d}-{slug}.log"
             code, output = _run_command(check.command)
             log_path.write_text(output, encoding="utf-8")
-            stage_checks_summary.append(
-                {
-                    "name": check.name,
-                    "command": check.command,
-                    "status": "success" if code == 0 else "failure",
-                    "return_code": code,
-                    "log": str(log_path.relative_to(ROOT)),
-                }
-            )
+            entry = {
+                "name": check.name,
+                "command": check.command,
+                "status": "success" if code == 0 else "failure",
+                "return_code": code,
+                "log": _rel(log_path),
+            }
+            stage_summary["checks"].append(entry)
             if code != 0:
                 print(f"[workorder-tests] ❌ {check.name} failed (code={code}).")
                 stage_status = "failure"
-                overall_status = "failure"
-                failed_stage = stage
                 failed_check = check.name
                 failed_command = check.command
-                # Remaining checks in this stage and subsequent stages are skipped
-                remaining = stage_checks[index:]
-                for later_index, later in enumerate(remaining, start=index + 1):
+                for later_index, later in enumerate(stage_checks[index:], start=index + 1):
                     later_slug = _slugify(later.name or f"check-{later_index}")
-                    skipped_path = log_dir / f"{stage}-{later_index:02d}-{later_slug}.log"
+                    skipped_path = logs_dir / f"{stage_name}-{later_index:02d}-{later_slug}.log"
                     skipped_path.write_text("<skipped due to earlier failure>\n", encoding="utf-8")
-                    stage_checks_summary.append(
+                    stage_summary["checks"].append(
                         {
                             "name": later.name,
                             "command": later.command,
                             "status": "skipped",
                             "return_code": None,
-                            "log": str(skipped_path.relative_to(ROOT)),
+                            "log": _rel(skipped_path),
                         }
                     )
                 break
-            else:
-                print(f"[workorder-tests] ✅ {check.name} passed.")
-        stage_summary["status"] = stage_status
+            print(f"[workorder-tests] ✅ {check.name} passed.")
 
-    result: dict[str, Any] = {
+        stage_summary["status"] = stage_status
+        stage_summary["failed_check"] = failed_check
+        stage_summary["failed_command"] = failed_command
+        stage_map[stage_name] = stage_summary
+
+    ordered_output: List[dict[str, Any]] = []
+    for name in STAGE_ORDER:
+        if name in stage_map:
+            ordered_output.append(stage_map[name])
+    for name, info in stage_map.items():
+        if name not in {stage["name"] for stage in ordered_output}:
+            ordered_output.append(info)
+
+    failed_entry = next((stage for stage in ordered_output if stage["status"] == "failure"), None)
+    if failed_entry:
+        overall_status = "failure"
+        failed_stage = failed_entry["name"]
+        failed_check = failed_entry.get("failed_check")
+        failed_command = failed_entry.get("failed_command")
+    else:
+        overall_status = "success"
+        failed_stage = None
+        failed_check = None
+        failed_command = None
+
+    result = {
         "status": overall_status,
-        "stages": stage_summaries,
+        "stages": ordered_output,
         "failed_stage": failed_stage,
         "failed_check": failed_check,
         "failed_command": failed_command,
-        "log_dir": str(log_dir.relative_to(ROOT)),
+        "log_dir": _rel(logs_dir),
     }
-    _write_summary(Path(args.summary), result)
+    _write_summary(summary_path, result)
 
     print("[workorder-tests] Summary:")
     print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -216,30 +277,88 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0 if overall_status == "success" else 1
 
 
+def cmd_rollback(args: argparse.Namespace) -> int:
+    commit = (args.commit or "").strip()
+    if not commit:
+        print("::error::rollback requires --commit")
+        return 1
+
+    logs_dir = Path(args.logs_dir or DEFAULT_LOGS_DIR).resolve()
+    _ensure_dir(logs_dir)
+
+    current = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    head = (current.stdout or "").strip()
+    if head != commit:
+        print(
+            f"::warning::rollback skipped: HEAD {head or '<unknown>'} != expected {commit}."
+        )
+        return 1
+
+    target = (args.to or "").strip()
+    if not target:
+        parent = subprocess.run(
+            ["git", "rev-parse", f"{commit}^"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if parent.returncode != 0:
+            print(f"::error::failed to resolve parent of {commit}: {parent.stderr.strip()}")
+            return parent.returncode or 1
+        target = (parent.stdout or "").strip()
+
+    reset = subprocess.run(
+        ["git", "reset", "--hard", target],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if reset.returncode != 0:
+        print(f"::error::git reset failed: {reset.stderr.strip()}")
+        return reset.returncode or 1
+
+    print(f"[workorder-tests] Rolled back to {target} from {commit}.")
+    return 0
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run staged workorder acceptance checks")
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    run_parser = sub.add_parser("run", help="Execute acceptance checks sequentially")
-    run_parser.add_argument(
+    parser.add_argument("command", nargs="?", choices=["run", "rollback"], default="run")
+    parser.add_argument("--phase", choices=STAGE_ORDER)
+    parser.add_argument(
         "--summary",
         default=str(DEFAULT_SUMMARY_PATH),
         help=f"Summary JSON output path (default: {DEFAULT_SUMMARY_PATH})",
     )
-    run_parser.add_argument(
-        "--log-dir",
-        default=str(DEFAULT_LOG_DIR),
-        help=f"Directory to store check logs (default: {DEFAULT_LOG_DIR})",
+    parser.add_argument(
+        "--logs-dir",
+        dest="logs_dir",
+        default=str(DEFAULT_LOGS_DIR),
+        help=f"Directory to store check logs (default: {DEFAULT_LOGS_DIR})",
     )
-
+    parser.add_argument(
+        "--log-dir",
+        dest="logs_dir",
+        help="Alias of --logs-dir for backward compatibility",
+    )
+    parser.add_argument("--commit")
+    parser.add_argument("--to")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.command == "run":
-        return cmd_run(args)
-    raise SystemExit("Unknown command")
+    if args.command == "rollback":
+        return cmd_rollback(args)
+    return cmd_run(args)
 
 
 if __name__ == "__main__":
