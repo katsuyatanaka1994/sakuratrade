@@ -632,21 +632,17 @@ jobs:
         if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true'
         id: record_commit_sha
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-          SOURCE_PR: ${{ steps.context.outputs.source_pr || '' }}
           BEFORE_SHA: ${{ steps.prepare_workorder.outputs.before_sha || '' }}
           AFTER_SHA: ${{ steps.prepare_workorder.outputs.after_sha || '' }}
         run: |
           set -euo pipefail
           before="$BEFORE_SHA"
           after="$AFTER_SHA"
-          pr="$SOURCE_PR"
-          if [ -n "$pr" ]; then
-            export GH_TOKEN
-            gh_sha=$(gh pr view "$pr" --json headRefOid -q .headRefOid 2>/dev/null || true)
-            if [ -n "$gh_sha" ]; then
-              after="$gh_sha"
-            fi
+          if [ -z "$before" ]; then
+            before=$(git rev-parse HEAD^)
+          fi
+          if [ -z "$after" ]; then
+            after=$(git rev-parse HEAD)
           fi
           {
             echo "before=$before"
