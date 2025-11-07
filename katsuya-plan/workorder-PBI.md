@@ -208,14 +208,30 @@ Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・C
 - `docs/agile/workorder.md` と `workorder_sync_plan.json` の AUTO 節へ監査ログパスを許可パスとして追加。
 - PR 向けの読み取り専用サニティフローとして `.github/workflows/workorder-ready-pr.yml` を追加。`plan:sync` ラベル付き PR で禁止パス／上限ガードを事前検証し、監査エントリを artifact で確認できるようにした（本番の書き込み・監査ログ追記は default branch の `workorder-ready.yml` が担当）。
 
-#### WO-12: テスト実行レイヤ＋即時ロールバック
-**Outcome**: Implementation Draft PR に対し「高速スモーク→単体→軽統合」を段階実行し、赤なら自動停止＋自動リバート（またはPR自動クローズ）。
-**カテゴリ**:
-品質/リスク低減
-**説明・背景**:
-小粒でも“壊さない”が最優先。短時間テストを先頭に置く段階実行と、失敗時の即時リカバリで、壊れた状態を最短で解消する。
-**完了条件**:
-3段テストが自動起動し、任意段でFailなら実装ジョブ停止・Draft PRは自動リバート/クローズ・理由コメント付与・再実行は手動ゲートに切替。
+
+#### WO-12v2: 自動テストレイヤ＋安全停止（Draft維持）
+**Outcome**  
+Implementation Draft PR に対し「高速スモーク → 単体 → 軽統合」を段階実行し、いずれかで失敗したら**実行を即停止**。Draft は **閉じずに維持**し、`failed guard` ラベル・理由コメント・ログ（artifact）で可視化。成功時のみ `implementation:ready` に遷移。
+
+**カテゴリ**  
+品質／リスク低減
+
+**説明・背景**  
+壊れた状態を main に近づけないことを最優先。Implementation Draft PR は plan↔workorder 整合の“鏡”であり、強制リバート／自動クローズは再生成ループと競合しやすい。WO-6 で正規トリガー（`plan-sync → workflow_call → workorder-ready`）が整備された今(11/6)、WO-12 は「Fail Fast（停止）＋可視化」に役割を絞ることで、安全かつ再現性の高い自動運転にする。必要な場合のみ、当該 Run が作成した **自己コミット** を限定ロールバックする。
+
+**完了条件（Acceptance）**  
+1. **発火条件の厳格化**：次の全てを満たすときだけ 3 段テストを実行する。  
+   - `guard PASS`（plan↔workorder 整合 OK）  
+   - `差分あり`（AUTO 節／メタに実質差分）  
+   - イベントが **`workflow_call`** または **`pull_request_target(labeled: plan:sync)`**  
+   - `pr_number` が解決できる（空文字なら WO-12 を起動しない）  
+   - ※ `workflow_dispatch` 起動時は WO-12 を **スキップ** し、注意文を NOTICE に出す（検証専用）
+2. **段階テスト実行**：`scripts/workorder_tests.py --phase <stage> --logs-dir .workorder-tests-logs` で **smoke → unit → integration** を連続実行し、`.workorder-tests-logs/summary.json` と `workorder-tests-logs` artifact を必ず生成する。  
+3. **失敗時の標準挙動**：その時点で **停止**。Draft PR に `failed guard` ラベル付与・理由コメント自動投稿。必要時のみ「当該 Run が生成した自己コミット」を **限定ロールバック**。PR は **自動クローズしない**。  
+4. **成功時の遷移**：`NOTICE` に **PR 番号／create\|edit／caller run URL／commit SHA／各段階結果** を出力し、`implementation:ready` に遷移。Codex 実装フェーズが起動可能。  
+5. **運用・監査の整備**：`concurrency: ${{ github.head_ref || github.ref_name }}-workorder-ready` と **冪等 PR 更新**（open → edit／無 → create）を維持。トリガーマトリクスと「`workflow_dispatch` は PR ガード無効」の注意をドキュメント化し、Runbook に失敗フェーズ別の一次対応・再実行手順と `failed guard` ラベル運用を追記。
+
+> 備考：ロールバック対象は **Bot の自己コミットのみ**。`secrets: inherit` は不使用。子ワークフローで `permissions: { contents: read, pull-requests: write }` を明示する。
 
 #### WO-15: タスク個別上限の適用 (`tasks[i].acceptance.max_changed_lines`)
 **Outcome**: plan 由来の `TASKS` からタスク単位の上限と `acceptance.checks` を取得し、グローバル閾値より優先して実行・検証する。

@@ -40,14 +40,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch base branch
+        run: git fetch origin ${{ github.base_ref || 'main' }} --depth=1
+      - name: Detect frontend changes
+        id: fe_changes
+        run: |
+          set -euo pipefail
+          base_ref="${{ github.base_ref || 'main' }}"
+          if git diff --name-only "origin/${base_ref}"...HEAD | grep '^frontend/' >/dev/null; then
+            echo "touched=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "touched=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+        if: steps.fe_changes.outputs.touched == 'true'
       - run: npx tsc --noEmit
+        if: steps.fe_changes.outputs.touched == 'true'
       - run: npx eslint '.'
+        if: steps.fe_changes.outputs.touched == 'true'
       - run: npm test --silent
+        if: steps.fe_changes.outputs.touched == 'true'
+      - name: Skip frontend quality (no frontend changes)
+        if: steps.fe_changes.outputs.touched != 'true'
+        run: echo 'No frontend changes detected; skipping frontend quality checks.'
 
   report-failure:
     needs: [py-quality, fe-quality]

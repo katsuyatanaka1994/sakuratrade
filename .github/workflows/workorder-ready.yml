@@ -42,6 +42,8 @@ on:
         required: false
       GH_APP_PRIVATE_KEY:
         required: false
+  pull_request_target:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -59,18 +61,20 @@ on:
       source_sha:
         description: 'Source commit SHA associated with the run (optional)'
         required: false
-  push:
-    branches:
-      - main
-    paths:
-      - docs/agile/plan.md
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
   issues: write
 
 jobs:
+  dispatch_notice:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::notice title=workorder-ready::workflow_dispatch ルートは検証専用です。PRガードと WO-12 段階テストは既定でスキップされます。"
+
   ready:
     name: workorder-ready
     env:
@@ -90,8 +94,10 @@ jobs:
       WORKORDER_ESCALATION_LABEL: ${{ vars.WORKORDER_ESCALATION_LABEL || 'workorder:suspended' }}
       WORKORDER_ESCALATION_MENTION: ${{ vars.WORKORDER_ESCALATION_MENTION || '' }}
       WORKORDER_AUDIT_LOG_PATH: docs/agile/workorder-audit.log
+      WORKORDER_TESTS_LOG_DIR: .workorder-tests-logs
+      WORKORDER_TESTS_SUMMARY: .workorder-tests-logs/summary.json
     concurrency:
-      group: ${{ github.ref }}-workorder-ready
+      group: ${{ github.head_ref || github.ref_name }}-workorder-ready
       cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
@@ -490,6 +496,50 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Evaluate WO-12 gate
+        if: steps.context.outputs.should_run == 'true'
+        id: acceptance_gate
+        uses: actions/github-script@v7
+        env:
+          GUARD_STATUS: ${{ steps.guard-status.outputs.status || '' }}
+          HAS_DIFF: ${{ steps.changes.outputs.changed || 'false' }}
+          SOURCE_PR: ${{ steps.context.outputs.source_pr || '' }}
+        with:
+          script: |
+            const guardOk = process.env.GUARD_STATUS === 'ok';
+            const hasDiff = process.env.HAS_DIFF === 'true';
+            const prNumber = (process.env.SOURCE_PR || '').trim();
+            const event = context.eventName;
+            const action = context.payload?.action || '';
+            const allowedEvent = event === 'workflow_call' || (event === 'pull_request_target' && action === 'labeled');
+            const shouldRun = guardOk && hasDiff && allowedEvent && prNumber;
+            const reasons = [];
+            if (!guardOk) reasons.push('guard_status');
+            if (!hasDiff) reasons.push('no_diff');
+            if (!prNumber) reasons.push('missing_pr');
+            if (!(event === 'workflow_dispatch') && !allowedEvent) {
+              reasons.push(`event:${event}/${action}`);
+            }
+            core.setOutput('should_run_tests', shouldRun ? 'true' : 'false');
+            core.setOutput('reason', reasons.join(',') || '');
+            if (event === 'workflow_dispatch') {
+              core.notice('workflow_dispatch ルートでは WO-12 段階テストをスキップします。');
+            } else if (!shouldRun) {
+              core.info(`WO-12 tests skipped: ${reasons.join(', ') || 'condition not met'}`);
+            }
+
+      - name: WO-12 skip notice
+        if: steps.context.outputs.should_run == 'true' && steps.acceptance_gate.outputs.should_run_tests != 'true'
+        run: |
+          echo "WO-12 tests skipped: ${{ steps.acceptance_gate.outputs.reason || 'condition not met' }}"
+
+      - name: Prepare WO-12 logs directory
+        if: steps.context.outputs.should_run == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "${WORKORDER_TESTS_LOG_DIR}"
+          rm -f "${WORKORDER_TESTS_SUMMARY}"
+
       - name: Enforce automation PR ceiling
         if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed == 'true'
         uses: actions/github-script@v7
@@ -578,8 +628,29 @@ jobs:
           python3 -m scripts.workorder_ready --plan-json workorder_sync_plan.json --trigger "${TRIGGER}" --source-head "${SOURCE_HEAD}"
           echo "Prepared workorder commit ${after_sha}"
 
+      - name: Capture workorder commit SHAs
+        if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true'
+        id: record_commit_sha
+        env:
+          BEFORE_SHA: ${{ steps.prepare_workorder.outputs.before_sha || '' }}
+          AFTER_SHA: ${{ steps.prepare_workorder.outputs.after_sha || '' }}
+        run: |
+          set -euo pipefail
+          before="$BEFORE_SHA"
+          after="$AFTER_SHA"
+          if [ -z "$before" ]; then
+            before=$(git rev-parse HEAD^)
+          fi
+          if [ -z "$after" ]; then
+            after=$(git rev-parse HEAD)
+          fi
+          {
+            echo "before=$before"
+            echo "after=$after"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Setup Node for acceptance tests
-        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true'
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -587,7 +658,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
-        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true'
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true'
         working-directory: frontend
         run: |
           set -euo pipefail
@@ -597,35 +668,39 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      - name: Run workorder acceptance tests
-        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true'
-        id: acceptance_tests
+      - name: Run WO-12 smoke checks
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true'
+        id: wo12_smoke
         continue-on-error: true
-        env:
-          SUMMARY_PATH: tmp/workorder_tests_summary.json
         run: |
           set -euo pipefail
-          SUMMARY_PATH="${SUMMARY_PATH}"
-          EXIT_CODE=0
-          set +e
-          python3 -m scripts.workorder_tests run --summary "$SUMMARY_PATH" --log-dir tmp/workorder_tests
-          EXIT_CODE=$?
-          set -e
-          {
-            echo "summary_path=$SUMMARY_PATH"
-            echo "exit_code=$EXIT_CODE"
-          } >> "$GITHUB_OUTPUT"
-          exit $EXIT_CODE
+          python3 -m scripts.workorder_tests run --phase smoke --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}"
+
+      - name: Run WO-12 unit checks
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true' && steps.wo12_smoke.outcome == 'success'
+        id: wo12_unit
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m scripts.workorder_tests run --phase unit --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}"
+
+      - name: Run WO-12 integration checks
+        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true' && steps.wo12_unit.outcome == 'success'
+        id: wo12_integration
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m scripts.workorder_tests run --phase integration --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}"
 
       - name: Analyse acceptance summary
-        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true'
+        if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true'
         id: acceptance_summary
         env:
-          SUMMARY_PATH: ${{ steps.acceptance_tests.outputs.summary_path || '' }}
+          SUMMARY_PATH: ${{ env.WORKORDER_TESTS_SUMMARY }}
         run: |
           set -euo pipefail
           summary_path="${SUMMARY_PATH}"
-          if [ -z "$summary_path" ] || [ ! -f "$summary_path" ]; then
+          if [ ! -f "$summary_path" ]; then
             {
               echo "status=error"
               echo "summary_path=$summary_path"
@@ -639,14 +714,14 @@ jobs:
           python3 -m scripts.workorder_ready --summary "$summary_path"
 
       - name: Upload acceptance logs
-        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_tests.outputs.summary_path != '' && hashFiles('tmp/workorder_tests/**') != ''
+        if: always() && steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true' && hashFiles(format('{0}/**', env.WORKORDER_TESTS_LOG_DIR)) != ''
         uses: actions/upload-artifact@v4
         with:
           name: workorder-tests-logs
-          path: tmp/workorder_tests
+          path: ${{ env.WORKORDER_TESTS_LOG_DIR }}
 
       - name: Comment acceptance failure
-        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_summary.outputs.status == 'failure' && steps.context.outputs.source_pr != ''
+        if: steps.context.outputs.should_run == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_summary.outputs.status == 'failure' && steps.context.outputs.source_pr != ''
         uses: actions/github-script@v7
         env:
           SOURCE_PR: ${{ steps.context.outputs.source_pr }}
@@ -662,16 +737,20 @@ jobs:
             const stage = process.env.FAILED_STAGE || 'unknown';
             const check = process.env.FAILED_CHECK || 'unknown';
             const command = process.env.FAILED_COMMAND || '';
-            const logDir = process.env.LOG_DIR || 'tmp/workorder_tests';
-            const summaryPath = process.env.SUMMARY_PATH || 'tmp/workorder_tests_summary.json';
+            const logDir = process.env.LOG_DIR || process.env.WORKORDER_TESTS_LOG_DIR || '';
+            const summaryPath = process.env.SUMMARY_PATH || process.env.WORKORDER_TESTS_SUMMARY || '';
             let body = '🛑 workorder-ready acceptance tests failed.\n';
             body += `- Stage: ${stage}\n`;
             body += `- Check: ${check}\n`;
             if (command) {
               body += `- Command: \`${command}\`\n`;
             }
-            body += `- Logs: ${logDir} (artifact: workorder-tests-logs)\n`;
-            body += `- Summary: ${summaryPath}\n`;
+            if (logDir) {
+              body += `- Logs: ${logDir} (artifact: workorder-tests-logs)\n`;
+            }
+            if (summaryPath) {
+              body += `- Summary: ${summaryPath}\n`;
+            }
             await github.rest.issues.createComment({
               owner,
               repo,
@@ -682,21 +761,28 @@ jobs:
             core.exportVariable('WORKORDER_FAILURE_REASON', `workorder tests failed: ${label}`);
 
       - name: Rollback workorder commit
-        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_summary.outputs.status == 'failure'
+        if: steps.context.outputs.should_run == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_summary.outputs.status == 'failure'
         run: |
           set -euo pipefail
-          git reset --hard ${{ steps.prepare_workorder.outputs.before_sha }}
+          python3 -m scripts.workorder_tests rollback \
+            --commit "${{ steps.record_commit_sha.outputs.after || steps.prepare_workorder.outputs.after_sha }}" \
+            --to "${{ steps.record_commit_sha.outputs.before || steps.prepare_workorder.outputs.before_sha }}" \
+            --logs-dir "${WORKORDER_TESTS_LOG_DIR}"
           echo "Rolled back workorder commit due to failed acceptance tests"
 
       - name: Fail due to acceptance failure
-        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_summary.outputs.status == 'failure'
+        if: steps.context.outputs.should_run == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_summary.outputs.status == 'failure'
         run: |
           echo "::error::workorder acceptance tests failed"
           exit 1
 
       - name: Push workorder branch
         id: push_workorder
-        if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && ((steps.guard-status.outputs.status == 'ok' && steps.acceptance_summary.outputs.status == 'success') || (steps.guard-status.outputs.status != 'ok'))
+        if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && (
+          steps.guard-status.outputs.status != 'ok' ||
+          steps.acceptance_gate.outputs.should_run_tests != 'true' ||
+          (steps.guard-status.outputs.status == 'ok' && steps.acceptance_summary.outputs.status == 'success')
+        )
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           BODY_PATH: ${{ steps.prepare_workorder.outputs.body_path }}
@@ -713,7 +799,11 @@ jobs:
 
       - name: Ensure workorder draft PR
         id: sync_pr
-        if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && ((steps.guard-status.outputs.status == 'ok' && steps.acceptance_summary.outputs.status == 'success') || (steps.guard-status.outputs.status != 'ok')) && steps.push_workorder.outputs.body_path != ''
+        if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && (
+          steps.guard-status.outputs.status != 'ok' ||
+          steps.acceptance_gate.outputs.should_run_tests != 'true' ||
+          (steps.guard-status.outputs.status == 'ok' && steps.acceptance_summary.outputs.status == 'success')
+        ) && steps.push_workorder.outputs.body_path != ''
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           BODY_PATH: ${{ steps.push_workorder.outputs.body_path }}
@@ -724,7 +814,11 @@ jobs:
           python3 -m scripts.workorder_ready --ensure-pr --body-path "${BODY_PATH}" --base "${PR_BASE}" --source-pr "${SOURCE_PR}"
 
       - name: Comment PR link
-        if: steps.context.outputs.should_run == 'true' && steps.context.outputs.source_pr != '' && steps.prepare_workorder.outputs.commit_created == 'true' && ((steps.guard-status.outputs.status == 'ok' && steps.acceptance_summary.outputs.status == 'success') || (steps.guard-status.outputs.status != 'ok'))
+        if: steps.context.outputs.should_run == 'true' && steps.context.outputs.source_pr != '' && steps.prepare_workorder.outputs.commit_created == 'true' && (
+          steps.guard-status.outputs.status != 'ok' ||
+          steps.acceptance_gate.outputs.should_run_tests != 'true' ||
+          (steps.guard-status.outputs.status == 'ok' && steps.acceptance_summary.outputs.status == 'success')
+        )
         uses: actions/github-script@v7
         env:
           SOURCE_PR: ${{ steps.context.outputs.source_pr }}
@@ -749,6 +843,30 @@ jobs:
       - name: Note no-op in logs
         if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed != 'true'
         run: echo "workorder-ready completed without changes"
+
+      - name: Remove failed guard label
+        if: steps.context.outputs.should_run == 'true' && success() && steps.context.outputs.source_pr != ''
+        uses: actions/github-script@v7
+        env:
+          SOURCE_PR: ${{ steps.context.outputs.source_pr }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = Number(process.env.SOURCE_PR);
+            const label = 'failed guard';
+            if (!issueNumber) {
+              core.info('failed guard label removal skipped: missing PR number');
+              return;
+            }
+            try {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: issueNumber, name: label });
+              core.info(`Removed '${label}' label from PR #${issueNumber}.`);
+            } catch (error) {
+              if (error.status !== 404) {
+                core.warning(`Failed to remove '${label}' label: ${error}`);
+              }
+            }
 
       - name: Reset failure ledger
         if: steps.context.outputs.should_run == 'true' && success() && steps.context.outputs.source_pr != ''
@@ -815,6 +933,38 @@ jobs:
               .addHeading('workorder-ready failure ledger', 3)
               .addRaw(`連続失敗カウンタをリセットしました (PR #${issueNumber}).`, true)
               .write();
+
+      - name: Mark failed guard label
+        if: failure() && steps.context.outputs.source_pr != ''
+        uses: actions/github-script@v7
+        env:
+          SOURCE_PR: ${{ steps.context.outputs.source_pr }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = Number(process.env.SOURCE_PR);
+            const label = 'failed guard';
+            if (!issueNumber) {
+              core.warning('failed guard label skipped: missing PR number');
+              return;
+            }
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status === 404) {
+                await github.rest.issues.createLabel({ owner, repo, name: label, color: 'B60205', description: 'workorder automation failed guard/tests' });
+              } else {
+                core.warning(`Failed to verify '${label}' label: ${error}`);
+              }
+            }
+            try {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: [label] });
+            } catch (error) {
+              if (error.status !== 422) {
+                core.warning(`Failed to add '${label}' label: ${error}`);
+              }
+            }
 
       - name: Record failure ledger
         if: failure() && steps.context.outputs.source_pr != ''
