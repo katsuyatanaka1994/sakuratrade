@@ -1,19 +1,13 @@
 {
-  "base": "667f567b2d301e239e7d9d971bd2f728d813d3cd",
-  "head": "bdbf6d7f3fed85652241e82178bdfa65ac8b772e",
+  "base": "5c6624b7e4b4e91a19ad91ac7edef308a3e84c5c",
+  "head": "8e369aab36e41d51a88d7a99bd6d406af2986e70",
   "changed_files": [
-    "docs/agile/ui-specification.md"
+    "docs/agile/report.md"
   ],
   "triggers": [
-    "ui_spec_manual",
     "docs_ci_changed"
   ],
-  "ui_sections": [
-    {
-      "title": "Positions Page",
-      "anchor": "positions-page"
-    }
-  ],
+  "ui_sections": [],
   "api_operations": [],
   "test_flows": []
 }
