@@ -169,7 +169,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         target_stages = ordered_all
 
     if not checks:
-        result = {
+        result: dict[str, Any] = {
             "status": "success",
             "stages": [],
             "failed_stage": None,
@@ -261,7 +261,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         failed_check = None
         failed_command = None
 
-    result = {
+    result: dict[str, Any] = {
         "status": overall_status,
         "stages": ordered_output,
         "failed_stage": failed_stage,
