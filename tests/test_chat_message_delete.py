@@ -9,7 +9,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from app.main import app
 
 
-@pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
+
+
 async def test_delete_entry_message():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

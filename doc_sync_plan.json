@@ -15,5 +15,10 @@
     }
   ],
   "api_operations": [],
-  "test_flows": []
+  "test_flows": [
+    {
+      "id": "wo12-case1-smoke",
+      "description": "Temporary WO-12 Case1 auto diff trigger"
+    }
+  ]
 }

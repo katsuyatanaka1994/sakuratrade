@@ -10,7 +10,8 @@
         "ui-spec:positions-page"
       ],
       "outputs": [
-        "frontend/src"
+        "frontend/src",
+        "frontend/src/hooks"
       ],
       "acceptance": {
         "max_changed_lines": 80,

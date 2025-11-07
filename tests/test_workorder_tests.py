@@ -36,6 +36,21 @@ def _prepare_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path
     return root, sync_plan, logs_dir, summary
 
 
+def _make_args(**overrides: object) -> argparse.Namespace:
+    defaults = dict(
+        command="run",
+        phase=None,
+        summary="",
+        logs_dir="",
+        commit=None,
+        to=None,
+        before_sha="",
+        after_sha="",
+    )
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
 def test_infer_stage() -> None:
     assert workorder_tests._infer_stage("frontend-tsc", "npx --prefix frontend tsc --noEmit") == "smoke"
     assert workorder_tests._infer_stage("frontend-eslint", "npx eslint") == "unit"
@@ -57,14 +72,7 @@ def test_cmd_run_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
         ],
     )
 
-    args = argparse.Namespace(
-        command="run",
-        phase=None,
-        summary=str(summary_path),
-        logs_dir=str(logs_dir),
-        commit=None,
-        to=None,
-    )
+    args = _make_args(summary=str(summary_path), logs_dir=str(logs_dir))
     exit_code = workorder_tests.cmd_run(args)
 
     assert exit_code == 0
@@ -88,14 +96,7 @@ def test_cmd_run_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
         ],
     )
 
-    args = argparse.Namespace(
-        command="run",
-        phase=None,
-        summary=str(summary_path),
-        logs_dir=str(logs_dir),
-        commit=None,
-        to=None,
-    )
+    args = _make_args(summary=str(summary_path), logs_dir=str(logs_dir))
     exit_code = workorder_tests.cmd_run(args)
 
     assert exit_code == 1
@@ -113,14 +114,7 @@ def test_cmd_run_no_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
     root, sync_plan, logs_dir, summary_path = _prepare_repo(monkeypatch, tmp_path)
     sync_plan.write_text(json.dumps({"tasks": []}), encoding="utf-8")
 
-    args = argparse.Namespace(
-        command="run",
-        phase=None,
-        summary=str(summary_path),
-        logs_dir=str(logs_dir),
-        commit=None,
-        to=None,
-    )
+    args = _make_args(summary=str(summary_path), logs_dir=str(logs_dir))
     exit_code = workorder_tests.cmd_run(args)
 
     assert exit_code == 0
@@ -139,14 +133,7 @@ def test_cmd_run_phase_updates_existing_summary(monkeypatch: pytest.MonkeyPatch,
         ],
     )
 
-    args = argparse.Namespace(
-        command="run",
-        phase="smoke",
-        summary=str(summary_path),
-        logs_dir=str(logs_dir),
-        commit=None,
-        to=None,
-    )
+    args = _make_args(phase="smoke", summary=str(summary_path), logs_dir=str(logs_dir))
     exit_code = workorder_tests.cmd_run(args)
     assert exit_code == 0
 
