@@ -6,9 +6,13 @@ on:
       pr:
         description: 'Pull request number to sync (optional)'
         required: false
+        type: string
+        default: ''
       branch:
         description: 'Branch to run on when PR is not specified (default: main)'
         required: false
+        type: string
+        default: ''
   pull_request_target:
     types: [labeled, opened, reopened, ready_for_review, synchronize]
   issue_comment:
@@ -28,12 +32,15 @@ jobs:
     name: plan-sync/Validate
     outputs:
       should_run: ${{ steps.context.outputs.should_run }}
-      pr_number: ${{ steps.context.outputs.pr_number }}
+      pr_number: ${{ steps.pr.outputs.number }}
       head_ref: ${{ steps.context.outputs.head_ref }}
       head_sha: ${{ steps.context.outputs.head_sha }}
       base_ref: ${{ steps.context.outputs.base_ref }}
       plan_branch: ${{ steps.context.outputs.plan_branch }}
       trigger_mode: ${{ steps.context.outputs.trigger_mode }}
+      has_plan_diff: ${{ steps.changes.outputs.changed || 'false' }}
+      labels_csv: ${{ steps.context.outputs.pr_labels || '' }}
+      guard_pass: ${{ steps.plan-run.outcome == 'success' && steps.validate.outcome != 'failure' }}
     env:
       PLAN_SYNC_ALLOWED_PATHS: ${{ vars.PLAN_SYNC_ALLOWED_PATHS || vars.PLAN_SYNC_ALLOW_GLOBS || 'docs/agile/**,docs/specs/**,docs/tests/**,.github/workflows/**,backend/app/openapi.yaml' }}
       PLAN_SYNC_BLOCKED_PATHS: ${{ vars.PLAN_SYNC_BLOCKED_PATHS || vars.PLAN_SYNC_DENY_GLOBS || 'docs/secrets/**' }}
@@ -46,7 +53,7 @@ jobs:
       PLAN_SYNC_AUTO_MAX_RUNS_PER_HOUR: ${{ vars.PLAN_SYNC_AUTO_MAX_RUNS_PER_HOUR || '1' }}
       PLAN_SYNC_AUTO_WINDOW_MINUTES: ${{ vars.PLAN_SYNC_AUTO_WINDOW_MINUTES || vars.PLAN_SYNC_AUTO_WINDOW_MIN || '60' }}
     concurrency:
-      group: docs-sync-plan-${{ github.event.pull_request.number || github.ref_name || 'manual' }}
+      group: docs-sync-plan-${{ github.head_ref || github.ref_name || github.run_id }}
       cancel-in-progress: false
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -76,6 +83,7 @@ jobs:
             set('base_ref', '');
             set('head_ref', '');
             set('trigger_mode', '');
+            set('pr_labels', '');
 
             if (event === 'workflow_dispatch') {
               const prInput = core.getInput('pr');
@@ -92,6 +100,10 @@ jobs:
                 set('head_ref', pr.data.head.ref);
                 set('plan_branch', 'docs-sync/plan');
                 set('head_sha', pr.data.head?.sha ?? '');
+                const labels = Array.isArray(pr.data.labels)
+                  ? pr.data.labels.map((label) => label?.name).filter(Boolean).join(',')
+                  : '';
+                set('pr_labels', labels);
                 return;
               }
               const inferredBranch = branchInput || context.ref.replace('refs/heads/', '');
@@ -140,6 +152,10 @@ jobs:
                 set('head_ref', pr.head.ref);
                 set('plan_branch', planBranch);
                 set('head_sha', pr.head?.sha ?? '');
+                const labels = Array.isArray(pr.labels)
+                  ? pr.labels.map((label) => label?.name).filter(Boolean).join(',')
+                  : '';
+                set('pr_labels', labels);
                 return;
               }
 
@@ -267,6 +283,10 @@ jobs:
               set('head_ref', pr.head.ref);
               set('plan_branch', planBranch);
               set('head_sha', pr.head?.sha ?? '');
+              const labels = Array.isArray(pr.labels)
+                ? pr.labels.map((label) => label?.name).filter(Boolean).join(',')
+                : '';
+              set('pr_labels', labels);
               set('auto_history', JSON.stringify({ timestamps: recentHistory }));
               set('auto_comment_id', ledgerComment?.id ? String(ledgerComment.id) : '');
               return;
@@ -322,6 +342,10 @@ jobs:
               set('head_ref', pr.data.head.ref);
               set('plan_branch', 'docs-sync/plan');
               set('head_sha', pr.data.head?.sha ?? '');
+              const labels = Array.isArray(pr.data.labels)
+                ? pr.data.labels.map((label) => label?.name).filter(Boolean).join(',')
+                : '';
+              set('pr_labels', labels);
               return;
             }
 
@@ -400,6 +424,16 @@ jobs:
           owner: ${{ github.repository_owner }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
+      - name: Resolve source PR number
+        id: pr
+        run: |
+          pr="${{ steps.context.outputs.pr_number || github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr || '' }}"
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+
+      - name: Gate debug (pre-run)
+        run: |
+          echo "::notice title=plan-sync gate(pre)::event=${{ github.event_name }} trigger=${{ steps.context.outputs.trigger_mode || github.event_name }} should_run=${{ steps.context.outputs.should_run }} pr=${{ steps.pr.outputs.number || 'n/a' }} labels=${{ steps.context.outputs.pr_labels || '' }} diff_hint=pending"
+
       - name: Checkout target revision
         if: steps.context.outputs.should_run == 'true'
         uses: actions/checkout@v4
@@ -450,7 +484,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           REPORT_PATH: ${{ env.PLAN_SYNC_RUN_REPORT }}
-          TARGET_PR: ${{ steps.context.outputs.pr_number }}
+          TARGET_PR: ${{ steps.pr.outputs.number }}
         with:
           script: |
             const fs = require('fs');
@@ -514,10 +548,10 @@ jobs:
           path: tmp/manual_diff.txt
 
       - name: Comment manual diff guidance
-        if: always() && steps.context.outputs.should_run == 'true' && steps.validate.outcome == 'failure' && hashFiles('tmp/manual_diff.txt') != '' && steps.context.outputs.pr_number != ''
+        if: always() && steps.context.outputs.should_run == 'true' && steps.validate.outcome == 'failure' && hashFiles('tmp/manual_diff.txt') != '' && steps.pr.outputs.number != ''
         uses: actions/github-script@v7
         env:
-          TARGET_PR: ${{ steps.context.outputs.pr_number }}
+          TARGET_PR: ${{ steps.pr.outputs.number }}
         with:
           script: |
             const fs = require('fs');
@@ -562,11 +596,21 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Gate debug (post-diff)
+        if: steps.context.outputs.should_run == 'true'
+        run: |
+          echo "::notice title=plan-sync gate(post)::guard=${{ steps.plan-run.outcome == 'success' && steps.validate.outcome != 'failure' }} diff=${{ steps.changes.outputs.changed || 'false' }} pr=${{ steps.pr.outputs.number || 'n/a' }} labels=${{ steps.context.outputs.pr_labels || '' }} manual_accept=${{ contains(steps.context.outputs.pr_labels || '', 'manual-accept') }}"
+
+      - name: Workorder-ready gate summary
+        if: steps.context.outputs.should_run == 'true'
+        run: |
+          echo "workorder-ready gate pr=${{ steps.pr.outputs.number || 'n/a' }} guard_pass=${{ steps.plan-run.outcome == 'success' && steps.validate.outcome != 'failure' }} has_diff=${{ steps.changes.outputs.changed || 'false' }} labels=${{ steps.context.outputs.pr_labels || '' }}"
+
       - name: Comment no-op result
-        if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed != 'true' && steps.context.outputs.pr_number != ''
+        if: steps.context.outputs.should_run == 'true' && steps.changes.outputs.changed != 'true' && steps.pr.outputs.number != ''
         uses: actions/github-script@v7
         env:
-          TARGET_PR: ${{ steps.context.outputs.pr_number }}
+          TARGET_PR: ${{ steps.pr.outputs.number }}
         with:
           script: |
             await github.rest.issues.createComment({
@@ -589,7 +633,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           MAX_OPEN: ${{ env.PLAN_SYNC_MAX_OPEN_AUTOMATION_PRS }}
-          SOURCE_PR: ${{ steps.context.outputs.pr_number }}
+          SOURCE_PR: ${{ steps.pr.outputs.number }}
         with:
           script: |
             const maxOpen = Number(process.env.MAX_OPEN || '0');
@@ -638,7 +682,7 @@ jobs:
           git push --force-with-lease origin HEAD:docs-sync/plan
           TRIGGER="${{ github.event_name }}"
           HEAD_REF="${{ steps.context.outputs.head_ref }}"
-          PR_LINE="${{ steps.context.outputs.pr_number && format('- Source PR: #{0}', steps.context.outputs.pr_number) || '' }}"
+          PR_LINE="${{ steps.pr.outputs.number && format('- Source PR: #{0}', steps.pr.outputs.number) || '' }}"
           python3 -c 'import sys;from pathlib import Path;t,h,p=sys.argv[1:4];p=p.strip();lines=["Automated plan sync run.","",f"- Trigger: {t}",f"- Source ref: `{h}`"];lines.append(p) if p else None;Path("/tmp/plan-sync-body.txt").write_text("\n".join(lines)+"\n",encoding="utf-8")' "$TRIGGER" "$HEAD_REF" "$PR_LINE"
           if gh pr view docs-sync/plan >/dev/null 2>&1; then
             gh pr edit docs-sync/plan \
@@ -654,10 +698,10 @@ jobs:
           fi
 
       - name: Comment PR link
-        if: steps.context.outputs.should_run == 'true' && steps.context.outputs.pr_number != ''
+        if: steps.context.outputs.should_run == 'true' && steps.pr.outputs.number != ''
         uses: actions/github-script@v7
         env:
-          SOURCE_PR: ${{ steps.context.outputs.pr_number }}
+          SOURCE_PR: ${{ steps.pr.outputs.number }}
         with:
           script: |
             const owner = context.repo.owner;
@@ -679,10 +723,15 @@ jobs:
   workorder_ready:
     name: Call workorder-ready (official path)
     needs: sync
-    if: >-
+    if: ${{
       needs.sync.result == 'success' &&
-      needs.sync.outputs.should_run == 'true' &&
-      needs.sync.outputs.pr_number != ''
+      needs.sync.outputs.pr_number != '' &&
+      needs.sync.outputs.guard_pass == 'true' &&
+      (
+        needs.sync.outputs.has_plan_diff == 'true' ||
+        contains(needs.sync.outputs.labels_csv || '', 'manual-accept')
+      )
+    }}
     uses: ./.github/workflows/workorder-ready.yml
     with:
       pr_number: ${{ needs.sync.outputs.pr_number }}
@@ -695,3 +744,15 @@ jobs:
     secrets:
       GH_APP_ID: ${{ secrets.GH_APP_ID }}
       GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+  sync_outputs_debug:
+    name: Debug sync outputs
+    needs: sync
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    steps:
+      - run: |
+          echo "pr_number=${{ needs.sync.outputs.pr_number }}"
+          echo "guard_pass=${{ needs.sync.outputs.guard_pass }}"
+          echo "has_plan_diff=${{ needs.sync.outputs.has_plan_diff }}"
+          echo "labels=${{ needs.sync.outputs.labels_csv }}"

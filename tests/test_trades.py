@@ -8,7 +8,9 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 
 
-@pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
+
+
 async def test_create_trade():
     payload = {
         "userId": "00000000-0000-0000-0000-000000000000",

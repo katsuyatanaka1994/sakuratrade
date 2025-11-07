@@ -284,3 +284,24 @@ CLI と Workflow が同じヘルパーで group を生成し、`outputs` 未設�
 
 **状況（2025-11-04）**:
 pull_request ワークフローからの連鎖実行が GitHub の仕様で拒否されるため、WO-11 は当面スキップ。既存の push ベース運用と監査導線へ戻した。
+
+**引き継ぎメモ（2025-11-07 11:30）**:
+- **全体進捗**
+  - `chore/wo12-smoketest`（PR [#685](https://github.com/katsuyatanaka1994/sakuratrade/pull/685)）で検証を継続中。`plan:sync` / `wo:ready` / `manual-accept` ラベルで運用し、`scripts/workorder_tests.py` の `--before-sha/--after-sha` 出力とローカル `ruff format` / `mypy` / `pytest` の再実行まで完了。
+  - `.github/workflows/plan-sync.yml` に `pr_number` / `labels_csv` / `has_plan_diff` / `guard_pass` を outputs 化し、`workorder_ready` ジョブは `guard_pass == true` かつ `has_plan_diff || manual-accept` でのみ `workflow_call` を起動するよう更新（`Gate debug` NOTICE には `pr/labels/has_diff` を記録）。
+  - `gh workflow run plan-sync.yml -f pr=685 --ref chore/wo12-smoketest` を実行し、`workflow_dispatch` run [19166340776](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19166340776) までは到達。RUN 生成までは確認できたが、GitHub 側でジョブが展開される前に failure 扱いで閉じられており、`workorder-ready` の Case1 証跡（NOTICE / artifact / Draft 更新）はまだ採取できていない。
+- **直近の課題**
+  - `workflow_dispatch` ルートでは `needs.sync.outputs.should_run` が `true` になっても jobs が生成されず、`workorder_ready` へ outputs が渡らない（GitHub UI 上は run failure でログ未生成）。`pull_request_target(labeled)` ルートでも `has_plan_diff` が `true` になっていないため、Case1 の正常 run がまだ 0 件。
+  - `python3 -m pytest` は `tests/test_chat_message_delete.py::test_delete_entry_message` で `ScopeMismatch(anyio_backend)` が残り、`pytest-anyio` 導入後も fixture scope の競合が解けていない（他 64 件は `pass/skip` まで進行、`greenlet` 追加済み）。
+  - `workorder-ready` 連鎖が未発火のため Case2 以降（rollback / labeled 直列 / dispatch skip / lint gate 赤→緑）の検証に進めていない。
+- **取組状況**
+  - `ruff format --check .` と `python3 -m mypy scripts` は成功。`python3 -m pytest` は `pytest.mark.asyncio` へ切り替えたことで 64 件（48 pass / 16 skip）までグリーン化。
+  - `.github/workflows/plan-sync.yml` に `dispatch_sanity` ＋ `workorder_ready_gate` を定義し、gate ジョブ側で `pr_number/labels_csv/has_diff/guard_pass/should_run/head_ref/head_sha` を outputs 化。`call workorder_ready` は `needs.workorder_ready_gate.outputs.should_run == 'true'` のみ参照する構成に変更。
+  - 追加で `workflow_dispatch.inputs.pr`/`branch` に型＋default を付与し、`should_run` を `fromJSON(...)` で評価するよう更新。`workorder-ready.yml` 側の concurrency は `inputs.pr_number` を優先する形に揃え、workflow_call でも PR 単位の直列制御が効くようにした。
+  - `workorder-ready.yml` の先頭で `pr/plan_branch/trigger/caller_run_id` を NOTICE 出力し、caller→callee の参照が成立しているか一目で確認できるようにした。
+  - `gh workflow run plan-sync.yml -f pr=685 --ref chore/wo12-smoketest` を再実行したが、workflow_dispatch run [19166691542](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19166691542) も依然として "jobs=0" のまま failure（GitHub 側でジョブ展開前に終了）。Gate NOTICE は run 自体が展開されず未出力。
+- **次のアクション**
+  1. `workflow_dispatch` run (19166340776) で jobs が 0 件になる理由を調査（`gh api .../jobs` で空配列、ログ未生成）。`plan-sync` 側の job-level `if` 条件か secrets 周りで即 failure になっていないかを UI/REST から確認。
+  2. 調査後は `pull_request_target(labeled)` で `has_plan_diff == true` となる差分を用意し、`workorder_ready` Case1（NOTICE create / artifact / Draft #664 更新）を取得。成功ログと Draft 更新時刻を本メモ・codex-handover へ追記。
+  3. Case2（acceptance 強制失敗→rollback）、Case3（labeled 直列）、Case4（workflow_dispatch skip）、Case5（lint/gate 赤→緑）を順に再現し、Run URL / artifact / ラベル推移を PBI に揃える。
+  4. `pytest` の anyio scope 競合は `tests/test_chat_message_delete.py` でのみ発生しているため、`pytest-asyncio` / `pytest-anyio` の組合せと fixture scope を見直す（必要なら `pytest.mark.anyio` から `pytest.mark.asyncio` へ一時退避）。
