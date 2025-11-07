@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from uuid import UUID, uuid4
 from typing import Any, Optional
+from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
