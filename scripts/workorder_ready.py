@@ -48,8 +48,7 @@ def parse_guard(report_path: Path | None) -> dict[str, str]:
         treated = "true" if data.get("treated_as_noop") else "false"
         disallowed = ",".join(data.get("disallowed_files") or [])
         over_limit = any(
-            bool(data.get(key))
-            for key in ("file_over_limit", "total_over_limit", "file_count_over_limit")
+            bool(data.get(key)) for key in ("file_over_limit", "total_over_limit", "file_count_over_limit")
         )
         limit_exceeded = "true" if over_limit else "false"
     return {
@@ -203,10 +202,7 @@ def ensure_workorder_pr(body_path: Path, base: str, source_pr: str) -> dict[str,
                 "gh pr create --draft --title '[workorder-ready] docs: sync workorder auto sections' "
                 f"--body-file {body_path} --base {base_branch} --head {head}"
             )
-            print(
-                '::warning::'
-                f"{message}. Push is complete; rerun workorder-ready or execute \"{cmd}\" manually."
-            )
+            print(f'::warning::{message}. Push is complete; rerun workorder-ready or execute "{cmd}" manually.')
     if action == "edit" and not pr_number:
         pr_number = open_number
     if not action:
@@ -216,18 +212,18 @@ def ensure_workorder_pr(body_path: Path, base: str, source_pr: str) -> dict[str,
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description='workorder-ready workflow helper')
-    parser.add_argument('--guard-report', type=Path)
-    parser.add_argument('--write-guard-outputs', action='store_true')
-    parser.add_argument('--reset-disallowed', action='store_true')
-    parser.add_argument('--plan-json', type=Path)
-    parser.add_argument('--trigger', default='workorder-ready')
-    parser.add_argument('--source-head', default='')
-    parser.add_argument('--summary', type=Path)
-    parser.add_argument('--ensure-pr', action='store_true')
-    parser.add_argument('--body-path', type=Path)
-    parser.add_argument('--base', default='')
-    parser.add_argument('--source-pr', default='')
+    parser = argparse.ArgumentParser(description="workorder-ready workflow helper")
+    parser.add_argument("--guard-report", type=Path)
+    parser.add_argument("--write-guard-outputs", action="store_true")
+    parser.add_argument("--reset-disallowed", action="store_true")
+    parser.add_argument("--plan-json", type=Path)
+    parser.add_argument("--trigger", default="workorder-ready")
+    parser.add_argument("--source-head", default="")
+    parser.add_argument("--summary", type=Path)
+    parser.add_argument("--ensure-pr", action="store_true")
+    parser.add_argument("--body-path", type=Path)
+    parser.add_argument("--base", default="")
+    parser.add_argument("--source-pr", default="")
     args = parser.parse_args()
 
     if args.write_guard_outputs:
@@ -239,8 +235,8 @@ def main() -> int:
 
     if args.plan_json and args.plan_json.is_file():
         data = _load_json(args.plan_json)
-        snapshot = data.get('plan_snapshot_id', '')
-        task_ids = [tid for tid in data.get('task_ids', []) if isinstance(tid, str)]
+        snapshot = data.get("plan_snapshot_id", "")
+        task_ids = [tid for tid in data.get("task_ids", []) if isinstance(tid, str)]
         body_path, snapshot_out, tasks_csv = render_workorder_body(
             snapshot,
             task_ids,
@@ -255,12 +251,12 @@ def main() -> int:
 
     if args.ensure_pr:
         if not args.body_path:
-            raise SystemExit('--body-path is required when --ensure-pr is set')
+            raise SystemExit("--body-path is required when --ensure-pr is set")
         result = ensure_workorder_pr(args.body_path, args.base, args.source_pr)
         _write_outputs(**result)
 
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

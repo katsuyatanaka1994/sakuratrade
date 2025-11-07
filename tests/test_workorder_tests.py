@@ -129,9 +129,7 @@ def test_cmd_run_no_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
     assert data["stages"] == []
 
 
-def test_cmd_run_phase_updates_existing_summary(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_cmd_run_phase_updates_existing_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     root, sync_plan, logs_dir, summary_path = _prepare_repo(monkeypatch, tmp_path)
     _write_sync_plan(
         sync_plan,

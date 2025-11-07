@@ -296,9 +296,7 @@ def cmd_rollback(args: argparse.Namespace) -> int:
     )
     head = (current.stdout or "").strip()
     if head != commit:
-        print(
-            f"::warning::rollback skipped: HEAD {head or '<unknown>'} != expected {commit}."
-        )
+        print(f"::warning::rollback skipped: HEAD {head or '<unknown>'} != expected {commit}.")
         return 1
 
     target = (args.to or "").strip()
