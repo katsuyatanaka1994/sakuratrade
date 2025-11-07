@@ -149,6 +149,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     _ensure_dir(logs_dir)
 
     existing = _load_existing_summary(summary_path)
+    before_sha = (existing.get("before_sha") if isinstance(existing, dict) else None) or (args.before_sha or "")
+    after_sha = (existing.get("after_sha") if isinstance(existing, dict) else None) or (args.after_sha or "")
     stage_map: dict[str, dict[str, Any]] = {}
     for stage in existing.get("stages", []) or []:
         name = stage.get("name")
@@ -177,6 +179,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             "failed_check": None,
             "failed_command": None,
             "log_dir": _rel(logs_dir),
+            "before_sha": before_sha,
+            "after_sha": after_sha,
         }
         _write_summary(summary_path, empty_result)
         print("No acceptance checks defined. Nothing to run.")
@@ -269,6 +273,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         "failed_check": failed_check,
         "failed_command": failed_command,
         "log_dir": _rel(logs_dir),
+        "before_sha": before_sha,
+        "after_sha": after_sha,
     }
     _write_summary(summary_path, final_result)
 
@@ -348,6 +354,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="logs_dir",
         help="Alias of --logs-dir for backward compatibility",
     )
+    parser.add_argument("--before-sha", dest="before_sha", default="")
+    parser.add_argument("--after-sha", dest="after_sha", default="")
     parser.add_argument("--commit")
     parser.add_argument("--to")
     return parser.parse_args(argv)

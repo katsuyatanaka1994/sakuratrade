@@ -97,7 +97,7 @@ jobs:
       WORKORDER_TESTS_LOG_DIR: .workorder-tests-logs
       WORKORDER_TESTS_SUMMARY: .workorder-tests-logs/summary.json
     concurrency:
-      group: ${{ github.head_ref || github.ref_name }}-workorder-ready
+      group: workorder-ready-${{ github.event.pull_request.number || github.ref_name }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
@@ -674,7 +674,9 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          python3 -m scripts.workorder_tests run --phase smoke --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}"
+          python3 -m scripts.workorder_tests run --phase smoke --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}" \
+            --before-sha "${{ steps.record_commit_sha.outputs.before || steps.prepare_workorder.outputs.before_sha }}" \
+            --after-sha "${{ steps.record_commit_sha.outputs.after || steps.prepare_workorder.outputs.after_sha }}"
 
       - name: Run WO-12 unit checks
         if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true' && steps.wo12_smoke.outcome == 'success'
@@ -682,7 +684,9 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          python3 -m scripts.workorder_tests run --phase unit --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}"
+          python3 -m scripts.workorder_tests run --phase unit --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}" \
+            --before-sha "${{ steps.record_commit_sha.outputs.before || steps.prepare_workorder.outputs.before_sha }}" \
+            --after-sha "${{ steps.record_commit_sha.outputs.after || steps.prepare_workorder.outputs.after_sha }}"
 
       - name: Run WO-12 integration checks
         if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true' && steps.wo12_unit.outcome == 'success'
@@ -690,7 +694,9 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          python3 -m scripts.workorder_tests run --phase integration --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}"
+          python3 -m scripts.workorder_tests run --phase integration --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}" \
+            --before-sha "${{ steps.record_commit_sha.outputs.before || steps.prepare_workorder.outputs.before_sha }}" \
+            --after-sha "${{ steps.record_commit_sha.outputs.after || steps.prepare_workorder.outputs.after_sha }}"
 
       - name: Analyse acceptance summary
         if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true'
