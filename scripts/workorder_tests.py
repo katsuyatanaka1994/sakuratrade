@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SYNC_PLAN_PATH = ROOT / "workorder_sync_plan.json"
 DEFAULT_LOGS_DIR = ROOT / ".workorder-tests-logs"
 DEFAULT_SUMMARY_PATH = DEFAULT_LOGS_DIR / "summary.json"
+SummaryPayload = dict[str, Any]
 
 STAGE_ORDER = ["smoke", "unit", "integration"]
 _STAGE_KEYWORDS = {
@@ -169,7 +170,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         target_stages = ordered_all
 
     if not checks:
-        result: dict[str, Any] = {
+        empty_result: SummaryPayload = {
             "status": "success",
             "stages": [],
             "failed_stage": None,
@@ -177,7 +178,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             "failed_command": None,
             "log_dir": _rel(logs_dir),
         }
-        _write_summary(summary_path, result)
+        _write_summary(summary_path, empty_result)
         print("No acceptance checks defined. Nothing to run.")
         return 0
 
@@ -261,7 +262,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         failed_check = None
         failed_command = None
 
-    result: dict[str, Any] = {
+    final_result: SummaryPayload = {
         "status": overall_status,
         "stages": ordered_output,
         "failed_stage": failed_stage,
@@ -269,10 +270,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         "failed_command": failed_command,
         "log_dir": _rel(logs_dir),
     }
-    _write_summary(summary_path, result)
+    _write_summary(summary_path, final_result)
 
     print("[workorder-tests] Summary:")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    print(json.dumps(final_result, indent=2, ensure_ascii=False))
 
     return 0 if overall_status == "success" else 1
 
