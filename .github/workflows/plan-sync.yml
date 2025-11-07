@@ -723,15 +723,7 @@ jobs:
   workorder_ready:
     name: Call workorder-ready (official path)
     needs: sync
-    if: ${{
-      needs.sync.result == 'success' &&
-      needs.sync.outputs.pr_number != '' &&
-      needs.sync.outputs.guard_pass == 'true' &&
-      (
-        needs.sync.outputs.has_plan_diff == 'true' ||
-        contains(needs.sync.outputs.labels_csv || '', 'manual-accept')
-      )
-    }}
+    if: ${{ needs.sync.result == 'success' && needs.sync.outputs.pr_number != '' && needs.sync.outputs.guard_pass == 'true' && (needs.sync.outputs.has_plan_diff == 'true' || contains(needs.sync.outputs.labels_csv || '', 'manual-accept')) }}
     uses: ./.github/workflows/workorder-ready.yml
     with:
       pr_number: ${{ needs.sync.outputs.pr_number }}
