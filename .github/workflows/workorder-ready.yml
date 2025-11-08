@@ -3,25 +3,12 @@ name: workorder-ready
 on:
   pull_request_target:
     types: [labeled]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'Source pull request number (optional)'
-        required: false
 
 permissions:
   contents: read
   pull-requests: write
-  issues: write
 
 jobs:
-  dispatch_notice:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo "::notice title=workorder-ready::workflow_dispatch ルートは検証専用です。PRガードと WO-12 段階テストは既定でスキップされます。"
-
   ready:
     name: workorder-ready
     if: >-
@@ -48,7 +35,7 @@ jobs:
       WORKORDER_TESTS_LOG_DIR: .workorder-tests-logs
       WORKORDER_TESTS_SUMMARY: .workorder-tests-logs/summary.json
     concurrency:
-      group: workorder-ready-${{ github.event.pull_request.number || github.ref_name || github.run_id }}
+      group: workorder-ready-${{ github.event.pull_request.number || github.ref_name }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
@@ -369,7 +356,7 @@ jobs:
             const prNumber = (process.env.SOURCE_PR || '').trim();
             const event = context.eventName;
             const action = context.payload?.action || '';
-            const allowedEvent = event === 'workflow_call' || (event === 'pull_request_target' && action === 'labeled');
+            const allowedEvent = event === 'pull_request_target' && action === 'labeled';
             const shouldRun = guardOk && hasDiff && allowedEvent && prNumber;
             const reasons = [];
             if (!guardOk) reasons.push('guard_status');
