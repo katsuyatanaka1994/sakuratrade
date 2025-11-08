@@ -1,0 +1,17 @@
+name: plan-sync-dispatch-bridge
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'Source pull request number'
+        type: string
+        required: true
+
+jobs:
+  call:
+    name: Run plan-sync via branch workflow
+    uses: katsuyatanaka1994/sakuratrade/.github/workflows/plan-sync.yml@4d4c52fed477ff9036b65f03cde9eaf76fd7297c
+    with:
+      pr: ${{ inputs.pr }}
+    secrets: inherit
