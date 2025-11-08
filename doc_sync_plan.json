@@ -17,12 +17,12 @@
   "api_operations": [],
   "test_flows": [
     {
-      "id": "wo12-case1-smoke",
-      "description": "Temporary WO-12 Case1 auto diff trigger"
+      "label": "wo12-case1-smoke",
+      "path": "docs/agile/ui-specification.md#wo12-case1-smoke"
     },
     {
-      "id": "wo12-lite-case1",
-      "description": "Lite validation smoke/unit run 2025-11-08"
+      "label": "wo12-lite-case1",
+      "path": "docs/agile/ui-specification.md#wo12-lite-case1"
     }
   ]
 }
