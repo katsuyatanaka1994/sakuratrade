@@ -38,11 +38,13 @@ OPENAPI_PATH = ROOT / "backend" / "app" / "openapi.yaml"
 DOCS_TESTS_DIR = ROOT / "docs" / "tests"
 DOC_SYNC_PLAN_PATH = ROOT / "doc_sync_plan.json"
 
+# Only doc/spec/test assets (plus openapi) are eligible for DocSync automation.
+# Workflows (.github/workflows/**) must be updated via dedicated PRs to avoid
+# propagating CI wiring into automation branches and accidentally firing pushes.
 DEFAULT_ALLOWED_PATTERNS = [
     "docs/agile/**",
     "docs/specs/**",
     "docs/tests/**",
-    ".github/workflows/**",
     "backend/app/openapi.yaml",
 ]
 
