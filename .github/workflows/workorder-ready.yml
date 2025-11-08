@@ -369,7 +369,7 @@ jobs:
             const prNumber = (process.env.SOURCE_PR || '').trim();
             const event = context.eventName;
             const action = context.payload?.action || '';
-            const allowedEvent = event === 'workflow_call' || (event === 'pull_request_target' && action === 'labeled');
+            const allowedEvent = event === 'pull_request_target' && action === 'labeled';
             const shouldRun = guardOk && hasDiff && allowedEvent && prNumber;
             const reasons = [];
             if (!guardOk) reasons.push('guard_status');
