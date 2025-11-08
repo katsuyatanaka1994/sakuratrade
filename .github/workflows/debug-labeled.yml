@@ -1,0 +1,11 @@
+name: debug-labeled
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::notice title=debug:: PR=${{ github.event.pull_request.number }} labels=${{ toJson(github.event.pull_request.labels.*.name) }}"
