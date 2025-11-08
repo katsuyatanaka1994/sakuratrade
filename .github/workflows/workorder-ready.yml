@@ -1,65 +1,12 @@
 name: workorder-ready
 
 on:
-  workflow_call:
-    inputs:
-      pr_number:
-        description: 'Source pull request number for workorder-ready'
-        required: true
-        type: string
-      plan_branch:
-        description: 'Plan branch to read tasks from (default: docs-sync/plan)'
-        required: false
-        type: string
-        default: docs-sync/plan
-      base_branch:
-        description: 'Base branch for Implementation Draft PR (default: plan_branch)'
-        required: false
-        type: string
-        default: ''
-      head_branch:
-        description: 'Source head branch name (optional)'
-        required: false
-        type: string
-        default: ''
-      source_sha:
-        description: 'Source commit SHA associated with the triggering run (optional)'
-        required: false
-        type: string
-        default: ''
-      trigger_mode:
-        description: 'plan-sync trigger mode for logging (optional)'
-        required: false
-        type: string
-        default: ''
-      caller_run_id:
-        description: 'Upstream plan-sync run id for observability (optional)'
-        required: false
-        type: string
-        default: ''
-    secrets:
-      GH_APP_ID:
-        required: false
-      GH_APP_PRIVATE_KEY:
-        required: false
   pull_request_target:
     types: [labeled]
   workflow_dispatch:
     inputs:
       pr_number:
         description: 'Source pull request number (optional)'
-        required: false
-      base:
-        description: 'Base branch for Implementation Draft PR (default: docs-sync/plan)'
-        required: false
-      plan_branch:
-        description: 'Plan branch to read tasks from (default: docs-sync/plan)'
-        required: false
-      head_branch:
-        description: 'Source head branch name (optional)'
-        required: false
-      source_sha:
-        description: 'Source commit SHA associated with the run (optional)'
         required: false
 
 permissions:
@@ -77,6 +24,10 @@ jobs:
 
   ready:
     name: workorder-ready
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'plan:sync'
     env:
       WORKORDER_ALLOWED_PATHS: ${{ vars.WORKORDER_ALLOWED_PATHS || '' }}
       WORKORDER_BLOCKED_PATHS: ${{ vars.WORKORDER_BLOCKED_PATHS || 'alembic/**,infra/**,migrations/**' }}
@@ -97,151 +48,58 @@ jobs:
       WORKORDER_TESTS_LOG_DIR: .workorder-tests-logs
       WORKORDER_TESTS_SUMMARY: .workorder-tests-logs/summary.json
     concurrency:
-      group: ${{ github.head_ref || github.ref_name }}-workorder-ready
+      group: workorder-ready-${{ github.event.pull_request.number || github.ref_name || github.run_id }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
       - name: Resolve run context
         id: context
         uses: actions/github-script@v7
-        env:
-          WORKORDER_INPUT_PR_NUMBER: ${{ inputs.pr_number || '' }}
         with:
           script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
             const set = (key, value) => core.setOutput(key, value ?? '');
             const event = context.eventName;
             const currentSha = context.sha || '';
-            const prInputRaw = (core.getInput('pr_number', { required: false }) || process.env.WORKORDER_INPUT_PR_NUMBER || '').trim();
-            const payloadPR = context.payload?.pull_request;
-            const inferredPrNumber = (!prInputRaw && payloadPR?.number)
-              ? String(payloadPR.number)
-              : prInputRaw;
-            set('escalated', 'false');
-            const markSkip = (reason) => {
+
+            if (event !== 'pull_request_target') {
               set('should_run', 'false');
-              set('reason', reason);
-            };
-
-            const reusableInvocation = event === 'workflow_call' || (event === 'pull_request_target' && inferredPrNumber);
-            if (reusableInvocation) {
-              if (!inferredPrNumber) {
-                markSkip('missing pr_number input');
-                return;
-              }
-              const prNumber = Number(inferredPrNumber);
-              if (!Number.isFinite(prNumber) || prNumber <= 0) {
-                markSkip('invalid pr_number input');
-                return;
-              }
-              let pr;
-              try {
-                if (payloadPR?.number === prNumber) {
-                  pr = payloadPR;
-                } else {
-                  const response = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-                  pr = response.data;
-                }
-              } catch (error) {
-                markSkip(`source PR #${inferredPrNumber} not found`);
-                core.warning(`workorder-ready: unable to load PR #${inferredPrNumber}: ${error}`);
-                return;
-              }
-
-              const planBranch = core.getInput('plan_branch', { required: false }) || 'docs-sync/plan';
-              const baseInput = core.getInput('base_branch', { required: false }) || '';
-              const headInput = core.getInput('head_branch', { required: false }) || '';
-              const sourceShaInput = core.getInput('source_sha', { required: false }) || '';
-              const triggerMode = core.getInput('trigger_mode', { required: false }) || '';
-              const callerRunId = core.getInput('caller_run_id', { required: false }) || '';
-              const escalationLabel = process.env.WORKORDER_ESCALATION_LABEL || 'workorder:suspended';
-              const labels = Array.isArray(pr.labels) ? pr.labels : [];
-              const hasPlanSync = labels.some((label) => label?.name === 'plan:sync');
-              if (!hasPlanSync) {
-                markSkip('source PR missing plan:sync label');
-                set('source_pr', String(prNumber));
-                return;
-              }
-              if (pr.head?.ref === 'docs-sync/workorder') {
-                markSkip('source PR head is docs-sync/workorder');
-                set('source_pr', String(prNumber));
-                return;
-              }
-              const hasEscalationLabel = labels.some((label) => label?.name === escalationLabel);
-              if (hasEscalationLabel) {
-                markSkip('workorder automation suspended');
-                set('source_pr', String(prNumber));
-                set('escalated', 'true');
-                return;
-              }
-
-              const guardRef = sourceShaInput || pr.head?.sha || currentSha;
-              const planBase = baseInput || planBranch;
-
-              set('should_run', 'true');
-              set('checkout_ref', `refs/heads/${planBranch}`);
-              set('plan_branch', planBranch);
-              set('pr_base', planBase);
-              set('source_pr', String(prNumber));
-              set('source_head', headInput || pr.head?.ref || '');
-              set('guard_ref', guardRef);
-              set('source_sha', guardRef);
-              const trigger = triggerMode ? `plan-sync:${triggerMode}` : `plan-sync:${event === 'workflow_call' ? 'workflow_call' : 'pull_request_target'}`;
-              set('trigger', trigger);
-              set('caller_run_id', callerRunId);
-              if (callerRunId) {
-                const url = `https://github.com/${owner}/${repo}/actions/runs/${callerRunId}`;
-                set('caller_run_url', url);
-              } else {
-                set('caller_run_url', '');
-              }
-              return;
-            }
-
-            if (event === 'workflow_dispatch') {
-              const baseInput = core.getInput('base') || 'docs-sync/plan';
-              const planBranchInput = core.getInput('plan_branch') || baseInput;
-              set('should_run', 'true');
-              set('checkout_ref', `refs/heads/${planBranchInput}`);
-              set('plan_branch', planBranchInput);
-              set('pr_base', baseInput);
-              set('trigger', 'workflow_dispatch');
+              set('reason', 'workorder-ready: pull_request_target(labeled) 以外は実行しません');
               set('guard_ref', currentSha);
-              set('source_pr', '');
-              set('source_head', '');
               set('source_sha', currentSha);
-              set('caller_run_id', '');
-              set('caller_run_url', '');
               return;
             }
 
-            if (event === 'push') {
-              const ref = context.ref || '';
-              if (!ref.startsWith('refs/heads/')) {
-                markSkip('unsupported ref type');
-                set('guard_ref', currentSha);
-                set('source_sha', currentSha);
-                return;
-              }
-              const branch = ref.replace('refs/heads/', '');
-              set('should_run', 'true');
-              set('checkout_ref', ref);
-              set('plan_branch', branch);
-              set('pr_base', branch);
-              set('trigger', 'push');
+            const pr = context.payload?.pull_request;
+            const action = context.payload?.action;
+            const label = context.payload?.label?.name;
+            if (!pr || action !== 'labeled' || label !== 'plan:sync') {
+              set('should_run', 'false');
+              set('reason', 'plan:sync ラベル付与イベント以外はスキップします');
               set('guard_ref', currentSha);
-              set('source_pr', '');
-              set('source_head', branch);
               set('source_sha', currentSha);
-              set('caller_run_id', '');
-              set('caller_run_url', '');
               return;
             }
 
-            markSkip(`unsupported event: ${event}`);
-            set('guard_ref', currentSha);
-            set('source_sha', currentSha);
+            if ((pr.head?.ref || '').trim() === 'docs-sync/workorder') {
+              set('should_run', 'false');
+              set('reason', 'docs-sync/workorder self-trigger blocked');
+              set('source_pr', String(pr.number));
+              set('guard_ref', currentSha);
+              set('source_sha', currentSha);
+              return;
+            }
+
+            const planBranch = 'docs-sync/plan';
+            const guardRef = pr.head?.sha || currentSha;
+            set('should_run', 'true');
+            set('checkout_ref', `refs/heads/${planBranch}`);
+            set('plan_branch', planBranch);
+            set('pr_base', pr.base?.ref || 'main');
+            set('source_pr', String(pr.number));
+            set('source_head', pr.head?.ref || '');
+            set('guard_ref', guardRef);
+            set('source_sha', guardRef);
+            set('trigger', 'plan-sync:pull_request_target');
 
 
       - name: Skip (no action required)
@@ -683,14 +541,6 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m scripts.workorder_tests run --phase unit --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}"
-
-      - name: Run WO-12 integration checks
-        if: steps.context.outputs.should_run == 'true' && steps.guard-status.outputs.status == 'ok' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true' && steps.wo12_unit.outcome == 'success'
-        id: wo12_integration
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          python3 -m scripts.workorder_tests run --phase integration --summary "${WORKORDER_TESTS_SUMMARY}" --logs-dir "${WORKORDER_TESTS_LOG_DIR}"
 
       - name: Analyse acceptance summary
         if: steps.context.outputs.should_run == 'true' && steps.prepare_workorder.outputs.commit_created == 'true' && steps.acceptance_gate.outputs.should_run_tests == 'true'

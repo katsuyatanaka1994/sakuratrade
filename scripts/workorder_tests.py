@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run staged acceptance checks and support controlled rollback for workorder.
 
-`run`（既定）コマンドは `smoke → unit → integration` の順にチェックを実行し、
+`run`（Lite モード）は `smoke → unit` の順にチェックを実行し、
 結果を `.workorder-tests-logs/summary.json` に集約する。`--phase` を指定すると
 個別フェーズのみを実行して同じサマリーファイルへ反映する。
 
@@ -25,11 +25,10 @@ DEFAULT_LOGS_DIR = ROOT / ".workorder-tests-logs"
 DEFAULT_SUMMARY_PATH = DEFAULT_LOGS_DIR / "summary.json"
 SummaryPayload = dict[str, Any]
 
-STAGE_ORDER = ["smoke", "unit", "integration"]
+STAGE_ORDER = ["smoke", "unit"]
 _STAGE_KEYWORDS = {
     "smoke": ("smoke", "tsc", "fmt", "ruff"),
     "unit": ("unit", "pytest", "eslint", "mypy", "lint"),
-    "integration": ("integration", "vitest", "playwright", "cypress", "e2e"),
 }
 
 

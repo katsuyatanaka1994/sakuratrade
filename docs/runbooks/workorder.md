@@ -4,10 +4,10 @@
 
 ## 1 分ランブック（成功ルート）
 - **対象 PR を確認する**: `plan:sync` ラベルが付き、`wo:ready` ラベルも付与済み（または `WORKORDER_ENFORCE_READY_LABEL=0` で非ブロック）であることを確認。Required Check `wo:ready/Validate` が緑なら自動実装に進めます。
-- **workorder-ready を起動する**: `plan-sync` → `workflow_call` が正規ルート（success 後に自動連鎖）。PR に `plan:sync` ラベルを付け直すと `pull_request_target(labeled)` で再実行できます。検証目的で Actions ▸ `workorder-ready` ▸ `Run workflow`（`workflow_dispatch`）を使う場合は、WO-12 段階テストが NOTICE 付きでスキップされる点に注意してください。必要に応じて `plan_branch` / `base` 入力を `docs-sync/plan` 以外に切り替えます。
+- **workorder-ready を起動する**: `plan:sync` ラベルを付け直すと `pull_request_target(labeled)` が走り、Lite版 WO-12（smoke → unit）を実行します。検証目的で Actions ▸ `workorder-ready` ▸ `Run workflow`（`workflow_dispatch`）を使う場合は NOTICE を出すだけで WO-12 は実行されません。
 - **PR上のサニティチェック**: PR を `plan:sync` ラベルで開いたら `workorder-ready/pr-sanity`（`pull_request`）が自動で走り、禁止パス・上限ガードと監査ログ（artifact）を先に確認できます。fork PR やラベル未付与の場合はスキップされます。
 - **ガード結果を確認する**: Run summary に `workorder_cli ready` → guard → PR 作成の順で緑が並んでいることを確認。Artifact `workorder-limits-report.zip` が生成されていれば、ガード統計も保存済みです。
-- **WO-12 段階テストを確認する**: ガードが緑で差分ありの場合、`smoke → unit → integration` の 3 段が `.workorder-tests-logs/summary.json` に記録されます。Run summary の NOTICE と artifact `workorder-tests-logs` で各フェーズのログを確認できます。
+- **WO-12 段階テストを確認する**: ガードが緑で差分ありの場合、`smoke → unit` の 2 段が `.workorder-tests-logs/summary.json` に記録されます。Run summary の NOTICE と artifact `workorder-tests-logs` で各フェーズのログを確認できます。
 - **Draft PR を点検する**: `docs-sync/workorder` の Draft PR が更新され、本文に Trigger / plan_snapshot_id / Tasks が記録されているか確認。Required Checks が緑のままなら完了です。
 
 ![workorder-ready の手動起動 UI](../assets/workorder-ready-run-ui.svg)
@@ -15,8 +15,7 @@
 ## トリガーマトリクス（WO-12）
 | ルート | GitHub イベント | 想定ユースケース | WO-12 段階テスト | 備考 |
 | --- | --- | --- | --- | --- |
-| `plan-sync → workflow_call` | `workflow_call` | 正規ルート。`plan-sync/Validate` success 直後に自動連鎖して Draft を更新 | 自動実行（smoke → unit → integration） | `caller_run_id` で元 Run を追跡。`failed guard` ラベルは失敗時のみ付与 |
-| `pull_request_target (labeled)` | `pull_request_target` (`types: [labeled]`) | PR の再検証・ラベル付け直し時に手動で再連鎖 | 条件一致時に自動実行（上と同じ） | `plan:sync` ラベル必須、fork PR は対象外。差分が無い場合は WO-12 を自動スキップ |
+| `pull_request_target (plan:sync)` | `pull_request_target` (`types: [labeled]`) | PR の再検証・ラベル付け直し時に起動 | Lite WO-12（smoke → unit） | `plan:sync` ラベル必須、fork PR は対象外。差分が無い場合は WO-12 を自動スキップ |
 | Actions ▸ `Run workflow` | `workflow_dispatch` | ローカル検証・差分確認専用 | 常にスキップ（NOTICE を出力） | ガード／Draft 更新は実行されるがブロックせず。PR ガードとしては利用しない |
 
 ## 3 分ランブック（赤→緑の復旧）
@@ -48,7 +47,7 @@
 3. 手動更新後に `gh workflow run workorder-ready.yml` もしくは `gh workflow run plan-sync.yml -f pr=<番号>` を実行し直し、ログに `::notice::workorder-ready create|edit` が出て PR 番号が記録されることを確認する。
 
 ### ケース 6: WO-12 段階テストが失敗した
-1. Run summary の `Run WO-12 ...` ステップを開き、どのフェーズ（smoke/unit/integration）が赤になったかと失敗コマンドを確認します。
+1. Run summary の `Run WO-12 ...` ステップを開き、どのフェーズ（smoke/unit）が赤になったかと失敗コマンドを確認します。
 2. PR には自動で `failed guard` ラベルと失敗内容のコメントが投稿されます。artifact `workorder-tests-logs` と `.workorder-tests-logs/summary.json` でログとサマリを確認し、原因となった差分やテストを特定してください。
 3. 最新 Run が作成した自己コミットのみ `rollback` されているため、Draft PR はそのまま維持されます。差分を修正し、再度 `plan-sync` → `workorder-ready` を実行するとラベルが自動で外れます。
 

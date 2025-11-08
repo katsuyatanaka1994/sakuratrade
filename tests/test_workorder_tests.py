@@ -39,7 +39,7 @@ def _prepare_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path
 def test_infer_stage() -> None:
     assert workorder_tests._infer_stage("frontend-tsc", "npx --prefix frontend tsc --noEmit") == "smoke"
     assert workorder_tests._infer_stage("frontend-eslint", "npx eslint") == "unit"
-    assert workorder_tests._infer_stage("frontend-vitest", "npm run test:run") == "integration"
+    assert workorder_tests._infer_stage("frontend-vitest", "npm run test:run") == "unit"
     assert workorder_tests._infer_stage("custom", "echo something") == "unit"
 
 
@@ -101,12 +101,11 @@ def test_cmd_run_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     assert exit_code == 1
     data = json.loads(summary_path.read_text(encoding="utf-8"))
     assert data["status"] == "failure"
-    assert data["failed_stage"] == "integration"
+    assert data["failed_stage"] == "unit"
     assert data["failed_check"] == "frontend-vitest"
-    assert Path(root / data["log_dir"] / "integration-01-frontend-vitest.log").exists()
-    # subsequent stages (if any) would be skipped; ensure failure command recorded
+    assert Path(root / data["log_dir"] / "unit-01-frontend-vitest.log").exists()
     stage_records = {stage["name"]: stage for stage in data["stages"]}
-    assert stage_records["integration"]["checks"][0]["status"] == "failure"
+    assert stage_records["unit"]["checks"][0]["status"] == "failure"
 
 
 def test_cmd_run_no_checks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

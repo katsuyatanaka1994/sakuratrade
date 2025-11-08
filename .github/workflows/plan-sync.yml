@@ -765,23 +765,6 @@ jobs:
               body: `📋 plan-sync: ${url}`,
             });
 
-  workorder_ready:
-    name: Call workorder-ready (official path)
-    needs: sync
-    if: ${{ needs.sync.result == 'success' && needs.sync.outputs.pr_number != '' && needs.sync.outputs.guard_pass == 'true' && (needs.sync.outputs.has_plan_diff == 'true' || contains(needs.sync.outputs.labels_csv || '', 'manual-accept')) }}
-    uses: ./.github/workflows/workorder-ready.yml
-    with:
-      pr_number: ${{ needs.sync.outputs.pr_number }}
-      head_branch: ${{ needs.sync.outputs.head_ref }}
-      source_sha: ${{ needs.sync.outputs.head_sha }}
-      plan_branch: ${{ needs.sync.outputs.plan_branch || 'docs-sync/plan' }}
-      base_branch: ${{ needs.sync.outputs.plan_branch || 'docs-sync/plan' }}
-      trigger_mode: ${{ needs.sync.outputs.trigger_mode }}
-      caller_run_id: ${{ github.run_id }}
-    secrets:
-      GH_APP_ID: ${{ secrets.GH_APP_ID }}
-      GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
   sync_outputs_debug:
     name: Debug sync outputs
     needs: sync
