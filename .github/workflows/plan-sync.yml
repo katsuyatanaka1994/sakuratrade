@@ -13,16 +13,6 @@ on:
         required: false
         type: string
         default: ''
-  workflow_call:
-    inputs:
-      pr:
-        description: 'Pull request number to sync (optional)'
-        required: false
-        type: string
-      branch:
-        description: 'Branch to run on when PR is not specified (default: main)'
-        required: false
-        type: string
   pull_request_target:
     types: [labeled, opened, reopened, ready_for_review, synchronize]
   issue_comment:
@@ -67,7 +57,6 @@ jobs:
       cancel-in-progress: false
     if: |
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'workflow_call' ||
       (
         github.event_name == 'pull_request_target' &&
         (
@@ -120,40 +109,6 @@ jobs:
               const inferredBranch = branchInput || context.ref.replace('refs/heads/', '');
               set('should_run', 'true');
               set('trigger_mode', 'dispatch');
-              set('pr_number', '');
-              set('checkout_ref', `refs/heads/${inferredBranch}`);
-              set('base_ref', 'main');
-              set('base_sha', '');
-              set('head_ref', inferredBranch);
-              set('plan_branch', inferredBranch);
-              set('head_sha', context.sha || '');
-              return;
-            }
-
-            if (event === 'workflow_call') {
-              const prInput = core.getInput('pr');
-              const branchInput = core.getInput('branch');
-              if (prInput) {
-                const prNumber = Number(prInput);
-                const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-                set('should_run', 'true');
-                set('trigger_mode', 'workflow_call');
-                set('pr_number', String(prNumber));
-                set('checkout_ref', `refs/pull/${prNumber}/head`);
-                set('base_ref', pr.data.base.ref);
-                set('base_sha', pr.data.base.sha ?? '');
-                set('head_ref', pr.data.head.ref);
-                set('plan_branch', 'docs-sync/plan');
-                set('head_sha', pr.data.head?.sha ?? '');
-                const labels = Array.isArray(pr.data.labels)
-                  ? pr.data.labels.map((label) => label?.name).filter(Boolean).join(',')
-                  : '';
-                set('pr_labels', labels);
-                return;
-              }
-              const inferredBranch = branchInput || context.ref.replace('refs/heads/', '');
-              set('should_run', 'true');
-              set('trigger_mode', 'workflow_call');
               set('pr_number', '');
               set('checkout_ref', `refs/heads/${inferredBranch}`);
               set('base_ref', 'main');

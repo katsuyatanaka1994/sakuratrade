@@ -17,7 +17,7 @@
 - workorder-ready 自動停止: 連続失敗が既定閾値（リポジトリ変数で調整可、初期値2回）に達すると `workorder:suspended` ラベルとエスカレーションコメントを付与し、ラベル解除まで自動実行を停止。
 - Implementation Draft PR 自動テスト: 2025-11-05 16:40 JST、WO-6 フォローアップ用の E2E を実施。
 - workflow_run デバッグ: 2025-11-05 17:45 JST、`workflow-run-debug.yml` 追加で payload を取得、`workorder-ready` 未起動事象を確認。
-- workflow_call 直結: 2025-11-06 14:10 JST、plan-sync/Validate 成功時に workflow_call で workorder-ready を起動する構成へ切替（workflow_run 依存を廃止、::notice ログと idempotent PR 更新を実装）。
+- Lite切替（pull_request_target）: 2025-11-07 10:00 JST、GitHub の reusable 制限に伴い `workflow_call` 経路を停止し、`pull_request_target(labeled: plan:sync)` + 2段テスト（smoke→unit）を唯一の本線に固定。`workflow_dispatch` は NOTICE のみで WO-12 を走らせない。
 
 ## AUTOレイヤー（Codex管理セクション）
 > Codex は以下の `<!-- AUTO:BEGIN --> ... <!-- AUTO:END -->` 範囲のみを書き換える。MANUAL 節は人が保守する。

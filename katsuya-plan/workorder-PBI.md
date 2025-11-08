@@ -208,30 +208,34 @@ Required: `wo:ready/Validate` が main に設定、AUTOパスの push 保護・C
 - `docs/agile/workorder.md` と `workorder_sync_plan.json` の AUTO 節へ監査ログパスを許可パスとして追加。
 - PR 向けの読み取り専用サニティフローとして `.github/workflows/workorder-ready-pr.yml` を追加。`plan:sync` ラベル付き PR で禁止パス／上限ガードを事前検証し、監査エントリを artifact で確認できるようにした（本番の書き込み・監査ログ追記は default branch の `workorder-ready.yml` が担当）。
 
-
 #### WO-12v2: 自動テストレイヤ＋安全停止（Draft維持）
 **Outcome**  
-Implementation Draft PR に対し「高速スモーク → 単体 → 軽統合」を段階実行し、いずれかで失敗したら**実行を即停止**。Draft は **閉じずに維持**し、`failed guard` ラベル・理由コメント・ログ（artifact）で可視化。成功時のみ `implementation:ready` に遷移。
+（現在は **Lite 運用**）Implementation Draft PR に対し **smoke → unit** の 2 段テストを段階実行し、いずれかで失敗したら **即停止（Fail Fast）**。Draft は **閉じずに維持**し、`failed guard` ラベル・理由コメント・`workorder-tests-logs/summary.json` で可視化。成功時のみ `implementation:ready` に遷移。※ 3 段（+integration）と再利用 `workflow_call` 経路は **一時停止**（v2 復帰条件を満たした時点で再開）。
 
 **カテゴリ**  
 品質／リスク低減
 
 **説明・背景**  
-壊れた状態を main に近づけないことを最優先。Implementation Draft PR は plan↔workorder 整合の“鏡”であり、強制リバート／自動クローズは再生成ループと競合しやすい。WO-6 で正規トリガー（`plan-sync → workflow_call → workorder-ready`）が整備された今(11/6)、WO-12 は「Fail Fast（停止）＋可視化」に役割を絞ることで、安全かつ再現性の高い自動運転にする。必要な場合のみ、当該 Run が作成した **自己コミット** を限定ロールバックする。
+本来は `plan-sync → workflow_call → workorder-ready`（再利用ワークフロー）＋ **3 段テスト** を想定していたが、GitHub 側の **Reusable workflows の評価段階で jobs=0 のまま停止** する事象が継続し、価値（壊さない・可視化）に直結しない設定依存で時間を消費していた。そこで、配線の重さに依存しない **WO-12 Lite** に方針変更。Lite は **pull_request_target(labeled: plan:sync)** 主動線と **2 段テスト（smoke・unit）** で目的の 8 割を即確保し、v2（3 段＋再利用 WF）は **解錠後に復帰**する。
 
-**完了条件（Acceptance）**  
-1. **発火条件**：`pull_request_target(labeled)` で `plan:sync` が付与されたときのみ実行。`guard PASS` かつ AUTO差分あり（または `manual-accept`）で、`docs-sync/workorder` self-trigger は遮断する。`workflow_dispatch` は NOTICE のみでテスト非実行。  
-2. **段階テスト**：`scripts/workorder_tests.py` で **smoke → unit** の 2 段を実行し、`.workorder-tests-logs/summary.json` と `workorder-tests-logs` artifact を必ず残す。  
-3. **失敗時**：その場で停止し、Draft PR に `failed guard` ラベル＋理由コメントを自動投稿。Lite でも「当該 Run が生成した自己コミット」のみ限定ロールバックし、PR は閉じない。  
-4. **成功時**：`NOTICE` に **PR 番号／create\|edit／commit SHA／smoke・unit 結果** を出力し、Draft #664 を更新。  
-5. **運用・監査**：`concurrency: workorder-ready-${{ github.event.pull_request.number }}` と冪等 PR 更新（既存PRは edit、無ければ create）を維持し、Runbook に Lite 手順・失敗時の一次対応・`failed guard` ラベル運用を追記。
+**完了条件（Acceptance／Lite）**  
+1. **発火条件**：`pull_request_target(labeled)` で `plan:sync` が付与されたときのみ実行。`guard_pass == true` かつ **AUTO差分あり**（必要に応じて `manual-accept` を OR で許可）。`docs-sync/workorder` self-trigger は遮断。`workflow_dispatch` は NOTICE のみで **テスト非実行**。
+2. **段階テスト**：`scripts/workorder_tests.py` にて **smoke → unit** を実行し、`.workorder-tests-logs/summary.json` と `workorder-tests-logs` artifact を必ず保存（各フェーズの結果と `before_sha/after_sha` を記録）。
+3. **失敗時**：その場で **停止**。Draft PR に `failed guard` ラベル付与と **理由コメント**を自動投稿。**限定ロールバック**（当該 Run が生成した自己コミットのみ）を実施し、PR は **閉じない**。次回緑化で `failed guard` は **自動解除**。
+4. **成功時**：Actions の Summary/NOTICE に **PR 番号／create|edit／commit SHA／smoke・unit 結果** を出力し、Draft #664 を更新。
+5. **運用・監査**：`concurrency: workorder-ready-${{ github.event.pull_request.number }}` と **冪等 PR 更新**（既存 PR は edit、無ければ create）を維持。`permissions: { contents: read, pull-requests: write }`（Secrets 不使用）。Runbook に Lite 手順・失敗時の一次対応・`failed guard` ラベル運用を記載。
 
-> 備考：ロールバック対象は **Bot の自己コミットのみ**。Lite では reusable workflow / secrets 依存を避け、`permissions: { contents: read, pull-requests: write }` のみで動作させる。
+> **v2 復帰条件（目安）**  
+> ・リポ / 組織の **Reusable workflows** 設定が安定し、同一リポ呼び出しが許可済み。  
+> ・`reusable-smoke` の最小再利用ワークフローが **安定して Green**。  
+> ・`plan-sync.yml` の `workflow_call` 経路で **jobs が展開**されることを確認。  
+> ・投入コスト（配線維持・Integration 実行時間）＜事故コスト（壊れ復旧の平均時間）になったタイミングで 3 段（integration 復帰）を再開。
 
 **2025-11-08 Lite 運用メモ**  
-- reusable workflow (`workflow_call`) を一旦停止し、`pull_request_target(labeled: plan:sync)` だけで WO-12 を起動。bridge／caller_run_id／workflow_call 由来のメタは削除した。  
-- WO-12 テストは `smoke → unit` の 2 段に縮小し、`integration` フェーズ・重い再実行系（bridge 経路、dispatch でのガード再現）を撤廃。  
-- Lite でも `workorder-tests-logs/summary.json`・artifact・限定ロールバック・`failed guard` ラベル・Draft維持は従来通り。workflow_call 経路が安定した時点で v2（3段テスト＋再利用 WF）へ戻す。
+- `workflow_call` 経路を停止し、`pull_request_target(labeled: plan:sync)` で WO-12 を起動。bridge／caller_run_id／再利用由来メタは削除。  
+- テストは **smoke → unit** の 2 段に縮小。`integration` フェーズと重い再実行系（bridge 経路、dispatch ガード再現）は撤廃。  
+- Lite でも `workorder-tests-logs/summary.json`・artifact・**限定ロールバック**・`failed guard` ラベル・**Draft 維持**は従来通り。設定が解錠でき次第、v2（3 段テスト＋再利用 WF）へ戻す。
+
 
 #### WO-15: タスク個別上限の適用 (`tasks[i].acceptance.max_changed_lines`)
 **Outcome**: plan 由来の `TASKS` からタスク単位の上限と `acceptance.checks` を取得し、グローバル閾値より優先して実行・検証する。
@@ -284,3 +288,25 @@ CLI と Workflow が同じヘルパーで group を生成し、`outputs` 未設�
 
 **状況（2025-11-04）**:
 pull_request ワークフローからの連鎖実行が GitHub の仕様で拒否されるため、WO-11 は当面スキップ。既存の push ベース運用と監査導線へ戻した。
+
+---
+
+## WO-12 Lite 検証ログ（Case1/Case2 進捗）
+
+### Lite適用前提のクリーンアップ
+- `.github/workflows/workorder-ready.yml`（main）は `pull_request_target(labeled: plan:sync)` のみを残し、`workflow_dispatch` / `workflow_call` / `push` を削除。`permissions: {contents: read, pull-requests: write}` ＋ `concurrency: workorder-ready-${{ github.event.pull_request.number || github.ref_name }}` に統一。
+- `.github/workflows/plan-sync.yml` から再利用呼び出し (`uses: ./.github/workflows/workorder-ready.yml`) を完全に削除し、Gate NOTICE だけを出す構成に戻した（WO-6 リグレッションなし）。
+- 自動生成ブランチ（`docs-sync/plan`, `docs-sync/workorder`, `chore/wo12-smoketest`, `chore/wo12-lite-case1` など）に埋まっていた旧 Workflow を Lite 版へ強制上書き。push run で `workflow_call` が呼ばれて失敗する経路を遮断し、今後の force-push でも旧定義が復活しないようにした（commit: `0925f00`, `c793ee9`, `9fafc38`, `508893c`）。
+- それでも default branch が旧版のままなので、`gh run list --workflow workorder-ready.yml --event push` には main 由来の 0 秒 run が残存。main へ Lite 版を取り込めば解消予定。
+
+### Case1: 通常系（2025-11-08）
+- `plan:sync` ラベル再付与で `plan-sync/Validate` を実行。run [19189819381](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19189819381) / [19189833743](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19189833743) が `guard_pass=true / has_diff=true` で完了し、Gate NOTICE `workorder-ready gate pr=685 guard_pass=true has_diff=true labels=plan:sync,wo:ready,manual-accept` を取得。
+- plan-sync 側は `docs-sync/plan` Draft (#635) を更新済み（No-Op なし）。`doc_sync_plan.json` には `ui_spec_manual` / `docs_ci_changed`／`wo12-lite-case1` のトリガーが残り、AUTO 差分を検知できることを再確認。
+- しかし `.github/workflows/workorder-ready.yml`（Lite 版）は **default branch(main)** にまだデプロイされていないため、`pull_request_target(labeled: plan:sync)` が GitHub Actions 側で発火しない。`gh run list --workflow workorder-ready.yml --event pull_request_target --limit 5` は空のまま。
+- 代わりに `event=push` / jobs=0 の run ([19189836181](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19189836181) ほか) が発生し、「This workflow is not callable」で即失敗する。原因は **default branch が旧 `workflow_call` 版を保持していること**で、Lite 版は PR ブランチ上にしか存在しない。main へ反映すれば push-run は自然消滅し、`pull_request_target` が起動する見込み。
+
+### Case2: 意図的 Fail（未着手）
+- Case1 で `pull_request_target` が発火していないため、`scripts/workorder_tests.py` による失敗挿入は保留。テストを走らせるトリガーが整い次第、smoke/unit を強制 Fail → 限定ロールバック → `failed guard` 自動解除のシナリオを検証する。
+
+### Blocking Issue
+- `workorder-ready` の base(main) では `pull_request_target` が定義済みだが、ラベル付け (`action=labeled`) 時に run が生成されない。`docs-sync/plan` など自動ブランチに旧 `workflow_call` 版が残るため、push 実行では `workflow is not callable` の 0 秒 failure が継続。Lite 仕様のトリガーが GitHub 側で有効化されるまで Case1/Case2 の WO-12 実行はブロックされる。
