@@ -21,7 +21,6 @@
 ### 補足ログ
 - relnotes test A @2025-10-24_11:57:42
 - relnotes auto-merge smoke @2025-10-24_12:35:43
-- wo12 smoketest trigger @2025-11-07_10:05:00
 
 ## AUTOレイヤー（Codex管理セクション）
 > Codex は以下の `<!-- AUTO:BEGIN --> ... <!-- AUTO:END -->` 範囲のみを書き換える。
