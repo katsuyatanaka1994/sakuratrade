@@ -288,3 +288,25 @@ CLI と Workflow が同じヘルパーで group を生成し、`outputs` 未設�
 
 **状況（2025-11-04）**:
 pull_request ワークフローからの連鎖実行が GitHub の仕様で拒否されるため、WO-11 は当面スキップ。既存の push ベース運用と監査導線へ戻した。
+
+---
+
+## WO-12 Lite 検証ログ（Case1/Case2 進捗）
+
+### Lite適用前提のクリーンアップ
+- `.github/workflows/workorder-ready.yml`（main）は `pull_request_target(labeled: plan:sync)` のみを残し、`workflow_dispatch` / `workflow_call` / `push` を削除。`permissions: {contents: read, pull-requests: write}` ＋ `concurrency: workorder-ready-${{ github.event.pull_request.number || github.ref_name }}` に統一。
+- `.github/workflows/plan-sync.yml` から再利用呼び出し (`uses: ./.github/workflows/workorder-ready.yml`) を完全に削除し、Gate NOTICE だけを出す構成に戻した（WO-6 リグレッションなし）。
+- 自動生成ブランチ（`docs-sync/plan`, `docs-sync/workorder`, `chore/wo12-smoketest`, `chore/wo12-lite-case1` など）に埋まっていた旧 Workflow を Lite 版へ強制上書き。push run で `workflow_call` が呼ばれて失敗する経路を遮断し、今後の force-push でも旧定義が復活しないようにした（commit: `0925f00`, `c793ee9`, `9fafc38`, `508893c`）。
+- それでも default branch が旧版のままなので、`gh run list --workflow workorder-ready.yml --event push` には main 由来の 0 秒 run が残存。main へ Lite 版を取り込めば解消予定。
+
+### Case1: 通常系（2025-11-08）
+- `plan:sync` ラベル再付与で `plan-sync/Validate` を実行。run [19189819381](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19189819381) / [19189833743](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19189833743) が `guard_pass=true / has_diff=true` で完了し、Gate NOTICE `workorder-ready gate pr=685 guard_pass=true has_diff=true labels=plan:sync,wo:ready,manual-accept` を取得。
+- plan-sync 側は `docs-sync/plan` Draft (#635) を更新済み（No-Op なし）。`doc_sync_plan.json` には `ui_spec_manual` / `docs_ci_changed`／`wo12-lite-case1` のトリガーが残り、AUTO 差分を検知できることを再確認。
+- しかし `.github/workflows/workorder-ready.yml`（Lite 版）は **default branch(main)** にまだデプロイされていないため、`pull_request_target(labeled: plan:sync)` が GitHub Actions 側で発火しない。`gh run list --workflow workorder-ready.yml --event pull_request_target --limit 5` は空のまま。
+- 代わりに `event=push` / jobs=0 の run ([19189836181](https://github.com/katsuyatanaka1994/sakuratrade/actions/runs/19189836181) ほか) が発生し、「This workflow is not callable」で即失敗する。原因は **default branch が旧 `workflow_call` 版を保持していること**で、Lite 版は PR ブランチ上にしか存在しない。main へ反映すれば push-run は自然消滅し、`pull_request_target` が起動する見込み。
+
+### Case2: 意図的 Fail（未着手）
+- Case1 で `pull_request_target` が発火していないため、`scripts/workorder_tests.py` による失敗挿入は保留。テストを走らせるトリガーが整い次第、smoke/unit を強制 Fail → 限定ロールバック → `failed guard` 自動解除のシナリオを検証する。
+
+### Blocking Issue
+- `workorder-ready` の base(main) では `pull_request_target` が定義済みだが、ラベル付け (`action=labeled`) 時に run が生成されない。`docs-sync/plan` など自動ブランチに旧 `workflow_call` 版が残るため、push 実行では `workflow is not callable` の 0 秒 failure が継続。Lite 仕様のトリガーが GitHub 側で有効化されるまで Case1/Case2 の WO-12 実行はブロックされる。
