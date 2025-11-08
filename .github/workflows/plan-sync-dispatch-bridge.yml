@@ -11,7 +11,6 @@ on:
 jobs:
   call:
     name: Run plan-sync via branch workflow
-    uses: katsuyatanaka1994/sakuratrade/.github/workflows/plan-sync.yml@main
+    uses: katsuyatanaka1994/sakuratrade/.github/workflows/plan-sync.yml@a9394505052369d4184c7cbabd52c8c81b76ecd4
     with:
       pr: ${{ inputs.pr }}
-    secrets: inherit
