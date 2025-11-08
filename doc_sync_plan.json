@@ -19,6 +19,10 @@
     {
       "id": "wo12-case1-smoke",
       "description": "Temporary WO-12 Case1 auto diff trigger"
+    },
+    {
+      "id": "wo12-lite-case1",
+      "description": "Lite validation smoke/unit run 2025-11-08"
     }
   ]
 }
