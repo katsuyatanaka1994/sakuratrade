@@ -1,28 +1,9 @@
 {
-  "base": "667f567b2d301e239e7d9d971bd2f728d813d3cd",
-  "head": "bdbf6d7f3fed85652241e82178bdfa65ac8b772e",
-  "changed_files": [
-    "docs/agile/ui-specification.md"
-  ],
-  "triggers": [
-    "ui_spec_manual",
-    "docs_ci_changed"
-  ],
-  "ui_sections": [
-    {
-      "title": "Positions Page",
-      "anchor": "positions-page"
-    }
-  ],
+  "base": "56e89514c26ccbb92b1a5e17c40e36929448d404",
+  "head": "55d6dea4e5000a29dfb54bb4ef80a449cf98e81a",
+  "changed_files": [],
+  "triggers": [],
+  "ui_sections": [],
   "api_operations": [],
-  "test_flows": [
-    {
-      "label": "wo12-case1-smoke",
-      "path": "docs/agile/ui-specification.md#wo12-case1-smoke"
-    },
-    {
-      "label": "wo12-lite-case1",
-      "path": "docs/agile/ui-specification.md#wo12-lite-case1"
-    }
-  ]
+  "test_flows": []
 }
